@@ -961,7 +961,9 @@ function GazeLock() {
       break;
     }
     setGazeLock(meshId ?? pointId);
-  }, 1);
+    // Default priority on purpose: any positive priority tells react-three-fiber that this hook
+    // renders the frame itself, which switched off automatic rendering and left the view blank.
+  });
   return null;
 }
 

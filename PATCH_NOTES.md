@@ -163,6 +163,11 @@ Tests: `npm run test:engine` (107 pass) and `rustc --edition 2021 --test src-tau
   and the signing round-trip were checked offline.
 
 ## Refinement pass (ninth pass)
+- The 3D world was never drawn. The gaze raycaster in Viewport.tsx registered `useFrame(..., 1)`; in
+  react-three-fiber any positive priority means "this hook renders the frame itself", so automatic rendering
+  stopped and the canvas stayed blank on every device (the frame loop ran, `gl.render` never did). It now uses
+  the default priority. Checked in a browser: about 25 draw calls a frame, the lab, exhibits and avatar on
+  screen, and W+A turns the body left, W+D right.
 - package-lock.json is back in sync with package.json (@tauri-apps/cli and esbuild were missing), so the
   Android workflow now installs with `npm ci`.
 - The Android build has completed on GitHub (Actions run #5); docs/ANDROID.md no longer says it never ran.
