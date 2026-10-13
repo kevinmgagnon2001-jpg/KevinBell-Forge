@@ -1494,6 +1494,15 @@
     display: none;
   }
 
+  /* The quiet banner only repeats the readout; a busy one (loading, failure) sits below the view buttons. */
+  .manifold-banner {
+    top: 6.2rem;
+  }
+
+  .manifold-banner.is-quiet {
+    display: none;
+  }
+
   /* Smaller arc so it clears the view buttons above and the look pad below. */
   .tex-deck {
     transform: scale(0.78);
