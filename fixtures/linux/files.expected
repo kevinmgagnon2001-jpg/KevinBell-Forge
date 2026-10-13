@@ -1,0 +1,35 @@
+open in.txt: 1
+in.txt size: 135
+last read: 0
+in.txt lines: 4
+in.txt checksum mod 1000003: 208700
+write to read-only fd: -9
+close in.txt: 0
+close again: -9
+create out.txt: 1
+write: 13
+write: 12
+size: 25
+seek to 7: 7
+overwrite: 5
+seek from end -5: 20
+seek current +2: 22
+seek negative: -22
+seek to 0: 0
+read back: 25
+hello, FORGE
+second line
+read at end: 0
+append: 9
+size after append: 34
+read from write-only fd: -9
+truncated size: 0
+open missing: -2
+exclusive create of existing: -17
+access out.txt: 0
+access missing: -2
+read bad fd: -9
+unlink scratch: 0
+open after unlink: -2
+unlink missing: -2
+descriptor reused: 1

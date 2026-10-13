@@ -203,7 +203,11 @@ export const STOP_NAME: Record<number, string> = {
 
 /** Guest memory layout. Address 0..0x1000 is the null page; the WebAssembly backend keeps CPU state there. */
 export const NULL_PAGE = 0x1000;
-export const STATE = { regs: 0, pc: 0x300, flags: 0x308, fuel: 0x320, code: 0x328, fault: 0x330 } as const;
+/**
+ * CPU state in the guest's null page. codeLo/codeHi hold the translated code range that stores are
+ * checked against; the WebAssembly module writes them itself when run() starts.
+ */
+export const STATE = { regs: 0, pc: 0x300, flags: 0x308, fuel: 0x320, code: 0x328, fault: 0x330, codeLo: 0x340, codeHi: 0x348 } as const;
 
 export const M64 = (1n << 64n) - 1n;
 export const mask = (w: number): bigint => (w >= 64 ? M64 : (1n << BigInt(w)) - 1n);

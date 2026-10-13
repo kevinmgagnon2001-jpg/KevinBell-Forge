@@ -133,3 +133,31 @@ test("ordinary glibc programs (static): printf, malloc, qsort, strings, TLS, SSE
     assert.equal(fp.stdout, floatOut, engine);
   }
 });
+
+test("files: raw system calls on x86-64 and AArch64, and glibc stdio, match real hardware, files left behind included", () => {
+  const input = fixture("files-in.txt");
+  const runs = [
+    { file: "files-x86_64.elf", out: "files.expected", code: Number(text("files.exitcode").trim()), tree: { "/in.txt": text("files-in.txt"), "/out.txt": text("files.out.txt") } },
+    { file: "files-aarch64.elf", out: "files.expected", code: Number(text("files.exitcode").trim()), tree: { "/in.txt": text("files-in.txt"), "/out.txt": text("files.out.txt") } },
+    { file: "libc-files-x86_64.elf", out: "libc-files.expected", code: 0, tree: { "/in.txt": text("files-in.txt"), "/report.txt": text("libc-files.report.txt") } },
+  ];
+  for (const run of runs) {
+    for (const engine of ["tiered", "interpreter", "wasm"] as const) {
+      const report = runLinux(fixture(run.file), { engine, files: { "in.txt": input } });
+      assert.equal(report.ok, true, `${run.file} ${engine}: ${report.detail}`);
+      assert.equal(report.stdout, text(run.out), `${run.file} ${engine}`);
+      assert.equal(report.exitCode, run.code);
+      assert.deepEqual(report.unsupportedSyscalls, []);
+      const tree = Object.fromEntries(Object.entries(report.files).map(([k, v]) => [k, new TextDecoder().decode(v)]));
+      assert.deepEqual(tree, run.tree, `${run.file} ${engine}`);
+    }
+  }
+});
+
+test("files: a program sees only its own tree", () => {
+  // With an empty tree, in.txt does not exist even though the program asks for it.
+  const report = runLinux(fixture("files-x86_64.elf"), { files: {} });
+  assert.equal(report.ok, true);
+  assert.match(report.stdout, /^open in\.txt: 0\nin\.txt size: -9\n/);
+  assert.deepEqual(Object.keys(report.files), ["/out.txt"]);
+});

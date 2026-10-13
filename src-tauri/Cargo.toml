@@ -14,6 +14,16 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 serde = { version = "1", features = ["derive"] }
-# Bump to the current major when you first build; the API used here (Config, Engine, Module,
-# Store fuel, Instance, typed funcs) has been stable across recent majors.
-wasmtime = ">=25"
+# First compiled against 49; Cargo.lock pins the exact build. incremental-cache lets the guest
+# runner reuse machine code for functions that did not change between module swaps.
+wasmtime = { version = "49", features = ["incremental-cache"] }
+
+[dev-dependencies]
+# Used by examples/guest_bridge.rs (the native guest test bridge).
+serde_json = "1"
+
+# Optimise dependencies even in dev builds. Unoptimised, wasmtime takes seconds to compile each
+# guest module, so `npm run desktop:dev` and the native guest tests crawl. Forge's own code stays
+# quick to rebuild.
+[profile.dev.package."*"]
+opt-level = 2

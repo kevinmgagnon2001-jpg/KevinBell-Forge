@@ -27,3 +27,19 @@ gcc -static -O2 -no-pie -s libc-float.c -o libc-float-x86_64.elf -lm
 printf 'abc' | ./libc-demo-x86_64.elf > libc-demo.expected 2> libc-demo.stderr
 ./libc-float-x86_64.elf > libc-float.expected
 ls -l libc-*.elf
+
+# Files (work item N7): the same program with raw system calls on both architectures, and glibc stdio.
+# Each runs in a fresh directory holding only in.txt; the files it leaves behind are recorded too.
+gcc -O2 $BASE -no-pie files.c -o files-x86_64.elf
+clang --target=aarch64-linux-gnu -O2 $BASE -fuse-ld=lld files.c -o files-aarch64.elf
+gcc -static -O2 -no-pie -s libc-files.c -o libc-files-x86_64.elf
+run_in_tree() {
+  dir="$(mktemp -d)"; cp files-in.txt "$dir/in.txt"; cp "$1" "$dir/prog"
+  (cd "$dir" && ./prog > stdout; echo $? > exitcode)
+  echo "$dir"
+}
+d="$(run_in_tree files-x86_64.elf)"
+cp "$d/stdout" files.expected; cp "$d/exitcode" files.exitcode; cp "$d/out.txt" files.out.txt; rm -rf "$d"
+d="$(run_in_tree libc-files-x86_64.elf)"
+cp "$d/stdout" libc-files.expected; cp "$d/report.txt" libc-files.report.txt; rm -rf "$d"
+ls -l files-*.elf libc-files-*.elf

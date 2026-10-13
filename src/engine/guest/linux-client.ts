@@ -23,7 +23,7 @@ export async function runLinuxProgram(bytes: Uint8Array, options: LinuxOptions =
       worker.terminate();
       resolve({
         ok: false, arch: null, engine: options.engine ?? "wasm", exitCode: null, stdout: "", stdoutBytes: new Uint8Array(), stderr: "",
-        stop: "timeout", detail: `stopped after ${Math.round(timeoutMs / 1000)} s`, gaps: [], syscalls: {}, unsupportedSyscalls: [], instructions: 0, relifts: 0,
+        stop: "timeout", detail: `stopped after ${Math.round(timeoutMs / 1000)} s`, gaps: [], syscalls: {}, unsupportedSyscalls: [], instructions: 0, relifts: 0, files: {},
       });
     }, timeoutMs);
     worker.onmessage = (event: MessageEvent<LinuxReport>) => {

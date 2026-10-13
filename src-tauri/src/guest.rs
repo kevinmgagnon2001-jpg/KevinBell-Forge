@@ -19,6 +19,9 @@ pub mod layout {
     pub const FUEL: usize = 0x320;
     pub const CODE: usize = 0x328;
     pub const FAULT: usize = 0x330;
+    /// Translated code range that stores are checked against; the module writes it when run() starts.
+    pub const CODE_LO: usize = 0x340;
+    pub const CODE_HI: usize = 0x348;
     pub const NULL_PAGE: u64 = 0x1000;
     pub const NREG: usize = 72;
     /// Thread pointer (x86 fs base, ARM tpidr_el0).
@@ -92,22 +95,23 @@ impl Arch {
     pub fn syscall_name(self, nr: u64) -> String {
         let name = match self {
             Arch::X86_64 => match nr {
-                0 => "read", 1 => "write", 2 => "open", 3 => "close", 5 => "fstat", 9 => "mmap", 10 => "mprotect",
+                0 => "read", 1 => "write", 2 => "open", 3 => "close", 5 => "fstat", 8 => "lseek", 9 => "mmap", 10 => "mprotect",
                 11 => "munmap", 12 => "brk", 13 => "rt_sigaction", 14 => "rt_sigprocmask", 16 => "ioctl", 20 => "writev",
-                21 => "access", 28 => "madvise", 39 => "getpid", 60 => "exit", 63 => "uname", 89 => "readlink",
+                21 => "access", 28 => "madvise", 39 => "getpid", 60 => "exit", 63 => "uname", 87 => "unlink", 89 => "readlink",
                 102 => "getuid", 104 => "getgid", 107 => "geteuid", 108 => "getegid", 158 => "arch_prctl", 186 => "gettid",
                 201 => "time", 218 => "set_tid_address", 228 => "clock_gettime", 231 => "exit_group", 257 => "openat",
-                262 => "newfstatat", 267 => "readlinkat", 269 => "faccessat", 273 => "set_robust_list", 302 => "prlimit64",
-                318 => "getrandom",
+                262 => "newfstatat", 263 => "unlinkat", 267 => "readlinkat", 269 => "faccessat", 273 => "set_robust_list",
+                302 => "prlimit64", 318 => "getrandom", 334 => "rseq",
                 _ => "",
             },
             Arch::Aarch64 => match nr {
-                29 => "ioctl", 48 => "faccessat", 56 => "openat", 57 => "close", 63 => "read", 64 => "write", 66 => "writev",
+                29 => "ioctl", 35 => "unlinkat", 48 => "faccessat", 56 => "openat", 57 => "close", 62 => "lseek", 63 => "read",
+                64 => "write", 66 => "writev",
                 78 => "readlinkat", 79 => "newfstatat", 80 => "fstat", 93 => "exit", 94 => "exit_group", 96 => "set_tid_address",
                 99 => "set_robust_list", 113 => "clock_gettime", 134 => "rt_sigaction", 135 => "rt_sigprocmask", 160 => "uname",
                 172 => "getpid", 174 => "getuid", 175 => "geteuid", 176 => "getgid", 177 => "getegid", 178 => "gettid",
                 214 => "brk", 215 => "munmap", 222 => "mmap", 226 => "mprotect", 233 => "madvise", 261 => "prlimit64",
-                278 => "getrandom",
+                278 => "getrandom", 293 => "rseq",
                 _ => "",
             },
         };
@@ -158,12 +162,222 @@ const ENOENT: i64 = -2;
 const EBADF: i64 = -9;
 const ENOMEM: i64 = -12;
 const EFAULT: i64 = -14;
+const EEXIST: i64 = -17;
+const EISDIR: i64 = -21;
 const EINVAL: i64 = -22;
+const EMFILE: i64 = -24;
 const ENOTTY: i64 = -25;
+const ENOSPC: i64 = -28;
+const ENAMETOOLONG: i64 = -36;
 const ENOSYS: i64 = -38;
 
 fn page_up(v: u64) -> u64 {
     v.wrapping_add(0xfff) & !0xfff
+}
+
+// ---------- files (work item N7) ----------
+
+/// A guest program's files: a private in-memory tree the host hands over, plus the open descriptors.
+/// Only paths in the tree exist. Same rules as GuestFiles in src/engine/guest/files.ts; keep in step.
+pub mod files {
+    use super::{EBADF, EEXIST, EINVAL, EISDIR, EMFILE, ENOENT, ENOSPC};
+    use std::collections::{BTreeMap, HashMap};
+    use std::sync::{Arc, Mutex};
+
+    pub const O_ACCMODE: u64 = 3;
+    pub const O_WRONLY: u64 = 1;
+    pub const O_RDWR: u64 = 2;
+    pub const O_CREAT: u64 = 0x40;
+    pub const O_EXCL: u64 = 0x80;
+    pub const O_TRUNC: u64 = 0x200;
+    pub const O_APPEND: u64 = 0x400;
+    pub const MAX_TREE_BYTES: usize = 64 * 1024 * 1024;
+    pub const MAX_OPEN: usize = 256;
+    pub const MAX_FILES: usize = 4096;
+
+    /// "/a/./b/../c" and "a//c" both become "/a/c". ".." never climbs above the root.
+    pub fn normalize(path: &str) -> String {
+        let mut parts: Vec<&str> = Vec::new();
+        for part in path.split('/') {
+            match part {
+                "" | "." => {}
+                ".." => {
+                    parts.pop();
+                }
+                p => parts.push(p),
+            }
+        }
+        format!("/{}", parts.join("/"))
+    }
+
+    type Node = Arc<Mutex<Vec<u8>>>;
+
+    struct Open {
+        node: Node,
+        pos: usize,
+        read: bool,
+        write: bool,
+        append: bool,
+    }
+
+    pub struct Stat {
+        pub dir: bool,
+        pub size: usize,
+    }
+
+    #[derive(Default)]
+    pub struct GuestFiles {
+        tree: BTreeMap<String, Node>,
+        fds: HashMap<u64, Open>,
+        total: usize,
+    }
+
+    impl GuestFiles {
+        pub fn new(files: BTreeMap<String, Vec<u8>>) -> GuestFiles {
+            let mut out = GuestFiles::default();
+            for (path, data) in files {
+                let key = normalize(&path);
+                if key == "/" {
+                    continue;
+                }
+                out.total += data.len();
+                if let Some(old) = out.tree.insert(key, Arc::new(Mutex::new(data))) {
+                    out.total -= old.lock().map(|d| d.len()).unwrap_or(0);
+                }
+            }
+            out
+        }
+
+        fn is_dir(&self, path: &str) -> bool {
+            if path == "/" {
+                return true;
+            }
+            let prefix = format!("{path}/");
+            self.tree.keys().any(|k| k.starts_with(&prefix))
+        }
+
+        pub fn open(&mut self, raw: &str, flags: u64) -> i64 {
+            let path = normalize(raw);
+            if self.is_dir(&path) {
+                return EISDIR;
+            }
+            let acc = flags & O_ACCMODE;
+            if acc == O_ACCMODE {
+                return EINVAL;
+            }
+            let node = match self.tree.get(&path) {
+                Some(n) => {
+                    if flags & O_CREAT != 0 && flags & O_EXCL != 0 {
+                        return EEXIST;
+                    }
+                    n.clone()
+                }
+                None => {
+                    if flags & O_CREAT == 0 {
+                        return ENOENT;
+                    }
+                    if self.tree.len() >= MAX_FILES {
+                        return ENOSPC;
+                    }
+                    let n: Node = Arc::new(Mutex::new(Vec::new()));
+                    self.tree.insert(path, n.clone());
+                    n
+                }
+            };
+            let write = acc == O_WRONLY || acc == O_RDWR;
+            let Some(fd) = (3..3 + MAX_OPEN as u64).find(|fd| !self.fds.contains_key(fd)) else { return EMFILE };
+            if flags & O_TRUNC != 0 && write {
+                if let Ok(mut d) = node.lock() {
+                    self.total -= d.len();
+                    d.clear();
+                }
+            }
+            self.fds.insert(fd, Open { node, pos: 0, read: acc != O_WRONLY, write, append: flags & O_APPEND != 0 });
+            fd as i64
+        }
+
+        pub fn close(&mut self, fd: u64) -> i64 {
+            if self.fds.remove(&fd).is_some() { 0 } else { EBADF }
+        }
+
+        pub fn read(&mut self, fd: u64, max: usize) -> Result<Vec<u8>, i64> {
+            let f = self.fds.get_mut(&fd).filter(|f| f.read).ok_or(EBADF)?;
+            let d = f.node.lock().map_err(|_| EBADF)?;
+            let n = max.min(d.len().saturating_sub(f.pos));
+            let out = d[f.pos.min(d.len())..f.pos.min(d.len()) + n].to_vec();
+            f.pos += n;
+            Ok(out)
+        }
+
+        pub fn write(&mut self, fd: u64, data: &[u8]) -> i64 {
+            let Some(f) = self.fds.get_mut(&fd).filter(|f| f.write) else { return EBADF };
+            let Ok(mut d) = f.node.lock() else { return EBADF };
+            if f.append {
+                f.pos = d.len();
+            }
+            let end = f.pos + data.len();
+            let added = end.saturating_sub(d.len());
+            if self.total + added > MAX_TREE_BYTES {
+                return ENOSPC;
+            }
+            if end > d.len() {
+                d.resize(end, 0);
+            }
+            d[f.pos..end].copy_from_slice(data);
+            self.total += added;
+            f.pos = end;
+            data.len() as i64
+        }
+
+        pub fn lseek(&mut self, fd: u64, offset: i64, whence: u64) -> i64 {
+            let Some(f) = self.fds.get_mut(&fd) else { return EBADF };
+            let size = f.node.lock().map(|d| d.len()).unwrap_or(0) as i64;
+            let base = match whence {
+                0 => 0,
+                1 => f.pos as i64,
+                2 => size,
+                _ => return EINVAL,
+            };
+            let at = base.saturating_add(offset);
+            if at < 0 || at > MAX_TREE_BYTES as i64 {
+                return EINVAL;
+            }
+            f.pos = at as usize;
+            at
+        }
+
+        pub fn stat_fd(&self, fd: u64) -> Result<Stat, i64> {
+            let f = self.fds.get(&fd).ok_or(EBADF)?;
+            Ok(Stat { dir: false, size: f.node.lock().map(|d| d.len()).unwrap_or(0) })
+        }
+
+        pub fn stat_path(&self, raw: &str) -> Result<Stat, i64> {
+            let path = normalize(raw);
+            if let Some(n) = self.tree.get(&path) {
+                return Ok(Stat { dir: false, size: n.lock().map(|d| d.len()).unwrap_or(0) });
+            }
+            if self.is_dir(&path) { Ok(Stat { dir: true, size: 4096 }) } else { Err(ENOENT) }
+        }
+
+        pub fn unlink(&mut self, raw: &str) -> i64 {
+            let path = normalize(raw);
+            match self.tree.remove(&path) {
+                // Descriptors already open keep the contents, as on Linux.
+                Some(n) => {
+                    self.total -= n.lock().map(|d| d.len()).unwrap_or(0);
+                    0
+                }
+                None => {
+                    if self.is_dir(&path) { EISDIR } else { ENOENT }
+                }
+            }
+        }
+
+        /// The tree as it stands, path -> contents.
+        pub fn snapshot(&self) -> BTreeMap<String, Vec<u8>> {
+            self.tree.iter().map(|(k, n)| (k.clone(), n.lock().map(|d| d.clone()).unwrap_or_default())).collect()
+        }
+    }
 }
 
 // ---------- the shim ----------
@@ -181,6 +395,7 @@ pub struct Shim {
     brk: u64,
     mmap_top: u64,
     seed: u64,
+    pub files: files::GuestFiles,
 }
 
 pub enum Flow {
@@ -189,7 +404,7 @@ pub enum Flow {
 }
 
 impl Shim {
-    pub fn new(arch: Arch, brk_base: u64, mmap_top: u64, stdin: Vec<u8>) -> Shim {
+    pub fn new(arch: Arch, brk_base: u64, mmap_top: u64, stdin: Vec<u8>, tree: BTreeMap<String, Vec<u8>>) -> Shim {
         let seed = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos() as u64)
@@ -207,6 +422,7 @@ impl Shim {
             brk: brk_base,
             mmap_top,
             seed,
+            files: files::GuestFiles::new(tree),
         }
     }
 
@@ -214,12 +430,68 @@ impl Shim {
         let sink = match fd {
             1 => &mut self.stdout,
             2 => &mut self.stderr,
+            3..=0xffff => return self.files.write(fd, data),
             _ => return EBADF,
         };
         if sink.len() < 64 * 1024 * 1024 {
             sink.extend_from_slice(data);
         }
         data.len() as i64
+    }
+
+    /// A NUL-terminated path from guest memory.
+    fn path(mem: &[u8], addr: u64) -> Result<String, i64> {
+        let mut bytes = Vec::new();
+        for i in 0..4096u64 {
+            let r = range(mem, addr.wrapping_add(i), 1).ok_or(EFAULT)?;
+            let b = mem[r.start];
+            if b == 0 {
+                return Ok(String::from_utf8_lossy(&bytes).into_owned());
+            }
+            bytes.push(b);
+        }
+        Err(ENAMETOOLONG)
+    }
+
+    /// openat-style calls take a directory descriptor; only the working directory ("/") exists.
+    fn at_path(mem: &[u8], dirfd: u64, addr: u64) -> Result<String, i64> {
+        let p = Self::path(mem, addr)?;
+        if p.is_empty() {
+            return Err(ENOENT);
+        }
+        if !p.starts_with('/') && dirfd as i32 != -100 {
+            return Err(EBADF);
+        }
+        Ok(p)
+    }
+
+    /// struct stat for this architecture (x86-64, or the generic layout AArch64 uses).
+    fn stat(&self, mem: &mut [u8], buf: u64, st: Result<files::Stat, i64>) -> i64 {
+        let st = match st {
+            Ok(s) => s,
+            Err(e) => return e,
+        };
+        let mut out = vec![0u8; if self.arch == Arch::X86_64 { 144 } else { 128 }];
+        let mode: u32 = if st.dir { 0o40755 } else { 0o100644 };
+        out[8..16].copy_from_slice(&(st.size as u64 + 2).to_le_bytes()); // st_ino
+        if self.arch == Arch::X86_64 {
+            out[16..24].copy_from_slice(&1u64.to_le_bytes()); // st_nlink
+            out[24..28].copy_from_slice(&mode.to_le_bytes());
+            out[56..64].copy_from_slice(&4096i64.to_le_bytes()); // st_blksize
+        } else {
+            out[16..20].copy_from_slice(&mode.to_le_bytes());
+            out[20..24].copy_from_slice(&1u32.to_le_bytes()); // st_nlink
+            out[56..60].copy_from_slice(&4096i32.to_le_bytes()); // st_blksize
+        }
+        out[48..56].copy_from_slice(&(st.size as i64).to_le_bytes()); // st_size: same offset on both
+        out[64..72].copy_from_slice(&(st.size.div_ceil(512) as i64).to_le_bytes()); // st_blocks
+        match range(mem, buf, out.len() as u64) {
+            Some(r) => {
+                mem[r].copy_from_slice(&out);
+                0
+            }
+            None => EFAULT,
+        }
     }
 
     /// Answer the system call the guest is making.
@@ -256,6 +528,17 @@ impl Shim {
                 }
                 ret
             }
+            "read" if (3..=0xffff).contains(&a[0]) => match self.files.read(a[0], a[2].min(0x7fff_ffff) as usize) {
+                Err(e) => e,
+                Ok(data) if data.is_empty() => 0,
+                Ok(data) => match range(mem, a[1], data.len() as u64) {
+                    Some(r) => {
+                        mem[r].copy_from_slice(&data);
+                        data.len() as i64
+                    }
+                    None => EFAULT,
+                },
+            },
             "read" => {
                 if a[0] != 0 {
                     EBADF
@@ -313,7 +596,50 @@ impl Shim {
                     EINVAL
                 }
             }
-            "munmap" | "mprotect" | "madvise" | "rt_sigaction" | "rt_sigprocmask" | "close" | "set_robust_list" => 0,
+            "munmap" | "mprotect" | "madvise" | "rt_sigaction" | "rt_sigprocmask" | "set_robust_list" => 0,
+            "close" => {
+                if a[0] < 3 { 0 } else { self.files.close(a[0]) }
+            }
+            "openat" | "open" => {
+                let (dirfd, at, flags) = if name == "open" { (-100i64 as u64, a[0], a[1]) } else { (a[0], a[1], a[2]) };
+                match Self::at_path(mem, dirfd, at) {
+                    Ok(p) => self.files.open(&p, flags & 0xffff_ffff),
+                    Err(e) => e,
+                }
+            }
+            "lseek" => self.files.lseek(a[0], a[1] as i64, a[2]),
+            // Standard streams have no file behind them here; libc then falls back to its defaults.
+            "fstat" => {
+                if a[0] < 3 { ENOENT } else { let st = self.files.stat_fd(a[0]); self.stat(mem, a[1], st) }
+            }
+            "newfstatat" => {
+                // fstat(fd) arrives as newfstatat(fd, "", buf, AT_EMPTY_PATH).
+                if a[3] & 0x1000 != 0 && Self::path(mem, a[1]).map(|p| p.is_empty()).unwrap_or(false) {
+                    if a[0] < 3 { ENOENT } else { let st = self.files.stat_fd(a[0]); self.stat(mem, a[2], st) }
+                } else {
+                    match Self::at_path(mem, a[0], a[1]) {
+                        Ok(p) => {
+                            let st = self.files.stat_path(&p);
+                            self.stat(mem, a[2], st)
+                        }
+                        Err(e) => e,
+                    }
+                }
+            }
+            "access" | "faccessat" => {
+                let p = if name == "access" { Self::path(mem, a[0]) } else { Self::at_path(mem, a[0], a[1]) };
+                match p.and_then(|p| self.files.stat_path(&p)) {
+                    Ok(_) => 0,
+                    Err(e) => e,
+                }
+            }
+            "unlink" | "unlinkat" => {
+                let p = if name == "unlink" { Self::path(mem, a[0]) } else { Self::at_path(mem, a[0], a[1]) };
+                match p {
+                    Ok(p) => self.files.unlink(&p),
+                    Err(e) => e,
+                }
+            }
             "ioctl" => ENOTTY,
             "getpid" | "gettid" | "getuid" | "geteuid" | "getgid" | "getegid" | "set_tid_address" => 1000,
             "uname" => {
@@ -352,8 +678,8 @@ impl Shim {
                     None => EFAULT,
                 }
             }
-            "readlinkat" | "readlink" | "openat" | "open" | "access" | "faccessat" | "newfstatat" | "fstat" => ENOENT,
-            "prlimit64" => ENOSYS,
+            "readlinkat" | "readlink" => ENOENT, // no symbolic links in the tree
+            "prlimit64" | "rseq" => ENOSYS, // known, deliberately not provided: libc falls back
             other => {
                 self.unsupported.insert(other.to_string());
                 ENOSYS
@@ -459,9 +785,10 @@ mod tests {
 
     #[test]
     fn layout_matches_the_page() {
-        // ir.ts: STATE = { regs: 0, pc: 0x300, flags: 0x308, fuel: 0x320, code: 0x328, fault: 0x330 }, NREG = 72
+        // ir.ts: STATE = { regs: 0, pc: 0x300, flags: 0x308, fuel: 0x320, code: 0x328, fault: 0x330, codeLo: 0x340, codeHi: 0x348 }, NREG = 72
         assert!(layout::REGS + layout::NREG * 8 <= layout::PC);
         assert_eq!((layout::PC, layout::FLAGS, layout::FUEL, layout::CODE, layout::FAULT), (0x300, 0x308, 0x320, 0x328, 0x330));
+        assert_eq!((layout::CODE_LO, layout::CODE_HI), (0x340, 0x348));
     }
 
     #[test]
@@ -470,7 +797,7 @@ mod tests {
             let mut mem = vec![0u8; MEM];
             mem[0x2000..0x2005].copy_from_slice(b"hello");
             let mut vm = Script { mem, steps: vec![Box::new(syscall(arch, write, &[1, 0x2000, 5])), Box::new(syscall(arch, exit, &[7]))], at: 0 };
-            let mut shim = Shim::new(arch, 0x10000, 0x80000, vec![]);
+            let mut shim = Shim::new(arch, 0x10000, 0x80000, vec![], BTreeMap::new());
             let mut budget = 1_000;
             assert_eq!(drive(&mut vm, &mut shim, &mut budget, 1_000, 10), Event::Exit(7));
             assert_eq!(shim.stdout, b"hello");
@@ -481,7 +808,7 @@ mod tests {
     #[test]
     fn the_null_page_and_out_of_range_buffers_are_refused() {
         let mut mem = vec![0u8; MEM];
-        let mut shim = Shim::new(Arch::X86_64, 0x10000, 0x80000, vec![]);
+        let mut shim = Shim::new(Arch::X86_64, 0x10000, 0x80000, vec![], BTreeMap::new());
         set_reg(&mut mem, 0, 1);
         set_reg(&mut mem, 7, 1);
         set_reg(&mut mem, 6, 0x10); // inside the null page, where CPU state lives
@@ -498,7 +825,7 @@ mod tests {
     #[test]
     fn stdin_brk_mmap_and_tls() {
         let mut mem = vec![0u8; MEM];
-        let mut shim = Shim::new(Arch::X86_64, 0x20000, 0x80000, b"abc".to_vec());
+        let mut shim = Shim::new(Arch::X86_64, 0x20000, 0x80000, b"abc".to_vec(), BTreeMap::new());
         let call = |shim: &mut Shim, mem: &mut Vec<u8>, nr: u64, args: &[u64]| {
             set_reg(mem, 0, nr);
             for (i, v) in args.iter().enumerate() {
@@ -538,7 +865,7 @@ mod tests {
             ],
             at: 0,
         };
-        let mut shim = Shim::new(Arch::Aarch64, 0x10000, 0x80000, vec![]);
+        let mut shim = Shim::new(Arch::Aarch64, 0x10000, 0x80000, vec![], BTreeMap::new());
         let mut budget = 100;
         assert_eq!(drive(&mut vm, &mut shim, &mut budget, 100, 10), Event::NeedsCode(0x401000));
         assert_eq!(drive(&mut vm, &mut shim, &mut budget, 100, 10), Event::Stopped { code: stop::FAULT, pc: 0x401004, fault: 0x8 });
@@ -551,11 +878,59 @@ mod tests {
             stop::FUEL
         };
         let mut vm = Script { mem: vec![0u8; MEM], steps: vec![Box::new(burn), Box::new(burn), Box::new(burn)], at: 0 };
-        let mut shim = Shim::new(Arch::X86_64, 0x10000, 0x80000, vec![]);
+        let mut shim = Shim::new(Arch::X86_64, 0x10000, 0x80000, vec![], BTreeMap::new());
         let mut budget = 250;
         assert_eq!(drive(&mut vm, &mut shim, &mut budget, 100, 10), Event::Yield);
         assert_eq!(budget, 150);
         assert_eq!(drive(&mut vm, &mut shim, &mut budget, 100, 10), Event::Yield);
         assert_eq!(drive(&mut vm, &mut shim, &mut budget, 100, 10), Event::Stopped { code: stop::FUEL, pc: 0, fault: 0 });
+    }
+    #[test]
+    fn files_open_read_write_seek_stat_unlink_on_both_architectures() {
+        // Same calls as fixtures/linux/files.c, with the numbers each architecture uses.
+        for (arch, openat, read, write, close, lseek, fstat, unlinkat) in
+            [(Arch::X86_64, 257, 0, 1, 3, 8, 5, 263), (Arch::Aarch64, 56, 63, 64, 57, 62, 80, 35)]
+        {
+            let mut tree = BTreeMap::new();
+            tree.insert("in.txt".to_string(), b"abcdef".to_vec());
+            let mut shim = Shim::new(arch, 0x40000, 0x80000, vec![], tree);
+            let mut mem = vec![0u8; MEM];
+            mem[0x2000..0x2007].copy_from_slice(b"in.txt\0");
+            mem[0x2100..0x2108].copy_from_slice(b"out.txt\0");
+            mem[0x2200..0x2203].copy_from_slice(b"xyz");
+            mem[0x2300..0x2306].copy_from_slice(b"../..\0");
+            let call = |shim: &mut Shim, mem: &mut Vec<u8>, nr: u64, args: &[u64]| {
+                set_reg(mem, arch.nr_reg(), nr);
+                for (i, v) in args.iter().enumerate() {
+                    set_reg(mem, arch.arg_regs()[i], *v);
+                }
+                shim.handle(mem);
+                reg(mem, arch.ret_reg()) as i64
+            };
+            let cwd = -100i64 as u64;
+            let fd = call(&mut shim, &mut mem, openat, &[cwd, 0x2000, 0, 0]) as u64;
+            assert_eq!(fd, 3);
+            assert_eq!(call(&mut shim, &mut mem, read, &[fd, 0x3000, 4]), 4);
+            assert_eq!(&mem[0x3000..0x3004], b"abcd");
+            assert_eq!(call(&mut shim, &mut mem, write, &[fd, 0x2200, 3]), EBADF, "read-only");
+            assert_eq!(call(&mut shim, &mut mem, fstat, &[fd, 0x4000]), 0);
+            assert_eq!(rd64(&mem, 0x4000 + 48), 6, "st_size at byte 48 on both");
+            let out = call(&mut shim, &mut mem, openat, &[cwd, 0x2100, (files::O_RDWR | files::O_CREAT) as u64, 0o644]) as u64;
+            assert_eq!(out, 4);
+            assert_eq!(call(&mut shim, &mut mem, lseek, &[out, 4, 0]), 4);
+            assert_eq!(call(&mut shim, &mut mem, write, &[out, 0x2200, 3]), 3);
+            assert_eq!(call(&mut shim, &mut mem, lseek, &[out, (-100i64) as u64, 1]), EINVAL);
+            assert_eq!(call(&mut shim, &mut mem, openat, &[cwd, 0x2100, (files::O_WRONLY | files::O_CREAT | files::O_EXCL) as u64, 0]), EEXIST);
+            assert_eq!(call(&mut shim, &mut mem, openat, &[cwd, 0x2300, 0, 0]), EISDIR, ".. stays at the root");
+            assert_eq!(call(&mut shim, &mut mem, openat, &[7, 0x2000, 0, 0]), EBADF, "no other directories to be relative to");
+            assert_eq!(call(&mut shim, &mut mem, close, &[fd]), 0);
+            assert_eq!(call(&mut shim, &mut mem, close, &[fd]), EBADF);
+            assert_eq!(call(&mut shim, &mut mem, unlinkat, &[cwd, 0x2000, 0]), 0);
+            assert_eq!(call(&mut shim, &mut mem, openat, &[cwd, 0x2000, 0, 0]), ENOENT);
+            let snap = shim.files.snapshot();
+            assert_eq!(snap.keys().collect::<Vec<_>>(), vec!["/out.txt"]);
+            assert_eq!(snap["/out.txt"], b"\0\0\0\0xyz", "a hole before the write reads as zeros");
+            assert!(shim.unsupported.is_empty());
+        }
     }
 }

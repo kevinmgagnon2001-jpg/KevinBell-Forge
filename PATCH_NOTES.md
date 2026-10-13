@@ -181,3 +181,45 @@ Tests: `npm run test:engine` (107 pass) and `rustc --edition 2021 --test src-tau
 - Selection and gaze outlines draw the box's 12 edges instead of a wireframe, so flat panels (the terminal
   screen) no longer show a diagonal seam. The manifold banner sits below the HUD readout instead of over it.
 - Desktop: the controls hint moved to the left, above the move keys, so it no longer covers the texture arc.
+
+## Desktop host compiled, files for guests (tenth pass)
+- The desktop host (src-tauri) compiled for the first time on a desktop target: Tauri 2.12 and wasmtime
+  49.0.2, no warnings. wasmtime is pinned to 49 and src-tauri/Cargo.lock is committed. Dependencies are
+  optimised in dev builds (`[profile.dev.package."*"]`), since unoptimised wasmtime made `desktop:dev` crawl.
+- N1 acceptance: scripts/native-guest.test.ts (`npm run test:native`) runs the page's own protocol code
+  (runLinuxHosted) against the real Rust guest runner and real wasmtime, through a small stdin/stdout
+  bridge (src-tauri/examples/guest_bridge.rs). hello, all 8 workload builds (gcc and clang, x86-64 and
+  AArch64), the glibc fixtures and the new file fixtures print exactly what the CPU prints.
+- Native compile speed. wasmtime compiles ahead of time, and Cranelift slowed sharply on the 16 KiB-per-function
+  modules (a static glibc program: 34 functions up to 400 KB, about 28 s per compile, re-done on every swap).
+  Now: the desktop path lowers 1 KiB of guest code per function (about 6 s for the first compile), and the
+  guest engine keeps an incremental compilation cache. Chunk functions are byte-identical when their code did
+  not change (chunks aligned to absolute addresses; the store-into-code range moved from constants in every
+  function to the CPU-state page at codeLo/codeHi), so a swap recompiles only what changed: about 1.5 s
+  instead of 6.5 s. The browser keeps 16 KiB functions (V8 compiles lazily).
+- N7, files for guests: a capability-scoped, in-memory file tree per program (LinuxOptions.files; the tree as
+  the program left it comes back as report.files). open/openat, close, read/write on files, lseek,
+  fstat/newfstatat (both struct stat layouts), access/faccessat, unlink/unlinkat. Relative paths resolve
+  against "/", ".." stops at the root, nothing outside the tree can be named. Limits: 64 MB, 4096 files,
+  256 descriptors. TypeScript (src/engine/guest/files.ts) and Rust (guest.rs, mod files) implement the same
+  rules; the desktop host takes the tree in guest_start and returns it when the program finishes.
+  - Fixtures checked against the real CPU, files left behind included: fixtures/linux/files.c (raw system
+    calls, x86-64 and AArch64) and libc-files.c (glibc stdio: fopen, fgets, fprintf, fseek, ftell, fscanf,
+    remove). Rebuild with fixtures/linux/build.sh.
+  - Standard streams are unchanged (fstat on 0-2 still answers ENOENT, so libc buffers as before).
+  - The Rust table now knows rseq (ENOSYS, as the page does) instead of listing it as unsupported.
+- The desktop window opens (x86-64 Linux, on a virtual display) and shows the world. In it, the local model
+  failed at once with "No supported storage backend found": wllama keeps weights in the Origin Private File
+  System, which the desktop WebView does not offer. src/engine/model-cache.ts keeps wllama's storage where it
+  exists and otherwise holds the weights in memory for the session (they download again next launch).
+- CI: .github/workflows/checks.yml runs lint, typecheck, engine tests and the web build, plus the desktop
+  host's cargo tests and the native guest tests, on every push.
+- Tests: 113 engine tests, 9 Rust tests, 4 native guest tests.
+
+## Still not done
+- The window was opened on x86-64 Linux only (not ARM, not macOS/Windows), and no installer has been built yet (work item 3).
+- Model weights in the desktop app live in memory only; a Tauri-side file store would keep them across launches.
+- Tauri's IPC sends modules as JSON number arrays (about 18 MB per swap for a glibc program); a binary channel
+  would cut that.
+- Directories cannot be listed (getdents) and files cannot be mapped (file-backed mmap); dup, pipes and
+  rename are not there yet.

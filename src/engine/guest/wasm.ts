@@ -122,17 +122,26 @@ const maskOf = (w: number): bigint => (w >= 64 ? -1n : (1n << BigInt(w)) - 1n);
 
 export type WasmBuild = { bytes: Uint8Array; lo: bigint; count: number };
 
-/** Address space per function. Each function holds the instructions of one aligned chunk, so no single function is huge. */
-const FN_BITS = 14n;
+/**
+ * Guest address space per WebAssembly function (log2 bytes). Each function holds the instructions of
+ * one aligned chunk, so no single function is huge. V8 compiles lazily and copes with large functions;
+ * optimizing ahead-of-time compilers (wasmtime's Cranelift) slow down sharply on them, so the desktop
+ * host asks for smaller ones.
+ */
+export const FN_BITS_DEFAULT = 14;
 
-export function lowerProgram(program: Program, memBytes: number): WasmBuild {
+export function lowerProgram(program: Program, memBytes: number, options: { fnBits?: number } = {}): WasmBuild {
+  const FN_BITS = BigInt(options.fnBits ?? FN_BITS_DEFAULT);
   if (memBytes % 65536 !== 0) throw new Error("guest memory must be a multiple of 64 KiB");
   const all = [...program.insns.values()].sort((a, b) => (a.pc < b.pc ? -1 : a.pc > b.pc ? 1 : 0));
   if (!all.length) throw new Error("nothing to lower");
-  const lo = all[0].pc;
+  const codeLo = all[0].pc;
   const hi = all[all.length - 1].pc + BigInt(all[all.length - 1].len);
   const arm = program.arch === "aarch64";
-  const textRanges: [bigint, bigint][] = [[lo, hi]];
+  // Chunks are aligned to absolute addresses, and nothing about the program as a whole is baked into
+  // a chunk's function: when more code is lifted, unchanged chunks lower to identical bytes, so a
+  // compiler with a per-function cache (the desktop host's wasmtime) only compiles what changed.
+  const lo = codeLo & ~((1n << FN_BITS) - 1n);
   const spanBytes = hi - lo;
   const chunks = Number((spanBytes + (1n << FN_BITS) - 1n) >> FN_BITS);
   if (chunks > 65536) throw new Error("program is too large for the WebAssembly backend; use the interpreter");
@@ -149,6 +158,9 @@ export function lowerProgram(program: Program, memBytes: number): WasmBuild {
 
   // ---- top-level run(): pick the chunk function for pc, call it, follow jumps between chunks ----
   const t = new Emitter();
+  // The code range stores are checked against (checkAccess) lives in the state page.
+  t.i32(0); t.i64(codeLo); t.emit(0x37, 3, ...uleb(STATE.codeLo));
+  t.i32(0); t.i64(hi); t.emit(0x37, 3, ...uleb(STATE.codeHi));
   t.emit(0x03, 0x40);
   const chunkOfPc = () => {
     t.i32(0); t.emit(0x29, 3, ...uleb(STATE.pc)); t.i64(lo); t.emit(0x7d); t.tee(0);
@@ -170,7 +182,7 @@ export function lowerProgram(program: Program, memBytes: number): WasmBuild {
   const topBody = [2, 1, I64, 2, I32, ...t.code];
   const stubBody = [0, 0x41, Stop.unmapped, 0x0b];
 
-  const chunkBodies = chunkIds.map((c) => chunkBody(groups.get(c)!, arm, memBytes, textRanges));
+  const chunkBodies = chunkIds.map((c) => chunkBody(groups.get(c)!, arm, memBytes));
   const bodies = [topBody, mulhBody(false), mulhBody(true), stubBody, udiv128Body(), ...chunkBodies];
   const pages = memBytes / 65536;
   const name = (str: string) => [...uleb(str.length), ...[...str].map((ch) => ch.charCodeAt(0))];
@@ -200,7 +212,7 @@ export function lowerProgram(program: Program, memBytes: number): WasmBuild {
 }
 
 /** One function: load CPU state, dispatch over this chunk's instructions, save state, return a stop code. */
-function chunkBody(insns: Insn[], arm: boolean, memBytes: number, textRanges: [bigint, bigint][]): number[] {
+function chunkBody(insns: Insn[], arm: boolean, memBytes: number): number[] {
   const lo = insns[0].pc;
   const hi = insns[insns.length - 1].pc + BigInt(insns[insns.length - 1].len);
   const span = Number(hi - lo) >> (arm ? 2 : 0);
@@ -271,7 +283,7 @@ function chunkBody(insns: Insn[], arm: boolean, memBytes: number, textRanges: [b
   for (let i = 0; i < N; i += 1) {
     e.end(); // end of b{i}: instruction i starts here
     const insn = insns[i];
-    lowerInsn(e, insn, memBytes, textRanges);
+    lowerInsn(e, insn, memBytes);
     if (insn.fall) {
       const following = insns[i + 1];
       if (!following || following.pc !== insn.next) {
@@ -435,7 +447,7 @@ function ea(e: Emitter, x: Ea) {
   e.set(TEA);
 }
 
-function checkAccess(e: Emitter, size: number, memBytes: number, pc: bigint, store: boolean, text: [bigint, bigint][]) {
+function checkAccess(e: Emitter, size: number, memBytes: number, pc: bigint, store: boolean) {
   e.get(TEA); e.i64(BigInt(NULL_PAGE)); e.emit(0x54); // lt_u
   e.get(TEA); e.i64(BigInt(memBytes - size)); e.emit(0x56); // gt_u
   e.emit(0x72);
@@ -444,16 +456,14 @@ function checkAccess(e: Emitter, size: number, memBytes: number, pc: bigint, sto
   exitWith(e, Stop.fault, pc);
   e.end();
   if (store) {
-    for (const [lo, hi] of text) {
-      // overlap: tea < hi && tea + size > lo
-      e.get(TEA); e.i64(hi); e.emit(0x54);
-      e.get(TEA); e.i64(BigInt(size)); e.emit(0x7c); e.i64(lo); e.emit(0x56);
-      e.emit(0x71);
-      e.open("if", "smc");
-      e.get(TEA); e.set(FA);
-      exitWith(e, Stop.smc, pc);
-      e.end();
-    }
+    // overlap with the translated code: tea < codeHi && tea + size > codeLo
+    e.get(TEA); e.i32(0); e.emit(0x29, 3, ...uleb(STATE.codeHi)); e.emit(0x54);
+    e.get(TEA); e.i64(BigInt(size)); e.emit(0x7c); e.i32(0); e.emit(0x29, 3, ...uleb(STATE.codeLo)); e.emit(0x56);
+    e.emit(0x71);
+    e.open("if", "smc");
+    e.get(TEA); e.set(FA);
+    exitWith(e, Stop.smc, pc);
+    e.end();
   }
 }
 
@@ -546,7 +556,7 @@ function flags(e: Emitter, op: AluOp, mode: FlagMode, w: W) {
   e.i32(sub ? 1 : 0); e.set(KF);
 }
 
-function lowerOp(e: Emitter, op: Op, insn: Insn, memBytes: number, text: [bigint, bigint][]) {
+function lowerOp(e: Emitter, op: Op, insn: Insn, memBytes: number) {
   switch (op.k) {
     case "mov":
       src(e, op.s); maskTop(e, op.w); e.set(TR);
@@ -575,7 +585,7 @@ function lowerOp(e: Emitter, op: Op, insn: Insn, memBytes: number, text: [bigint
       return;
     case "load": {
       ea(e, op.ea);
-      checkAccess(e, op.size, memBytes, insn.pc, false, text);
+      checkAccess(e, op.size, memBytes, insn.pc, false);
       e.get(TEA); e.emit(0xa7);
       const opcode = { 1: op.signed ? 0x30 : 0x31, 2: op.signed ? 0x32 : 0x33, 4: op.signed ? 0x34 : 0x35, 8: 0x29 }[op.size];
       e.emit(opcode, 0, 0);
@@ -586,7 +596,7 @@ function lowerOp(e: Emitter, op: Op, insn: Insn, memBytes: number, text: [bigint
     }
     case "store": {
       ea(e, op.ea);
-      checkAccess(e, op.size, memBytes, insn.pc, true, text);
+      checkAccess(e, op.size, memBytes, insn.pc, true);
       e.get(TEA); e.emit(0xa7);
       src(e, op.s);
       const opcode = { 1: 0x3c, 2: 0x3d, 4: 0x3e, 8: 0x37 }[op.size];
@@ -950,8 +960,8 @@ function setNzcv(e: Emitter, nzcv: number) {
   e.i32(0); e.set(KF);
 }
 
-function lowerInsn(e: Emitter, insn: Insn, memBytes: number, text: [bigint, bigint][]) {
-  for (const op of insn.ops) lowerOp(e, op, insn, memBytes, text);
+function lowerInsn(e: Emitter, insn: Insn, memBytes: number) {
+  for (const op of insn.ops) lowerOp(e, op, insn, memBytes);
 }
 
 export function instantiate(build: WasmBuild): { run: () => number; mem: WebAssembly.Memory } {

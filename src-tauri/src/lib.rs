@@ -106,10 +106,42 @@ pub mod native_guest {
         live: Mutex<HashMap<u32, Session>>,
     }
 
+    /// Compiled machine code per WebAssembly function, kept for the life of the app. When the page
+    /// lifts more of a program and swaps in a new module, every function that did not change comes
+    /// from here instead of being compiled again (guest/wasm.ts keeps unchanged chunks byte-identical),
+    /// and running the same program twice compiles almost nothing.
+    #[derive(Debug, Default)]
+    struct CompileCache {
+        entries: Mutex<(HashMap<Vec<u8>, Vec<u8>>, usize)>,
+    }
+
+    const COMPILE_CACHE_BYTES: usize = 256 * 1024 * 1024;
+
+    impl wasmtime::CacheStore for CompileCache {
+        fn get(&self, key: &[u8]) -> Option<std::borrow::Cow<'_, [u8]>> {
+            let entries = self.entries.lock().ok()?;
+            entries.0.get(key).cloned().map(std::borrow::Cow::Owned)
+        }
+        fn insert(&self, key: &[u8], value: Vec<u8>) -> bool {
+            let Ok(mut entries) = self.entries.lock() else { return false };
+            if entries.1 + key.len() + value.len() > COMPILE_CACHE_BYTES {
+                // Simple and bounded: start over rather than track recency.
+                entries.0.clear();
+                entries.1 = 0;
+            }
+            entries.1 += key.len() + value.len();
+            entries.0.insert(key.to_vec(), value);
+            true
+        }
+    }
+
     impl Default for GuestSessions {
         fn default() -> Self {
             let mut config = Config::new();
             config.consume_fuel(true);
+            config
+                .enable_incremental_compilation(std::sync::Arc::new(CompileCache::default()))
+                .expect("incremental compilation cache");
             GuestSessions {
                 engine: Engine::new(&config).expect("wasmtime engine"),
                 next: AtomicU32::new(1),
@@ -134,6 +166,8 @@ pub mod native_guest {
         pub syscalls: BTreeMap<String, u32>,
         pub unsupported: Vec<String>,
         pub fuel_used: i64,
+        /// The program's file tree, sent once it has finished (exit, stop or trap).
+        pub files: Option<BTreeMap<String, Vec<u8>>>,
     }
 
     impl GuestSessions {
@@ -147,6 +181,7 @@ pub mod native_guest {
             mmap_top: u64,
             stdin: Vec<u8>,
             fuel: i64,
+            files: BTreeMap<String, Vec<u8>>,
         ) -> Result<u32, String> {
             let arch = Arch::parse(arch).ok_or("arch must be x86_64 or aarch64")?;
             let mut vm = WasmVm::new(&self.engine, module)?;
@@ -162,7 +197,7 @@ pub mod native_guest {
                 return Err("bad heap bounds".into());
             }
             let id = self.next.fetch_add(1, Ordering::Relaxed);
-            let session = Session { vm, shim: Shim::new(arch, brk_base, mmap_top, stdin), budget: fuel.max(0), start_budget: fuel.max(0) };
+            let session = Session { vm, shim: Shim::new(arch, brk_base, mmap_top, stdin, files), budget: fuel.max(0), start_budget: fuel.max(0) };
             self.live.lock().map_err(|_| "session lock poisoned")?.insert(id, session);
             Ok(id)
         }
@@ -178,6 +213,7 @@ pub mod native_guest {
                 Event::Yield => ("running", 0, 0, 0, String::new()),
                 Event::Trap(e) => ("trap", -1, 0, 0, e),
             };
+            let finished = !matches!(status, "running" | "needs-code");
             Ok(Resume {
                 status: status.into(),
                 code,
@@ -190,6 +226,7 @@ pub mod native_guest {
                 syscalls: s.shim.counts.clone(),
                 unsupported: s.shim.unsupported.iter().cloned().collect(),
                 fuel_used: s.start_budget - s.budget,
+                files: finished.then(|| s.shim.files.snapshot()),
             })
         }
 
@@ -216,7 +253,7 @@ pub mod native_guest {
     }
 }
 
-/// `invoke("guest_start", { module, arch, chunks, brkBase, mmapTop, stdin, fuel })` -> session id
+/// `invoke("guest_start", { module, arch, chunks, brkBase, mmapTop, stdin, fuel, files })` -> session id
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 fn guest_start(
@@ -228,8 +265,9 @@ fn guest_start(
     mmap_top: u64,
     stdin: Vec<u8>,
     fuel: i64,
+    files: Option<std::collections::BTreeMap<String, Vec<u8>>>,
 ) -> Result<u32, String> {
-    sessions.start(&module, &arch, chunks, brk_base, mmap_top, stdin, fuel)
+    sessions.start(&module, &arch, chunks, brk_base, mmap_top, stdin, fuel, files.unwrap_or_default())
 }
 
 /// `invoke("guest_resume", { id, maxEvents })`

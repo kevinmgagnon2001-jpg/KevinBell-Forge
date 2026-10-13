@@ -20,6 +20,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "test:engine": "node --experimental-strip-types --test src/engine/*.test.ts src/engine/guest/*.test.ts",
+    "test:native": "cargo build --manifest-path src-tauri/Cargo.toml --example guest_bridge && node --experimental-strip-types --test scripts/native-guest.test.ts",
     "forge:run": "node --experimental-strip-types scripts/forge-run.ts",
     "forge:island": "node --experimental-strip-types scripts/island-node.ts",
     "forge:compute": "node --experimental-strip-types scripts/compute-node.ts",

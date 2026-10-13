@@ -9,6 +9,9 @@ import { finishReport, LinuxShim, prepareLinux, relift, runLinux, sparseChunks, 
 import { Stop, type StopCode } from "./guest/ir.ts";
 import { lowerProgram } from "./guest/wasm.ts";
 
+/** Function size for modules the desktop host compiles (see FN_BITS_DEFAULT in guest/wasm.ts). */
+const NATIVE_FN_BITS = 10;
+
 
 type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
 
@@ -48,6 +51,8 @@ type Resume = {
   syscalls: Record<string, number>;
   unsupported: string[];
   fuelUsed: number;
+  /** The program's file tree, once it has finished. */
+  files?: Record<string, number[]> | null;
 };
 
 /**
@@ -63,7 +68,8 @@ export async function runLinuxHosted(bytes: Uint8Array, options: LinuxOptions = 
   if (!prepared.ok) return { ...runLinux(bytes, options), host: "desktop" };
   const { program, fetch, memBytes } = prepared;
   const shimView = new LinuxShim(prepared.arch, prepared.brkBase, prepared.mmapTop); // collects output for the report
-  const lower = () => Array.from(lowerProgram(program, memBytes).bytes);
+  // Small functions: wasmtime compiles ahead of time, and its compile time grows sharply with function size.
+  const lower = () => Array.from(lowerProgram(program, memBytes, { fnBits: NATIVE_FN_BITS }).bytes);
   const stdin = typeof options.stdin === "string" ? new TextEncoder().encode(options.stdin) : options.stdin ?? new Uint8Array();
   const id = (await native.invoke("guest_start", {
     module: lower(),
@@ -73,7 +79,9 @@ export async function runLinuxHosted(bytes: Uint8Array, options: LinuxOptions = 
     mmapTop: Number(prepared.mmapTop),
     stdin: Array.from(stdin),
     fuel: options.fuel ?? 2_000_000_000,
+    files: Object.fromEntries(Object.entries(options.files ?? {}).map(([path, data]) => [path, Array.from(typeof data === "string" ? new TextEncoder().encode(data) : data)])),
   })) as number;
+  let tree: Record<string, Uint8Array> | null = null;
   let relifts = 0;
   let stop: StopCode = Stop.running;
   let detail = "";
@@ -86,6 +94,7 @@ export async function runLinuxHosted(bytes: Uint8Array, options: LinuxOptions = 
       Object.assign(shimView.counts, r.syscalls);
       for (const u of r.unsupported) shimView.unsupported.add(u);
       used = r.fuelUsed;
+      if (r.files) tree = Object.fromEntries(Object.entries(r.files).map(([path, data]) => [path, Uint8Array.from(data)]));
       if (r.status === "exit") {
         shimView.exitCode = r.exitCode;
         break;
@@ -114,5 +123,6 @@ export async function runLinuxHosted(bytes: Uint8Array, options: LinuxOptions = 
   } finally {
     await native.invoke("guest_end", { id });
   }
-  return { ...finishReport(shimView, program, "wasm", stop, detail, used, relifts), host: "desktop" };
+  const report = finishReport(shimView, program, "wasm", stop, detail, used, relifts);
+  return { ...report, files: tree ?? report.files, host: "desktop" };
 }
