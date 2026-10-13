@@ -108,6 +108,10 @@ jobs:
           rm -rf src-tauri/gen/android
           .github/scripts/step.sh "tauri android init" npx tauri android init --ci
           .github/scripts/step.sh "tauri icon" npx tauri icon src-tauri/icons/icon.png
+          # Forge's own activity: pads the page clear of the status bar, gesture bar and keyboard.
+          ACTIVITY="$(find src-tauri/gen/android/app/src/main -name MainActivity.kt | head -n 1)"
+          [ -n "$ACTIVITY" ] || { echo "::error::tauri android init made no MainActivity.kt"; exit 1; }
+          cp src-tauri/android/MainActivity.kt "$ACTIVITY"
           # Islands and compute devices on your own network speak plain http://. Android blocks
           # that in release builds unless the app opts in.
           GRADLE=src-tauri/gen/android/app/build.gradle.kts

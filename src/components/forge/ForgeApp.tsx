@@ -3,6 +3,7 @@ import { Pause, Play, RotateCcw, SkipForward } from "lucide-react";
 import { ENGINE_SCRIPT, LAB_TOUR, TOOLS } from "@/engine/os";
 import { NAMED_COLORS } from "@/engine/color";
 import { RESIDENT_MODELS, residentById } from "@/engine/resident-catalog";
+import { meteredConnection, residentCached } from "@/engine/resident";
 import { startPersist, useForge } from "@/engine/store";
 import { DropRunner, PortalWatcher } from "./Bridge";
 import type { Entity, ToolSchema } from "@/engine/types";
@@ -843,7 +844,16 @@ function ForgeShell() {
   useEffect(() => {
     startPersist();
     const boot = window.setTimeout(() => {
-      if (useForge.getState().residentPower) void useForge.getState().bootResident();
+      void (async () => {
+        const forge = useForge.getState();
+        if (!forge.residentPower) return;
+        // On mobile data, do not start a download of hundreds of MB without being asked.
+        if (meteredConnection() && !(await residentCached(forge.residentId))) {
+          forge.holdResident("On mobile data. Turn on to download the weights now, or wait for Wi-Fi.");
+          return;
+        }
+        void useForge.getState().bootResident();
+      })();
       if (useForge.getState().criticPower) void useForge.getState().bootCritic();
     }, 600);
     return () => window.clearTimeout(boot);

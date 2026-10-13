@@ -65,6 +65,24 @@ export function releaseResident(): void {
   if (current) void current.exit().catch(() => undefined);
 }
 
+/** True when the connection is metered (mobile data, or the user asked to save data). */
+export function meteredConnection(): boolean {
+  const connection = (globalThis.navigator as { connection?: { type?: string; saveData?: boolean } } | undefined)?.connection;
+  return Boolean(connection && (connection.saveData || connection.type === "cellular"));
+}
+
+/** Whether this model's weights are already stored on the device (no download needed to start it). */
+export async function residentCached(id: ResidentId): Promise<boolean> {
+  try {
+    const { CacheManager } = await import("@wllama/wllama");
+    const entries = (await (modelCacheManager(CacheManager) as unknown as { list(): Promise<{ name: string }[]> }).list()) ?? [];
+    const file = residentById(id).file;
+    return entries.some((entry) => entry.name.endsWith(file));
+  } catch {
+    return false;
+  }
+}
+
 export function ensureResident(id: ResidentId, onProgress: ProgressFn): Promise<void> {
   if (typeof window === "undefined") return Promise.reject(new Error("In-situ models run in the page"));
   if (residentReady(id)) return Promise.resolve();

@@ -36,6 +36,7 @@ pub mod sandbox {
 }
 
 pub mod guest;
+pub mod model_store;
 
 /// Native runner for lifted Linux programs (work item N1). The page lifts and lowers; this runs.
 pub mod native_guest {
@@ -317,11 +318,78 @@ fn host_info() -> (String, String) {
     (std::env::consts::OS.to_string(), std::env::consts::ARCH.to_string())
 }
 
+// ---------- model weights on disk (model_store.rs; page side: src/engine/model-cache.ts) ----------
+
+/// `invoke("model_store_list")` -> [[key, size], ...]
+#[tauri::command]
+async fn model_store_list(store: tauri::State<'_, model_store::ModelStore>) -> Result<Vec<(String, u64)>, String> {
+    store.list()
+}
+
+/// `invoke("model_store_size", { key })` -> size, or -1
+#[tauri::command]
+async fn model_store_size(store: tauri::State<'_, model_store::ModelStore>, key: String) -> Result<i64, String> {
+    store.size(&key)
+}
+
+/// `invoke("model_store_read", { key, offset, len })` -> raw bytes (an ArrayBuffer in the page)
+#[tauri::command]
+async fn model_store_read(store: tauri::State<'_, model_store::ModelStore>, key: String, offset: u64, len: u64) -> Result<tauri::ipc::Response, String> {
+    store.read(&key, offset, len).map(tauri::ipc::Response::new)
+}
+
+/// `invoke("model_store_write", bytes, { headers: { "forge-key": hex(utf8(key)), "forge-offset": n } })`
+#[tauri::command]
+async fn model_store_write(store: tauri::State<'_, model_store::ModelStore>, request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let tauri::ipc::InvokeBody::Raw(data) = request.body() else { return Err("model_store_write takes raw bytes".into()) };
+    let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_string).ok_or(format!("missing {name} header"));
+    let hex = header("forge-key")?;
+    let bytes = (0..hex.len())
+        .step_by(2)
+        .map(|i| hex.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok()))
+        .collect::<Option<Vec<u8>>>()
+        .ok_or("forge-key must be hex")?;
+    let key = String::from_utf8(bytes).map_err(|e| e.to_string())?;
+    let offset: u64 = header("forge-offset")?.parse().map_err(|_| "forge-offset must be a number")?;
+    store.write(&key, offset, data)
+}
+
+/// `invoke("model_store_commit", { key })`
+#[tauri::command]
+async fn model_store_commit(store: tauri::State<'_, model_store::ModelStore>, key: String) -> Result<(), String> {
+    store.commit(&key)
+}
+
+/// `invoke("model_store_delete", { key })`
+#[tauri::command]
+async fn model_store_delete(store: tauri::State<'_, model_store::ModelStore>, key: String) -> Result<(), String> {
+    store.delete(&key)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(native_guest::GuestSessions::default())
-        .invoke_handler(tauri::generate_handler![run_wasm, host_info, guest_start, guest_resume, guest_swap, guest_end])
+        .setup(|app| {
+            use tauri::Manager;
+            let dir = app.path().app_data_dir()?.join("models");
+            app.manage(model_store::ModelStore::new(dir));
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            run_wasm,
+            host_info,
+            guest_start,
+            guest_resume,
+            guest_swap,
+            guest_end,
+            model_store_list,
+            model_store_size,
+            model_store_read,
+            model_store_write,
+            model_store_commit,
+            model_store_delete
+        ])
         .run(tauri::generate_context!())
         .expect("error while running the Forge host");
 }
@@ -384,5 +452,52 @@ mod tests {
         assert!(call(Some(id.to_string())).is_ok());
         assert_eq!(call(None).unwrap_err(), serde_json::json!("guest_swap needs a forge-session header"));
         assert_eq!(call(Some("999".into())).unwrap_err(), serde_json::json!("no such guest session"));
+    }
+
+    /// The model store commands, called the way src/engine/model-cache.ts calls them.
+    #[test]
+    fn model_weights_are_written_in_pieces_and_read_back() {
+        use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
+        use tauri::webview::InvokeRequest;
+        let dir = std::env::temp_dir().join(format!("forge-model-ipc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let app = tauri::test::mock_builder()
+            .manage(super::model_store::ModelStore::new(&dir))
+            .invoke_handler(tauri::generate_handler![super::model_store_write, super::model_store_commit, super::model_store_read, super::model_store_list])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
+        let call = |cmd: &str, body: InvokeBody, headers: &[(&'static str, String)]| {
+            let mut map = tauri::http::HeaderMap::new();
+            for (k, v) in headers {
+                map.insert(*k, v.parse().unwrap());
+            }
+            tauri::test::get_ipc_response(
+                &webview,
+                InvokeRequest {
+                    cmd: cmd.into(),
+                    callback: CallbackFn(0),
+                    error: CallbackFn(1),
+                    url: "tauri://localhost".parse().unwrap(),
+                    body,
+                    headers: map,
+                    invoke_key: tauri::test::INVOKE_KEY.into(),
+                },
+            )
+        };
+        let key = "hf/model.gguf";
+        let hex: String = key.bytes().map(|b| format!("{b:02x}")).collect();
+        for (offset, piece) in [(0u64, &b"GGUF"[..]), (4, &b"-weights"[..])] {
+            call("model_store_write", InvokeBody::Raw(piece.to_vec()), &[("forge-key", hex.clone()), ("forge-offset", offset.to_string())]).unwrap();
+        }
+        assert!(call("model_store_write", InvokeBody::Raw(vec![1]), &[("forge-key", "zz".into()), ("forge-offset", "0".into())]).is_err());
+        call("model_store_commit", InvokeBody::Json(serde_json::json!({ "key": key })), &[]).unwrap();
+        let list = call("model_store_list", InvokeBody::Json(serde_json::json!({})), &[]).unwrap();
+        assert_eq!(list.deserialize::<Vec<(String, u64)>>().unwrap(), vec![(key.to_string(), 12)]);
+        match call("model_store_read", InvokeBody::Json(serde_json::json!({ "key": key, "offset": 4, "len": 100 })), &[]).unwrap() {
+            InvokeResponseBody::Raw(bytes) => assert_eq!(bytes, b"-weights"),
+            other => panic!("expected raw bytes, got {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

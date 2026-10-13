@@ -36,6 +36,7 @@ export type ForgeState = World & {
   residentLoaded: number;
   residentTotal: number;
   residentDetail: string;
+  residentHeld: boolean;
   criticPower: boolean;
   criticStatus: "off" | "loading" | "ready" | "error";
   criticProgress: number;
@@ -47,6 +48,8 @@ export type ForgeState = World & {
   submitIntent: (intent: string) => Promise<void>;
   submitScript: (intent: string) => Promise<void>;
   bootResident: () => Promise<void>;
+  /** Switched off for this launch only (e.g. no download on mobile data); the saved choice stays on. */
+  holdResident: (detail: string) => void;
   setResidentPower: (power: boolean) => void;
   setResidentModel: (id: ResidentId) => void;
   setCriticPower: (power: boolean) => void;
@@ -118,6 +121,7 @@ function freshCore() {
     residentLoaded: 0,
     residentTotal: 0,
     residentDetail: "Fetching Gemma into this page",
+    residentHeld: false,
     criticPower: false,
     criticStatus: "off" as const,
     criticProgress: 0,
@@ -409,7 +413,13 @@ export const useForge = create<ForgeState>((set, get) => {
       residentBoot = task;
       return task;
     },
+    holdResident: (detail) => {
+      releaseResident();
+      residentBoot = null;
+      set({ residentPower: false, residentHeld: true, residentStatus: "off", residentProgress: 0, residentDetail: detail });
+    },
     setResidentPower: (power) => {
+      if (get().residentHeld) set({ residentHeld: false });
       if (get().residentPower === power) return;
       const spec = residentById(get().residentId);
       if (!power) {
@@ -693,7 +703,7 @@ export function startPersist() {
         model: state.model,
         ticksPerIntent: state.ticksPerIntent,
         residentId: state.residentId,
-        residentPower: state.residentPower,
+        residentPower: state.residentPower || state.residentHeld,
         criticPower: state.criticPower,
         library: (state.library ?? []).slice(-24),
       };
