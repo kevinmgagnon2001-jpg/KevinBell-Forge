@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { decodeArm } from "./arm.ts";
 import { describeOp, Stop } from "./ir.ts";
@@ -44,9 +44,11 @@ test("unknown machine code is reported as a gap and never executed", () => {
   const d = decodeX86(bytesFetch([0x0f, 0x31]), 0n);
   assert.ok("gap" in d);
   assert.match(d.gap.reason, /not in the map/);
-  // ARM: a SIMD add is a gap
-  const a = decodeArm(bytesFetch([0x20, 0x84, 0xa2, 0x4e]), 0n);
-  assert.ok("gap" in a);
+  // ARM: SVE (ptrue p0.b) and LSE atomics (casal) are gaps; the guest is told it has neither
+  for (const bytes of [[0xe0, 0xe3, 0x18, 0x25], [0x41, 0xfc, 0xe0, 0xc8]]) {
+    const a = decodeArm(bytesFetch(bytes), 0n);
+    assert.ok("gap" in a, bytes.join(","));
+  }
 });
 
 test("a program that reaches a gap stops there with evidence; nothing after it runs", () => {
@@ -171,6 +173,24 @@ test("directories, dup, fcntl and pipes: raw system calls on x86-64 and AArch64,
       assert.deepEqual(report.unsupportedSyscalls, []);
       const tree = Object.fromEntries(Object.entries(report.files).map(([k, v]) => [k, new TextDecoder().decode(v)]));
       assert.deepEqual(tree, parseRecordedTree(text(`${run.name}.tree`)), `${run.file} ${engine}`);
+    }
+  }
+});
+
+test("ARM64 glibc programs (static, built and run on ARM64 hardware) match the CPU on every engine", () => {
+  const input = fixture("files-in.txt");
+  for (const name of ["libc-demo", "libc-float", "libc-files", "libc-dirs"]) {
+    const withTree = existsSync(new URL(`../../../fixtures/linux/${name}.arm.tree`, import.meta.url));
+    for (const engine of ["tiered", "interpreter", "wasm"] as const) {
+      const report = runLinux(fixture(`${name}-aarch64.elf`), { engine, stdin: "abc", files: withTree ? { "in.txt": input } : undefined });
+      assert.equal(report.ok, true, `${name} ${engine}: ${report.detail}`);
+      assert.equal(report.stdout, text(`${name}.arm.expected`), `${name} ${engine}`);
+      assert.equal(report.exitCode, Number(text(`${name}.arm.exitcode`).trim()));
+      assert.deepEqual(report.unsupportedSyscalls, []);
+      if (withTree) {
+        const tree = Object.fromEntries(Object.entries(report.files).map(([k, v]) => [k, new TextDecoder().decode(v)]));
+        assert.deepEqual(tree, parseRecordedTree(text(`${name}.arm.tree`)), `${name} ${engine}`);
+      }
     }
   }
 });

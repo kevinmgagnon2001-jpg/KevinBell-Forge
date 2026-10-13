@@ -12,8 +12,10 @@ gcc -static -O2 -s libc-demo.c -o "$out/libc-demo-aarch64.elf"
 gcc -static -O2 -s libc-float.c -o "$out/libc-float-aarch64.elf" -lm
 gcc -static -O2 -s libc-files.c -o "$out/libc-files-aarch64.elf"
 gcc -static -O2 -s libc-dirs.c -o "$out/libc-dirs-aarch64.elf"
+# every Advanced SIMD / FP / integer form Forge's ARM decoder handles, over special and random inputs
+gcc -static -O1 -s neon.c -o "$out/neon-aarch64.elf"
 set +e
-for p in libc-demo libc-float; do
+for p in libc-demo libc-float neon; do
   printf 'abc' | "$out/$p-aarch64.elf" > "$out/$p.arm.expected"; echo $? > "$out/$p.arm.exitcode"
 done
 dump_tree() {

@@ -11,7 +11,7 @@
  * falls from one instruction to the next without going through the table; every taken branch goes
  * through it and costs one unit of fuel.
  */
-import { CPUID, NREG, NULL_PAGE, STATE, Stop, vecShuffles, type VecOp, type AluOp, type Cond, type Ea, type FlagMode, type Insn, type Op, type Src, type W } from "./ir.ts";
+import { CPUID, NREG, NULL_PAGE, STATE, Stop, VEC_UNARY, vecShuffles, XMM, type VecOp, type AluOp, type Cond, type Ea, type FlagMode, type Insn, type Op, type Src, type W } from "./ir.ts";
 import type { Program } from "./lift.ts";
 
 // locals
@@ -153,7 +153,7 @@ export function lowerProgram(program: Program, memBytes: number, options: { fnBi
     else groups.set(c, [insn]);
   }
   const chunkIds = [...groups.keys()].sort((x, y) => x - y);
-  const FIRST_CHUNK_FN = 5;
+  const FIRST_CHUNK_FN = 9;
   const fnOf = new Map(chunkIds.map((c, i) => [c, FIRST_CHUNK_FN + i]));
 
   // ---- top-level run(): pick the chunk function for pc, call it, follow jumps between chunks ----
@@ -183,15 +183,24 @@ export function lowerProgram(program: Program, memBytes: number, options: { fnBi
   const stubBody = [0, 0x41, Stop.unmapped, 0x0b];
 
   const chunkBodies = chunkIds.map((c) => chunkBody(groups.get(c)!, arm, memBytes));
-  const bodies = [topBody, mulhBody(false), mulhBody(true), stubBody, udiv128Body(), ...chunkBodies];
+  const bodies = [topBody, mulhBody(false), mulhBody(true), stubBody, udiv128Body(), armFopBody(), armRoundBody(), armF2iBody(), armFcmpBody(), ...chunkBodies];
   const pages = memBytes / 65536;
   const name = (str: string) => [...uleb(str.length), ...[...str].map((ch) => ch.charCodeAt(0))];
   const elems: number[] = [];
   for (let c = 0; c < chunks; c += 1) elems.push(...uleb(fnOf.get(c) ?? 3));
   const parts: number[][] = [
     [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
-    section(1, [3, 0x60, 0, 1, I32, 0x60, 2, I64, I64, 1, I64, 0x60, 3, I64, I64, I64, 2, I64, I64]),
-    section(3, [...uleb(bodies.length), 0, 1, 1, 0, 2, ...chunkIds.map(() => 0)]),
+    section(1, [
+      7,
+      0x60, 0, 1, I32,
+      0x60, 2, I64, I64, 1, I64,
+      0x60, 3, I64, I64, I64, 2, I64, I64,
+      0x60, 4, I64, I64, I32, I32, 1, I64, // armFop(a, b, op, single)
+      0x60, 3, I64, I32, I32, 1, I64, // armRound(a, mode, single)
+      0x60, 4, I64, I32, I32, I32, 1, I64, // armF2i(a, mode, single, kind)
+      0x60, 3, I64, I64, I32, 1, I32, // armFcmp(a, b, single) -> nzcv
+    ]),
+    section(3, [...uleb(bodies.length), 0, 1, 1, 0, 2, 3, 4, 5, 6, ...chunkIds.map(() => 0)]),
     section(4, [1, 0x70, 0x01, ...uleb(chunks), ...uleb(chunks)]),
     section(5, [1, 1, ...uleb(pages), ...uleb(pages)]),
     section(7, [2, ...name("run"), 0x00, 0, ...name("mem"), 0x02, 0]),
@@ -366,6 +375,133 @@ function mulhBody(signed: boolean): number[] {
   return [1, 7, I64, ...e.code];
 }
 
+// ---------- ARM floating point helpers (functions 5..8; same rules as armFop etc. in ir.ts) ----------
+
+/** Codes for armFop's op parameter. */
+const ARM_FOP: Record<string, number> = { add: 0, sub: 1, mul: 2, div: 3, sqrt: 4, max: 5, min: 6, maxnm: 7, minnm: 8 };
+const ARM_ROUND: Record<string, number> = { n: 0, p: 1, m: 2, z: 3, a: 4 };
+const F64C = (e: Emitter, x: number) => e.emit(0x44, ...f64Bytes(x));
+
+/** Push 1 if raw bits (local `a`) are a NaN of the size given by i32 local `single`. */
+function fIsNaN(e: Emitter, a: number, single: number) {
+  e.get(a); e.i64(0x7fffffffffffffffn); e.emit(0x83); e.i64(0x7ff0000000000000n); e.emit(0x56);
+  e.get(a); e.i64(0x7fffffffn); e.emit(0x83); e.i64(0x7f800000n); e.emit(0x56);
+  e.get(single); e.emit(0x1b);
+}
+/** Push the quiet bit for the size. */
+function fQuiet(e: Emitter, single: number) {
+  e.i64(0x0008000000000000n); e.i64(0x400000n); e.get(single); e.emit(0x1b);
+}
+/** Push raw bits (local `a`) as an f64 (singles widened exactly). */
+function fToF64(e: Emitter, a: number, single: number) {
+  e.get(a); e.emit(0xbf);
+  e.get(a); e.emit(0xa7); e.emit(0xbe); e.emit(0xbb);
+  e.get(single); e.emit(0x1b);
+}
+/** f64 on the stack (in local `x`) -> raw bits of the size. */
+function fFromF64(e: Emitter, x: number, single: number) {
+  e.get(x); e.emit(0xbd);
+  e.get(x); e.emit(0xb6); e.emit(0xbc); e.emit(0xad);
+  e.get(single); e.emit(0x1b);
+}
+/** Round f64 local `x` in place by the mode in i32 local `mode` (n p m z a); `t` is an f64 scratch local. */
+function fRound(e: Emitter, x: number, mode: number, t: number) {
+  const is = (m: number) => { e.get(mode); e.i32(m); e.emit(0x46); };
+  is(0); e.open("if", "rn"); e.get(x); e.emit(0x9e); e.set(x); e.end();
+  is(1); e.open("if", "rp"); e.get(x); e.emit(0x9b); e.set(x); e.end();
+  is(2); e.open("if", "rm"); e.get(x); e.emit(0x9c); e.set(x); e.end();
+  is(3); e.open("if", "rz"); e.get(x); e.emit(0x9d); e.set(x); e.end();
+  is(4); e.open("if", "ra");
+  // ties away: t = trunc(x); if |x - t| >= 0.5 then t + copysign(1, x)
+  e.get(x); e.emit(0x9d); e.set(t);
+  e.get(x); e.get(t); e.emit(0xa1); e.emit(0x99); F64C(e, 0.5); e.emit(0x66);
+  e.open("if", "away"); e.get(t); F64C(e, 1); e.get(x); e.emit(0xa6); e.emit(0xa0); e.set(t); e.end();
+  e.get(t); e.set(x);
+  e.end();
+}
+
+/** armFop(a, b, op, single) -> bits. Function 5. */
+function armFopBody(): number[] {
+  const e = new Emitter();
+  const A = 0, B = 1, OP = 2, S = 3, X = 4, Y = 5, NA = 6, NB = 7;
+  fIsNaN(e, A, S); e.set(NA);
+  fIsNaN(e, B, S); e.set(NB);
+  // sqrt reads only a
+  e.get(OP); e.i32(4); e.emit(0x46); e.open("if", "sq"); e.get(A); e.set(B); e.get(NA); e.set(NB); e.end();
+  e.get(NA); e.get(NB); e.emit(0x72); e.open("if", "nan");
+  // maxnm/minnm: one quiet NaN and a number gives the number
+  e.get(OP); e.i32(7); e.emit(0x4e); e.get(NA); e.get(NB); e.emit(0x47); e.emit(0x71);
+  e.open("if", "nm");
+  e.get(NA); e.open("if", "na");
+  e.get(A); fQuiet(e, S); e.emit(0x83); e.emit(0x50); e.emit(0x45); e.open("if", "q"); e.get(B); e.emit(0x0f); e.end();
+  e.emit(0x05);
+  e.get(B); fQuiet(e, S); e.emit(0x83); e.emit(0x50); e.emit(0x45); e.open("if", "q"); e.get(A); e.emit(0x0f); e.end();
+  e.end();
+  e.end();
+  // signalling NaNs first (quieted), then quiet ones, a before b
+  e.get(NA); e.get(A); fQuiet(e, S); e.emit(0x83); e.emit(0x50); e.emit(0x71); e.open("if", "sa"); e.get(A); fQuiet(e, S); e.emit(0x84); e.emit(0x0f); e.end();
+  e.get(NB); e.get(B); fQuiet(e, S); e.emit(0x83); e.emit(0x50); e.emit(0x71); e.open("if", "sb"); e.get(B); fQuiet(e, S); e.emit(0x84); e.emit(0x0f); e.end();
+  e.get(NA); e.open("if", "qa"); e.get(A); e.emit(0x0f); e.end();
+  e.get(B); e.emit(0x0f);
+  e.end();
+  fToF64(e, A, S); e.set(X);
+  fToF64(e, B, S); e.set(Y);
+  const is = (m: number) => { e.get(OP); e.i32(m); e.emit(0x46); };
+  const f = (opcode: number, label: string, m: number) => { is(m); e.open("if", label); e.get(X); e.get(Y); e.emit(opcode); e.set(X); e.end(); };
+  f(0xa0, "add", 0); f(0xa1, "sub", 1); f(0xa2, "mul", 2); f(0xa3, "div", 3);
+  is(4); e.open("if", "sqrt"); e.get(X); e.emit(0x9f); e.set(X); e.end();
+  f(0xa5, "max", 5); f(0xa4, "min", 6); f(0xa5, "maxnm", 7); f(0xa4, "minnm", 8);
+  // an invalid operation (inf - inf, 0 * inf, 0 / 0, sqrt of a negative) gives the default NaN
+  e.get(X); e.get(X); e.emit(0x62); e.open("if", "dn");
+  e.i64(0x7ff8000000000000n); e.i64(0x7fc00000n); e.get(S); e.emit(0x1b); e.emit(0x0f);
+  e.end();
+  fFromF64(e, X, S);
+  e.emit(0x0b);
+  return [2, 2, F64, 2, I32, ...e.code];
+}
+
+/** armRound(a, mode, single) -> bits. Function 6. */
+function armRoundBody(): number[] {
+  const e = new Emitter();
+  const A = 0, MODE = 1, S = 2, X = 3, T = 4;
+  fIsNaN(e, A, S); e.open("if", "nan"); e.get(A); fQuiet(e, S); e.emit(0x84); e.emit(0x0f); e.end();
+  fToF64(e, A, S); e.set(X);
+  fRound(e, X, MODE, T);
+  fFromF64(e, X, S);
+  e.emit(0x0b);
+  return [1, 2, F64, ...e.code];
+}
+
+/** armF2i(a, mode, single, kind) -> zero-extended integer; kind: 0 s32, 1 u32, 2 s64, 3 u64. Function 7. */
+function armF2iBody(): number[] {
+  const e = new Emitter();
+  const A = 0, MODE = 1, S = 2, KIND = 3, X = 4, T = 5;
+  fIsNaN(e, A, S); e.open("if", "nan"); e.i64(0n); e.emit(0x0f); e.end();
+  fToF64(e, A, S); e.set(X);
+  fRound(e, X, MODE, T);
+  const is = (k: number) => { e.get(KIND); e.i32(k); e.emit(0x46); };
+  is(0); e.open("if", "s32"); e.get(X); e.emit(0xfc, 2); e.emit(0xad); e.emit(0x0f); e.end();
+  is(1); e.open("if", "u32"); e.get(X); e.emit(0xfc, 3); e.emit(0xad); e.emit(0x0f); e.end();
+  is(2); e.open("if", "s64"); e.get(X); e.emit(0xfc, 6); e.emit(0x0f); e.end();
+  e.get(X); e.emit(0xfc, 7);
+  e.emit(0x0b);
+  return [1, 2, F64, ...e.code];
+}
+
+/** armFcmp(a, b, single) -> NZCV. Function 8. */
+function armFcmpBody(): number[] {
+  const e = new Emitter();
+  const A = 0, B = 1, S = 2, X = 3, Y = 4;
+  fIsNaN(e, A, S); fIsNaN(e, B, S); e.emit(0x72); e.open("if", "un"); e.i32(0b0011); e.emit(0x0f); e.end();
+  fToF64(e, A, S); e.set(X);
+  fToF64(e, B, S); e.set(Y);
+  e.get(X); e.get(Y); e.emit(0x61); e.open("if", "eq"); e.i32(0b0110); e.emit(0x0f); e.end();
+  e.get(X); e.get(Y); e.emit(0x63); e.open("if", "lt"); e.i32(0b1000); e.emit(0x0f); e.end();
+  e.i32(0b0010);
+  e.emit(0x0b);
+  return [1, 2, F64, ...e.code];
+}
+
 // ---------- per-instruction lowering ----------
 
 function src(e: Emitter, s: Src) {
@@ -395,6 +531,16 @@ function writeFrom(e: Emitter, from: number, d: number, w: W) {
   e.get(from); maskTop(e, w);
   e.emit(0x84);
   e.set(d);
+}
+
+/** Store float bits from the stack into vector low half `d`: all 64 bits, or the low 32 (upper bits kept). */
+function mergeFloat(e: Emitter, d: number, d64: boolean) {
+  if (d64) {
+    e.set(d);
+    return;
+  }
+  e.i64(0xffffffffn); e.emit(0x83); e.set(TR);
+  e.get(d); e.i64(-0x100000000n); e.emit(0x83); e.get(TR); e.emit(0x84); e.set(d);
 }
 
 function exitWith(e: Emitter, code: number, pc: bigint) {
@@ -678,7 +824,7 @@ function lowerOp(e: Emitter, op: Op, insn: Insn, memBytes: number) {
       exitWith(e, Stop.halt, insn.pc);
       return;
     case "vec": {
-      const lo = (x: number) => 37 + 2 * x;
+      const lo = (x: number) => XMM(x);
       const pack = (x: number) => {
         // v128 from the two i64 halves
         e.i64(0n); simd(e, 0x12); // i64x2.splat 0
@@ -688,12 +834,19 @@ function lowerOp(e: Emitter, op: Op, insn: Insn, memBytes: number) {
       const VEC: Partial<Record<VecOp, number>> = {
         and: 0x4e, or: 0x50, xor: 0x51, andn: 0x4f,
         add8: 0x6e, add16: 0x8e, add32: 0xae, add64: 0xce, sub8: 0x71, sub16: 0x91, sub32: 0xb1, sub64: 0xd1,
-        eq8: 0x23, eq16: 0x2d, eq32: 0x37, gt8: 0x27, gt16: 0x31, gt32: 0x3b,
-        minu8: 0x77, maxu8: 0x79, mins16: 0x96, maxs16: 0x98,
-        shl16: 0x8b, shr16: 0x8d, sar16: 0x8c, shl32: 0xab, shr32: 0xad, sar32: 0xac, shl64: 0xcb, shr64: 0xcd,
+        eq8: 0x23, eq16: 0x2d, eq32: 0x37, eq64: 0xd6, gt8: 0x27, gt16: 0x31, gt32: 0x3b, gt64: 0xd9,
+        ge8: 0x2b, ge16: 0x35, ge32: 0x3f, ge64: 0xdb, hi8: 0x28, hi16: 0x32, hi32: 0x3c, hs8: 0x2c, hs16: 0x36, hs32: 0x40,
+        minu8: 0x77, maxu8: 0x79, mins8: 0x76, maxs8: 0x78, minu16: 0x97, maxu16: 0x99, mins16: 0x96, maxs16: 0x98,
+        minu32: 0xb7, maxu32: 0xb9, mins32: 0xb6, maxs32: 0xb8, mul16: 0x95, mul32: 0xb5, mul64: 0xd5,
+        swizzle: 0x0e,
+        shl8: 0x6b, shr8: 0x6d, sar8: 0x6c, shl16: 0x8b, shr16: 0x8d, sar16: 0x8c, shl32: 0xab, shr32: 0xad, sar32: 0xac, shl64: 0xcb, shr64: 0xcd, sar64: 0xcc,
+        popcnt8: 0x62,
+        zxl8: 0x89, zxh8: 0x8a, sxl8: 0x87, sxh8: 0x88, zxl16: 0xa9, zxh16: 0xaa, sxl16: 0xa7, sxh16: 0xa8, zxl32: 0xc9, zxh32: 0xca, sxl32: 0xc7, sxh32: 0xc8,
       };
       pack(op.a);
-      if (/^(shl|shr|sar)/.test(op.op)) {
+      if (VEC_UNARY.has(op.op)) {
+        simd(e, VEC[op.op]!);
+      } else if (/^(shl|shr|sar)/.test(op.op)) {
         e.i32(op.imm);
         simd(e, VEC[op.op]!);
       } else if (op.op === "shuffle") {
@@ -710,7 +863,7 @@ function lowerOp(e: Emitter, op: Op, insn: Insn, memBytes: number) {
       return;
     }
     case "vmask": {
-      const lo = 37 + 2 * op.a;
+      const lo = XMM(op.a);
       e.i64(0n); simd(e, 0x12);
       e.get(lo); simd(e, 0x1e); e.emit(0);
       e.get(lo + 1); simd(e, 0x1e); e.emit(1);
@@ -720,8 +873,14 @@ function lowerOp(e: Emitter, op: Op, insn: Insn, memBytes: number) {
       return;
     }
     case "fop": {
-      const lo = (x: number) => 37 + 2 * x;
+      const lo = (x: number) => XMM(x);
       const d64 = op.size === 8;
+      if (op.arm || op.op === "maxnm" || op.op === "minnm") {
+        e.get(lo(op.a)); e.get(lo(op.b)); e.i32(ARM_FOP[op.op]); e.i32(d64 ? 0 : 1);
+        e.emit(0x10, 5);
+        mergeFloat(e, lo(op.d), d64);
+        return;
+      }
       // operands as f64 (singles are widened exactly; the result is rounded back to single)
       const load = (x: number, into: number) => {
         e.get(lo(x));
@@ -777,7 +936,22 @@ function lowerOp(e: Emitter, op: Op, insn: Insn, memBytes: number) {
       return;
     }
     case "fcvt": {
-      const lo = (x: number) => 37 + 2 * x;
+      const lo = (x: number) => XMM(x);
+      if (op.kind === "i2f" && op.unsigned) {
+        src(e, op.s); maskTop(e, op.w);
+        e.emit(op.size === 8 ? 0xba : 0xb5); // f64/f32.convert_i64_u
+        if (op.size === 8) e.emit(0xbd);
+        else { e.emit(0xbc); e.emit(0xad); }
+        mergeFloat(e, lo(op.d), op.size === 8);
+        return;
+      }
+      if (op.kind === "f2i" && op.arm) {
+        e.get(lo(op.a)); e.i32(ARM_ROUND[op.arm.round]); e.i32(op.size === 8 ? 0 : 1); e.i32((op.w === 64 ? 2 : 0) + (op.arm.unsigned ? 1 : 0));
+        e.emit(0x10, 7);
+        e.set(TR);
+        writeFrom(e, TR, op.d, op.w);
+        return;
+      }
       if (op.kind === "i2f") {
         src(e, op.s);
         if (op.w === 32) { e.emit(0xa7); e.emit(op.size === 8 ? 0xb7 : 0xb2); } // f64/f32.convert_i32_s
@@ -821,7 +995,28 @@ function lowerOp(e: Emitter, op: Op, insn: Insn, memBytes: number) {
       return;
     }
     case "fcmp": {
-      const lo = (x: number) => 37 + 2 * x;
+      const lo = (x: number) => XMM(x);
+      if (op.arm) {
+        const compare = () => {
+          e.get(lo(op.a)); e.get(lo(op.b)); e.i32(op.size === 8 ? 0 : 1);
+          e.emit(0x10, 8);
+          e.set(KF);
+          e.get(KF); e.i32(3); e.emit(0x76); e.i32(1); e.emit(0x71); e.set(SF);
+          e.get(KF); e.i32(2); e.emit(0x76); e.i32(1); e.emit(0x71); e.set(ZF);
+          e.get(KF); e.i32(1); e.emit(0x76); e.i32(1); e.emit(0x71); e.set(CF);
+          e.get(KF); e.i32(1); e.emit(0x71); e.set(OF);
+          e.i32(0); e.set(KF);
+        };
+        if (op.cond) {
+          cond(e, op.cond);
+          e.open("if", "fccmp");
+          compare();
+          e.emit(0x05);
+          setNzcv(e, op.nzcv ?? 0);
+          e.end();
+        } else compare();
+        return;
+      }
       const load = (x: number, into: number) => {
         e.get(lo(x));
         if (op.size === 8) e.emit(0xbf);
@@ -837,6 +1032,15 @@ function lowerOp(e: Emitter, op: Op, insn: Insn, memBytes: number) {
       e.i32(0); e.set(SF); e.i32(0); e.set(OF); e.i32(0); e.set(KF);
       return;
     }
+    case "fround":
+      e.get(XMM(op.a)); e.i32(ARM_ROUND[op.mode]); e.i32(op.size === 8 ? 0 : 1);
+      e.emit(0x10, 6);
+      mergeFloat(e, XMM(op.d), op.size === 8);
+      return;
+    case "fma":
+      // Not lowered yet: the interpreter computes it exactly. Stop rather than guess.
+      exitWith(e, Stop.unsupported, insn.pc);
+      return;
     case "div2": {
       const w = op.w;
       const div0 = () => exitWith(e, Stop.div0, insn.pc);

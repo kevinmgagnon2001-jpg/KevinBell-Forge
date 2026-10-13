@@ -7,7 +7,7 @@
  * Anything else (SSE, x87, segment overrides, string ops, adc/sbb, rotates by flag...) is a gap.
  * Encodings follow the Intel SDM, Volume 2.
  */
-import { imm, reg, shuffleId, SINK, T0, T1, T2, T3, TP, u64, type Cond, type Ea, type Gap, type Insn, type Op, type Src, type VecOp, type W } from "./ir.ts";
+import { imm, reg, shuffleId, SINK, T0, T1, T2, T3, TP, u64, XMM, type Cond, type Ea, type Gap, type Insn, type Op, type Src, type VecOp, type W } from "./ir.ts";
 
 export type Fetch = (addr: bigint) => number | undefined;
 export type Decoded = { insn: Insn; targets: bigint[] } | { gap: Gap };
@@ -641,7 +641,7 @@ export function decodeX86(fetch: Fetch, pc: bigint): Decoded {
 
       // ---------- SSE/SSE2 (integer and data movement) ----------
       {
-        const X = (n: number) => 37 + 2 * n; // low half of xmm n; high half is X(n) + 1
+        const X = (n: number) => XMM(n); // low half of xmm n; high half is X(n) + 1
         const XT = 16; // temp vector for memory operands
         const eaPlus = (ea: Ea, k: number): Ea => {
           const copy: Ea = { ...ea, disp: u64(ea.disp + BigInt(k)) };

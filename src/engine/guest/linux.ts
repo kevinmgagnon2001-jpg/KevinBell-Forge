@@ -145,7 +145,9 @@ export function prepareLinux(bytes: Uint8Array, options: LinuxOptions = {}): Pre
   sp &= ~0xfn;
   const phdr = elf.phdr;
   // argc, argv..., NULL, envp NULL, auxv pairs, AT_NULL
-  const auxv: bigint[] = [6n, 4096n, 25n, random, 3n, phdr.addr, 4n, BigInt(phdr.entsize), 5n, BigInt(phdr.count), 9n, elf.entry, 23n, 0n, 0n, 0n];
+  // AT_HWCAP on ARM64: FP and Advanced SIMD only, so libc picks its baseline code (no SVE, LSE atomics, MTE).
+  const hwcap: bigint[] = elf.arch === "aarch64" ? [16n, 3n, 26n, 0n] : [];
+  const auxv: bigint[] = [6n, 4096n, 25n, random, 3n, phdr.addr, 4n, BigInt(phdr.entsize), 5n, BigInt(phdr.count), 9n, elf.entry, 23n, 0n, ...hwcap, 0n, 0n];
   const words: bigint[] = [BigInt(argv.length), ...strings, 0n, 0n, ...auxv];
   sp -= BigInt(words.length * 8);
   sp &= ~0xfn;

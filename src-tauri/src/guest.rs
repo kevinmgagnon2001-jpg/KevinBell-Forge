@@ -13,7 +13,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// CPU state layout inside guest memory (ir.ts STATE).
 pub mod layout {
-    pub const REGS: usize = 0;
+    pub const REGS: usize = 0x400;
     pub const PC: usize = 0x300;
     pub const FLAGS: usize = 0x308;
     pub const FUEL: usize = 0x320;
@@ -23,7 +23,7 @@ pub mod layout {
     pub const CODE_LO: usize = 0x340;
     pub const CODE_HI: usize = 0x348;
     pub const NULL_PAGE: u64 = 0x1000;
-    pub const NREG: usize = 72;
+    pub const NREG: usize = 106;
     /// Thread pointer (x86 fs base, ARM tpidr_el0).
     pub const TP: usize = 36;
 }
@@ -1216,8 +1216,8 @@ mod tests {
 
     #[test]
     fn layout_matches_the_page() {
-        // ir.ts: STATE = { regs: 0, pc: 0x300, flags: 0x308, fuel: 0x320, code: 0x328, fault: 0x330, codeLo: 0x340, codeHi: 0x348 }, NREG = 72
-        assert!(layout::REGS + layout::NREG * 8 <= layout::PC);
+        // ir.ts: STATE = { regs: 0x400, pc: 0x300, flags: 0x308, fuel: 0x320, code: 0x328, fault: 0x330, codeLo: 0x340, codeHi: 0x348 }, NREG = 106
+        assert!(layout::REGS >= layout::CODE_HI + 8 && layout::REGS + layout::NREG * 8 <= layout::NULL_PAGE as usize);
         assert_eq!((layout::PC, layout::FLAGS, layout::FUEL, layout::CODE, layout::FAULT), (0x300, 0x308, 0x320, 0x328, 0x330));
         assert_eq!((layout::CODE_LO, layout::CODE_HI), (0x340, 0x348));
     }

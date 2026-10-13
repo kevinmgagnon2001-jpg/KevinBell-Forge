@@ -1,0 +1,20 @@
+f /in.txt 135
+Forge reads files now.
+Every island keeps its own small tree of files,
+and a program sees only that tree.
+
+The last line has no newline
+d /work
+f /work/file-1.txt 24
+line 0 of 1
+line 1 of 1
+
+f /work/file-3.txt 48
+line 0 of 3
+line 1 of 3
+line 2 of 3
+line 3 of 3
+
+f /work/stdout.txt 12
+captured 42
+

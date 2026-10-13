@@ -22,6 +22,14 @@ import {
   M64,
   mask,
   NREG,
+  XMM,
+  armF2i,
+  armFcmpNzcv,
+  armFma,
+  armFop,
+  armRound,
+  u64ToF32,
+  u64ToF64,
   NULL_PAGE,
   nzcvFlags,
   STATE,
@@ -293,15 +301,15 @@ export class Interpreter implements Engine {
             code = Stop.halt;
             break outer;
           case "vec": {
-            const pair = (x: number): [bigint, bigint] => [regs[37 + 2 * x], regs[38 + 2 * x]];
+            const pair = (x: number): [bigint, bigint] => [regs[XMM(x)], regs[XMM(x, 1)]];
             const [lo, hi] = vecValue(op.op, pair(op.a), pair(op.b), op.imm);
-            regs[37 + 2 * op.d] = lo;
-            regs[38 + 2 * op.d] = hi;
+            regs[XMM(op.d)] = lo;
+            regs[XMM(op.d, 1)] = hi;
             break;
           }
           case "vmask": {
-            const lo = regs[37 + 2 * op.a];
-            const hi = regs[38 + 2 * op.a];
+            const lo = regs[XMM(op.a)];
+            const hi = regs[XMM(op.a, 1)];
             let m = 0n;
             if (op.lanes === 16) {
               for (let i = 0; i < 8; i += 1) m |= ((lo >> BigInt(8 * i + 7)) & 1n) << BigInt(i);
@@ -313,7 +321,13 @@ export class Interpreter implements Engine {
             break;
           }
           case "fop": {
-            const lo = (x: number) => 37 + 2 * x;
+            const lo = (x: number) => XMM(x);
+            if (op.arm) {
+              const r = armFop(op.op, regs[lo(op.a)], regs[lo(op.b)], op.size);
+              regs[lo(op.d)] = op.size === 8 ? r : (regs[lo(op.d)] & 0xffffffff00000000n) | r;
+              break;
+            }
+            if (op.op === "maxnm" || op.op === "minnm") break; // ARM only
             if (op.op === "min" || op.op === "max") {
               // exact bits of whichever operand wins; NaN or equal zeros give the second
               const read = (x: number) => (op.size === 8 ? bitsToF64(regs[lo(x)]) : bitsToF32(regs[lo(x)]));
@@ -336,8 +350,14 @@ export class Interpreter implements Engine {
             break;
           }
           case "fcvt": {
-            const lo = (x: number) => 37 + 2 * x;
-            if (op.kind === "i2f") {
+            const lo = (x: number) => XMM(x);
+            if (op.kind === "i2f" && op.unsigned) {
+              const v = this.val(op.s) & mask(op.w);
+              if (op.size === 8) regs[lo(op.d)] = f64ToBits(u64ToF64(v));
+              else regs[lo(op.d)] = (regs[lo(op.d)] & 0xffffffff00000000n) | f32ToBits(u64ToF32(v));
+            } else if (op.kind === "f2i" && op.arm) {
+              regs[op.d] = writeWidth(regs[op.d], armF2i(regs[lo(op.a)], op.size, op.w, op.arm.round, op.arm.unsigned), op.w);
+            } else if (op.kind === "i2f") {
               const v = this.val(op.s) & mask(op.w);
               const n = Number(BigInt.asIntN(op.w, v));
               if (op.size === 8) regs[lo(op.d)] = f64ToBits(Number(BigInt.asIntN(op.w, v)));
@@ -351,11 +371,26 @@ export class Interpreter implements Engine {
             break;
           }
           case "fcmp": {
-            const lo = (x: number) => 37 + 2 * x;
+            const lo = (x: number) => XMM(x);
+            if (op.arm) {
+              if (op.cond && !evalCond(op.cond, flags)) flags = nzcvFlags(op.nzcv ?? 0, flags.p);
+              else flags = nzcvFlags(armFcmpNzcv(regs[lo(op.a)], regs[lo(op.b)], op.size), flags.p);
+              break;
+            }
             const a = op.size === 8 ? bitsToF64(regs[lo(op.a)]) : bitsToF32(regs[lo(op.a)]);
             const b = op.size === 8 ? bitsToF64(regs[lo(op.b)]) : bitsToF32(regs[lo(op.b)]);
             const un = Number.isNaN(a) || Number.isNaN(b);
             flags = { z: un || a === b ? 1 : 0, p: un ? 1 : 0, c: un || a < b ? 1 : 0, s: 0, o: 0, k: 0 };
+            break;
+          }
+          case "fround": {
+            const r = armRound(regs[XMM(op.a)], op.size, op.mode);
+            regs[XMM(op.d)] = op.size === 8 ? r : (regs[XMM(op.d)] & 0xffffffff00000000n) | r;
+            break;
+          }
+          case "fma": {
+            const r = armFma(regs[XMM(op.a)], regs[XMM(op.b)], regs[XMM(op.c)], op.size, op.negProduct, op.negAddend);
+            regs[XMM(op.d)] = op.size === 8 ? r : (regs[XMM(op.d)] & 0xffffffff00000000n) | r;
             break;
           }
           case "div2": {
