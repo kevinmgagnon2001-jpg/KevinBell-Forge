@@ -253,3 +253,38 @@ Tests: `npm run test:engine` (118 pass), `rustc --edition 2021 --test src-tauri/
 
 ## Still not done
 - File-backed mmap, rename, symbolic links, poll/select, and more than one thread or process.
+
+## ARM64 glibc programs, phone and desktop shipping (N6, work items 1 and 3)
+Tests: `npm run test:engine` (123 pass), Rust guest tests (8 pass), `npm run test:native` (6 pass),
+model store tests (2 Rust, 1 mock-IPC, 1 page side).
+
+- N6, ARM64 glibc: an ARM64 hardware oracle (.github/workflows/arm-oracle.yml on GitHub's ARM64
+  runners, fixtures/linux/build-arm.sh, scripts/arm-oracle.ts) builds glibc programs natively and
+  records what the ARM64 CPU prints. libc-demo, libc-float, libc-files and libc-dirs now print exactly
+  that, files left behind included, on the interpreter, WebAssembly, the tiered engine and wasmtime.
+  - src/engine/guest/arm-simd.ts: Advanced SIMD and scalar floating point (see its header for the list).
+  - arm.ts: SIMD/FP loads and stores, exclusive and ordered accesses, mrs/msr of the registers a program
+    may read, rbit/rev/clz/cls, two-source extr, adc/sbc with ARM's carry.
+  - IR: 32 ARM vector registers (state page: registers now start at 0x400, NREG 106), more vector ops,
+    and ARM floating-point rules (default NaN, NaN order, operand negation before NaN handling,
+    saturating conversions in five rounding modes, NZCV compares, exact fused multiply-add).
+    WebAssembly gets helper functions for them, including an exact 128-bit-integer fma.
+  - AT_HWCAP tells ARM64 programs they have FP and Advanced SIMD only; libc then never picks SVE, LSE
+    atomics or MTE code, which stay gaps.
+  - fixtures/linux/neon.c: 7,184 lines covering every decoded form over special and random inputs,
+    recorded on ARM64 hardware; all match. src/engine/guest/arm-fp.test.ts compares the WebAssembly
+    helpers with the reference over tens of thousands more operands (it catches seeded bugs).
+- Android: every build is installed and launched on an Android emulator before a Release can go out
+  (.github/scripts/android-smoke.sh; screenshots and the page console on the run page). The first run
+  showed the page under the status and gesture bars; src-tauri/android/MainActivity.kt pads it.
+  On mobile data the 242 MB model no longer downloads by itself unless already stored.
+- Desktop installers (.github/workflows/desktop.yml, docs/DESKTOP.md): .deb and .AppImage for Linux
+  x86-64 and ARM64 (both opened on a virtual display, screenshots kept), .msi/.exe for Windows, .dmg
+  for Apple silicon. Work item 1's "window on x86 and ARM" is met on Linux.
+- Desktop model weights are kept on disk (src-tauri/src/model_store.rs) when the WebView has no OPFS.
+
+## Still not done
+- Installers are not code-signed; Windows and macOS builds are not launched in CI.
+- ARM64: SVE, LSE atomics, MTE and ld2/ld3/ld4 are gaps; half-precision floating point too.
+- Files: mmap of files, rename, symbolic links, poll/select, threads and processes.
+

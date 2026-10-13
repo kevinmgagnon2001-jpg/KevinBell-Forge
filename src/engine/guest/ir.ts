@@ -697,14 +697,14 @@ function roundExact(n: bigint, e: number, size: 4 | 8): bigint {
 
 /** fmadd and friends, exactly: one rounding of (negAddend ? -c : c) + (negProduct ? -(a*b) : a*b). */
 export function armFma(aBits: bigint, bBits: bigint, cBits: bigint, size: 4 | 8, negProduct: boolean, negAddend: boolean): bigint {
-  const a = fbits(aBits, size);
-  const b = fbits(bBits, size);
-  const c = fbits(cBits, size);
   const sign = (x: bigint) => x >> BigInt(size * 8 - 1);
   const flip = 1n << BigInt(size * 8 - 1);
+  // ARM negates the first factor and/or the addend before anything else, NaNs included (FPNeg)
+  const a = fbits(aBits, size) ^ (negProduct ? flip : 0n);
+  const b = fbits(bBits, size);
+  const c = fbits(cBits, size) ^ (negAddend ? flip : 0n);
   const x = fval(a, size);
   const y = fval(b, size);
-  const z = fval(c, size);
   const infZero = (!Number.isFinite(x) && !Number.isNaN(x) && y === 0) || (x === 0 && !Number.isFinite(y) && !Number.isNaN(y));
   if (isNaNBits(a, size) || isNaNBits(b, size) || isNaNBits(c, size)) {
     // the addend is checked first; a quiet NaN addend with inf*0 still gives the default NaN
@@ -712,8 +712,8 @@ export function armFma(aBits: bigint, bBits: bigint, cBits: bigint, size: 4 | 8,
     return armNaN([c, a, b], size);
   }
   if (infZero) return ARM_DNAN(size);
-  const pNeg = (sign(a) ^ sign(b) ^ (negProduct ? 1n : 0n)) === 1n;
-  const cS = negAddend ? c ^ flip : c;
+  const pNeg = (sign(a) ^ sign(b)) === 1n;
+  const cS = c;
   const cv = fval(cS, size);
   if (!Number.isFinite(x) || !Number.isFinite(y)) {
     // the product is infinite

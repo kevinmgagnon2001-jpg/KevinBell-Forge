@@ -115,3 +115,18 @@ test("directories, dup, fcntl and pipes: both architectures and glibc, through w
     assert.deepEqual(tree, parseRecordedTree(text(`${name}.tree`)), build);
   }
 });
+
+test("ARM64 glibc programs and the NEON/FP corpus, through wasmtime", { skip }, async () => {
+  const input = fixture("files-in.txt");
+  for (const name of ["libc-demo", "libc-float", "libc-files", "libc-dirs", "neon"]) {
+    const withTree = name === "libc-files" || name === "libc-dirs";
+    const report = await runLinuxHosted(fixture(`${name}-aarch64.elf`), { stdin: "abc", files: withTree ? { "in.txt": input } : undefined });
+    assert.equal(report.ok, true, `${name}: ${report.detail}`);
+    assert.equal(report.stdout, text(`${name}.arm.expected`), name);
+    if (withTree) {
+      const tree = Object.fromEntries(Object.entries(report.files).map(([k, v]) => [k, new TextDecoder().decode(v)]));
+      assert.deepEqual(tree, parseRecordedTree(text(`${name}.arm.tree`)), name);
+    }
+  }
+});
+

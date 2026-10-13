@@ -153,7 +153,7 @@ export function lowerProgram(program: Program, memBytes: number, options: { fnBi
     else groups.set(c, [insn]);
   }
   const chunkIds = [...groups.keys()].sort((x, y) => x - y);
-  const FIRST_CHUNK_FN = 9;
+  const FIRST_CHUNK_FN = 10;
   const fnOf = new Map(chunkIds.map((c, i) => [c, FIRST_CHUNK_FN + i]));
 
   // ---- top-level run(): pick the chunk function for pc, call it, follow jumps between chunks ----
@@ -183,7 +183,7 @@ export function lowerProgram(program: Program, memBytes: number, options: { fnBi
   const stubBody = [0, 0x41, Stop.unmapped, 0x0b];
 
   const chunkBodies = chunkIds.map((c) => chunkBody(groups.get(c)!, arm, memBytes));
-  const bodies = [topBody, mulhBody(false), mulhBody(true), stubBody, udiv128Body(), armFopBody(), armRoundBody(), armF2iBody(), armFcmpBody(), ...chunkBodies];
+  const bodies = [topBody, mulhBody(false), mulhBody(true), stubBody, udiv128Body(), armFopBody(), armRoundBody(), armF2iBody(), armFcmpBody(), armFmaBody(), ...chunkBodies];
   const pages = memBytes / 65536;
   const name = (str: string) => [...uleb(str.length), ...[...str].map((ch) => ch.charCodeAt(0))];
   const elems: number[] = [];
@@ -191,7 +191,7 @@ export function lowerProgram(program: Program, memBytes: number, options: { fnBi
   const parts: number[][] = [
     [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
     section(1, [
-      7,
+      8,
       0x60, 0, 1, I32,
       0x60, 2, I64, I64, 1, I64,
       0x60, 3, I64, I64, I64, 2, I64, I64,
@@ -199,8 +199,9 @@ export function lowerProgram(program: Program, memBytes: number, options: { fnBi
       0x60, 3, I64, I32, I32, 1, I64, // armRound(a, mode, single)
       0x60, 4, I64, I32, I32, I32, 1, I64, // armF2i(a, mode, single, kind)
       0x60, 3, I64, I64, I32, 1, I32, // armFcmp(a, b, single) -> nzcv
+      0x60, 4, I64, I64, I64, I32, 1, I64, // armFma(a, b, c, flags)
     ]),
-    section(3, [...uleb(bodies.length), 0, 1, 1, 0, 2, 3, 4, 5, 6, ...chunkIds.map(() => 0)]),
+    section(3, [...uleb(bodies.length), 0, 1, 1, 0, 2, 3, 4, 5, 6, 7, ...chunkIds.map(() => 0)]),
     section(4, [1, 0x70, 0x01, ...uleb(chunks), ...uleb(chunks)]),
     section(5, [1, 1, ...uleb(pages), ...uleb(pages)]),
     section(7, [2, ...name("run"), 0x00, 0, ...name("mem"), 0x02, 0]),
@@ -384,24 +385,25 @@ const F64C = (e: Emitter, x: number) => e.emit(0x44, ...f64Bytes(x));
 
 /** Push 1 if raw bits (local `a`) are a NaN of the size given by i32 local `single`. */
 function fIsNaN(e: Emitter, a: number, single: number) {
-  e.get(a); e.i64(0x7fffffffffffffffn); e.emit(0x83); e.i64(0x7ff0000000000000n); e.emit(0x56);
+  // select(x, y, c) is c ? x : y
   e.get(a); e.i64(0x7fffffffn); e.emit(0x83); e.i64(0x7f800000n); e.emit(0x56);
+  e.get(a); e.i64(0x7fffffffffffffffn); e.emit(0x83); e.i64(0x7ff0000000000000n); e.emit(0x56);
   e.get(single); e.emit(0x1b);
 }
 /** Push the quiet bit for the size. */
 function fQuiet(e: Emitter, single: number) {
-  e.i64(0x0008000000000000n); e.i64(0x400000n); e.get(single); e.emit(0x1b);
+  e.i64(0x400000n); e.i64(0x0008000000000000n); e.get(single); e.emit(0x1b);
 }
 /** Push raw bits (local `a`) as an f64 (singles widened exactly). */
 function fToF64(e: Emitter, a: number, single: number) {
-  e.get(a); e.emit(0xbf);
   e.get(a); e.emit(0xa7); e.emit(0xbe); e.emit(0xbb);
+  e.get(a); e.emit(0xbf);
   e.get(single); e.emit(0x1b);
 }
 /** f64 on the stack (in local `x`) -> raw bits of the size. */
 function fFromF64(e: Emitter, x: number, single: number) {
-  e.get(x); e.emit(0xbd);
   e.get(x); e.emit(0xb6); e.emit(0xbc); e.emit(0xad);
+  e.get(x); e.emit(0xbd);
   e.get(single); e.emit(0x1b);
 }
 /** Round f64 local `x` in place by the mode in i32 local `mode` (n p m z a); `t` is an f64 scratch local. */
@@ -453,7 +455,7 @@ function armFopBody(): number[] {
   f(0xa5, "max", 5); f(0xa4, "min", 6); f(0xa5, "maxnm", 7); f(0xa4, "minnm", 8);
   // an invalid operation (inf - inf, 0 * inf, 0 / 0, sqrt of a negative) gives the default NaN
   e.get(X); e.get(X); e.emit(0x62); e.open("if", "dn");
-  e.i64(0x7ff8000000000000n); e.i64(0x7fc00000n); e.get(S); e.emit(0x1b); e.emit(0x0f);
+  e.i64(0x7fc00000n); e.i64(0x7ff8000000000000n); e.get(S); e.emit(0x1b); e.emit(0x0f);
   e.end();
   fFromF64(e, X, S);
   e.emit(0x0b);
@@ -500,6 +502,212 @@ function armFcmpBody(): number[] {
   e.i32(0b0010);
   e.emit(0x0b);
   return [1, 2, F64, ...e.code];
+}
+
+/**
+ * armFma(a, b, c, flags) -> bits: c + a*b with one rounding (nearest-even), ARM's NaN and infinity
+ * rules, the same as armFma in ir.ts. flags: 1 single, 2 negate a, 4 negate c. Function 9.
+ * The exact sum is formed in 128-bit integers: the larger operand's leading bit is placed at bit 125,
+ * the other is aligned to it (bits shifted out are kept as a sticky bit), then rounded once.
+ */
+function armFmaBody(): number[] {
+  const e = new Emitter();
+  const A = 0, B = 1, C = 2, FL = 3;
+  // i64 locals
+  const MA = 4, MB = 5, MC = 6, PH = 7, PL = 8, CH = 9, CL = 10, RH = 11, RL = 12, Q = 13, X = 14, Y = 15, SGN = 16, EXPM = 17, ABSM = 18, FRAC = 19;
+  // i32 locals
+  const S = 20, EA = 21, EB = 22, EC = 23, PE = 24, TP = 25, T = 26, SH = 27, PN = 28, CN = 29, L = 30, TRX = 31, KEEP = 32, MBITS = 33, BIAS = 34, CZ = 35, NA = 36, NB = 37, NC = 38, K = 39;
+  const g = (l: number) => e.get(l);
+  const st = (l: number) => e.set(l);
+  const ret = () => e.emit(0x0f);
+  const if_ = (label: string) => e.open("if", label);
+  const else_ = () => e.emit(0x05);
+  const end = () => e.end();
+  const sel64 = (d: bigint, sgl: bigint) => { e.i64(sgl); e.i64(d); g(S); e.emit(0x1b); };
+  const sel32 = (d: number, sgl: number) => { e.i32(sgl); e.i32(d); g(S); e.emit(0x1b); };
+  const isZero = (x: number) => { g(x); g(ABSM); e.emit(0x83); e.emit(0x50); };
+  const isInf = (x: number) => { g(x); g(ABSM); e.emit(0x83); g(EXPM); e.emit(0x51); };
+  const signOf = (x: number) => { g(x); g(SGN); e.emit(0x83); e.i64(0n); e.emit(0x52); }; // i32 0/1
+  const quietBit = () => sel64(0x0008000000000000n, 0x400000n);
+  const snan = (x: number, nan: number) => { g(nan); g(x); quietBit(); e.emit(0x83); e.emit(0x50); e.emit(0x71); };
+  const dnan = () => { sel64(0x7ff8000000000000n, 0x7fc00000n); ret(); };
+  /** clz of the 128-bit pair (hi, lo) as i32 */
+  const clz128 = (hi: number, lo: number) => {
+    g(hi); e.emit(0x79); e.i64(64n); g(lo); e.emit(0x79); e.emit(0x7c); g(hi); e.i64(0n); e.emit(0x52); e.emit(0x1b); e.emit(0xa7);
+  };
+  /** (hi, lo) <<= s (i32 local, 0..127) */
+  const shl128 = (hi: number, lo: number, s: number) => {
+    g(s); e.i32(64); e.emit(0x4e); if_("sl64");
+    g(lo); g(s); e.i32(64); e.emit(0x6b); e.emit(0xad); e.emit(0x86); st(hi); e.i64(0n); st(lo);
+    else_();
+    g(s); if_("sl");
+    g(hi); g(s); e.emit(0xad); e.emit(0x86); g(lo); e.i64(64n); g(s); e.emit(0xad); e.emit(0x7d); e.emit(0x88); e.emit(0x84); st(hi);
+    g(lo); g(s); e.emit(0xad); e.emit(0x86); st(lo);
+    end();
+    end();
+  };
+  /** (hi, lo) >>= s (i32 local, >= 0), bits shifted out OR-ed into bit 0 */
+  const shr128s = (hi: number, lo: number, s: number) => {
+    g(s); e.i32(128); e.emit(0x4e); if_("sr128");
+    g(hi); g(lo); e.emit(0x84); e.i64(0n); e.emit(0x52); e.emit(0xad); st(lo); e.i64(0n); st(hi);
+    else_();
+    g(s); e.i32(64); e.emit(0x4e); if_("sr64");
+    // sticky = lo != 0 || (hi & ((1 << (s - 64)) - 1)) != 0
+    g(lo); e.i64(0n); e.emit(0x52);
+    g(hi); e.i64(1n); g(s); e.i32(64); e.emit(0x6b); e.emit(0xad); e.emit(0x86); e.i64(1n); e.emit(0x7d); e.emit(0x83); e.i64(0n); e.emit(0x52);
+    e.emit(0x72); e.emit(0xad); st(X);
+    g(hi); g(s); e.i32(64); e.emit(0x6b); e.emit(0xad); e.emit(0x88); g(X); e.emit(0x84); st(lo); e.i64(0n); st(hi);
+    else_();
+    g(s); if_("sr");
+    g(lo); e.i64(1n); g(s); e.emit(0xad); e.emit(0x86); e.i64(1n); e.emit(0x7d); e.emit(0x83); e.i64(0n); e.emit(0x52); e.emit(0xad); st(X);
+    g(lo); g(s); e.emit(0xad); e.emit(0x88); g(hi); e.i64(64n); g(s); e.emit(0xad); e.emit(0x7d); e.emit(0x86); e.emit(0x84); g(X); e.emit(0x84); st(lo);
+    g(hi); g(s); e.emit(0xad); e.emit(0x88); st(hi);
+    end();
+    end();
+    end();
+  };
+  /** decompose float x into mantissa m (i64) and exponent ex (i32) */
+  const decompose = (x: number, m: number, ex: number) => {
+    g(x); g(MBITS); e.emit(0xad); e.emit(0x88); sel64(0x7ffn, 0xffn); e.emit(0x83); e.emit(0xa7); st(ex);
+    g(x); g(FRAC); e.emit(0x83); st(m);
+    g(ex); e.emit(0x45); if_("sub");
+    e.i32(1); g(BIAS); e.emit(0x6b); g(MBITS); e.emit(0x6b); st(ex);
+    else_();
+    g(m); e.i64(1n); g(MBITS); e.emit(0xad); e.emit(0x86); e.emit(0x84); st(m);
+    g(ex); g(BIAS); e.emit(0x6b); g(MBITS); e.emit(0x6b); st(ex);
+    end();
+  };
+
+  // sizes and masks
+  g(FL); e.i32(1); e.emit(0x71); st(S);
+  sel32(52, 23); st(MBITS);
+  sel32(1023, 127); st(BIAS);
+  sel64(-0x8000000000000000n, 0x80000000n); st(SGN);
+  sel64(0x7ff0000000000000n, 0x7f800000n); st(EXPM);
+  sel64(0x7fffffffffffffffn, 0x7fffffffn); st(ABSM);
+  sel64(0xfffffffffffffn, 0x7fffffn); st(FRAC);
+  for (const x of [A, B, C]) { g(x); sel64(-1n, 0xffffffffn); e.emit(0x83); st(x); }
+  g(FL); e.i32(2); e.emit(0x71); if_("na"); g(A); g(SGN); e.emit(0x85); st(A); end();
+  g(FL); e.i32(4); e.emit(0x71); if_("nc"); g(C); g(SGN); e.emit(0x85); st(C); end();
+  // NaNs: the addend first; a quiet NaN addend with inf * 0 still gives the default NaN
+  fIsNaN(e, A, S); st(NA);
+  fIsNaN(e, B, S); st(NB);
+  fIsNaN(e, C, S); st(NC);
+  // K = inf * 0
+  isInf(A); isZero(B); e.emit(0x71); isZero(A); isInf(B); e.emit(0x71); e.emit(0x72); st(K);
+  g(NA); g(NB); e.emit(0x72); g(NC); e.emit(0x72); if_("nan");
+  g(NC); snan(C, NC); e.emit(0x45); e.emit(0x71); snan(A, NA); e.emit(0x45); e.emit(0x71); snan(B, NB); e.emit(0x45); e.emit(0x71); g(K); e.emit(0x71);
+  if_("dn"); dnan(); end();
+  for (const [x, n] of [[C, NC], [A, NA], [B, NB]]) { snan(x, n); if_("s"); g(x); quietBit(); e.emit(0x84); ret(); end(); }
+  for (const [x, n] of [[C, NC], [A, NA]]) { g(n); if_("q"); g(x); ret(); end(); }
+  g(B); ret();
+  end();
+  g(K); if_("iz"); dnan(); end();
+  // sign of the product
+  signOf(A); signOf(B); e.emit(0x73); st(PN);
+  signOf(C); st(CN);
+  isInf(A); isInf(B); e.emit(0x72); if_("pinf");
+  isInf(C); g(CN); g(PN); e.emit(0x47); e.emit(0x71); if_("dn"); dnan(); end();
+  g(EXPM); g(SGN); e.i64(0n); g(PN); e.emit(0x1b); e.emit(0x84); ret();
+  end();
+  isInf(C); if_("cinf"); g(C); ret(); end();
+  // a zero product: the sum is c (or a zero whose sign follows the usual rule)
+  isZero(A); isZero(B); e.emit(0x72); if_("pz");
+  isZero(C); if_("cz"); g(SGN); e.i64(0n); g(PN); g(CN); e.emit(0x71); e.emit(0x1b); ret(); end();
+  g(C); ret();
+  end();
+  isZero(C); st(CZ);
+  // exact operands
+  decompose(A, MA, EA);
+  decompose(B, MB, EB);
+  decompose(C, MC, EC);
+  g(MA); g(MB); e.emit(0x7e); st(PL);
+  g(MA); g(MB); e.emit(0x10, 1); st(PH);
+  g(EA); g(EB); e.emit(0x6a); st(PE);
+  // tP = PE + bitlength(P) - 1, T = max(tP, tC)
+  g(PE); e.i32(127); e.emit(0x6a); clz128(PH, PL); e.emit(0x6b); st(TP);
+  g(TP); st(T);
+  g(CZ); e.emit(0x45); if_("tc");
+  g(EC); e.i32(63); e.emit(0x6a); g(MC); e.emit(0x79); e.emit(0xa7); e.emit(0x6b); st(L); // tC in L for now
+  g(L); g(T); e.emit(0x4a); if_("mx"); g(L); st(T); end();
+  end();
+  // align both to the frame: value = X * 2^(T - 125)
+  const align = (hi: number, lo: number, ex: number) => {
+    g(ex); g(T); e.i32(125); e.emit(0x6b); e.emit(0x6b); st(SH);
+    g(SH); e.i32(0); e.emit(0x4e); if_("al");
+    shl128(hi, lo, SH);
+    else_();
+    e.i32(0); g(SH); e.emit(0x6b); st(SH);
+    shr128s(hi, lo, SH);
+    end();
+  };
+  align(PH, PL, PE);
+  g(MC); st(CL); e.i64(0n); st(CH);
+  align(CH, CL, EC);
+  // signed sum
+  g(PN); g(CN); e.emit(0x46); if_("same");
+  g(PL); g(CL); e.emit(0x7c); st(RL);
+  g(PH); g(CH); e.emit(0x7c); g(RL); g(PL); e.emit(0x54); e.emit(0xad); e.emit(0x7c); st(RH);
+  g(PN); st(TRX);
+  else_();
+  // compare P and C
+  g(PH); g(CH); e.emit(0x56); g(PH); g(CH); e.emit(0x51); g(PL); g(CL); e.emit(0x56); e.emit(0x71); e.emit(0x72); st(K); // P > C
+  g(PH); g(CH); e.emit(0x51); g(PL); g(CL); e.emit(0x51); e.emit(0x71); if_("eq"); e.i64(0n); ret(); end();
+  const sub = (xh: number, xl: number, yh: number, yl: number) => {
+    g(xl); g(yl); e.emit(0x7d); st(RL);
+    g(xh); g(yh); e.emit(0x7d); g(xl); g(yl); e.emit(0x54); e.emit(0xad); e.emit(0x7d); st(RH);
+  };
+  g(K); if_("pg"); sub(PH, PL, CH, CL); g(PN); st(TRX); else_(); sub(CH, CL, PH, PL); g(CN); st(TRX); end();
+  end();
+  // L = bit length of R; tR = T - 125 + L - 1
+  e.i32(128); clz128(RH, RL); e.emit(0x6b); st(L);
+  g(T); e.i32(126); e.emit(0x6b); g(L); e.emit(0x6a); st(TP); // TP now holds tR
+  g(MBITS); e.i32(1); e.emit(0x6a); st(KEEP);
+  // subnormal: fewer bits. minExp = 1 - bias
+  g(TP); e.i32(1); g(BIAS); e.emit(0x6b); e.emit(0x48); if_("subn");
+  g(KEEP); e.i32(1); g(BIAS); e.emit(0x6b); g(TP); e.emit(0x6b); e.emit(0x6b); st(KEEP);
+  end();
+  g(L); g(KEEP); e.emit(0x6b); st(SH); // shift
+  g(SH); e.i32(0); e.emit(0x4c); if_("exact");
+  g(RL); e.i32(0); g(SH); e.emit(0x6b); e.emit(0xad); e.emit(0x86); st(Q);
+  else_();
+  g(SH); g(L); e.emit(0x4a); if_("tiny");
+  e.i64(0n); st(Q);
+  else_();
+  // Q = R >> SH (fits in 64 bits); remainder and half compared as 128-bit numbers
+  g(SH); e.i32(64); e.emit(0x4e); if_("q64");
+  g(RH); g(SH); e.i32(64); e.emit(0x6b); e.emit(0xad); e.emit(0x88); st(Q);
+  else_();
+  g(RL); g(SH); e.emit(0xad); e.emit(0x88); g(RH); e.i64(64n); g(SH); e.emit(0xad); e.emit(0x7d); e.emit(0x86); e.emit(0x84); st(Q);
+  end();
+  // remainder = R - (Q << SH)
+  g(Q); st(Y); e.i64(0n); st(X);
+  shl128(X, Y, SH);
+  g(RL); g(Y); e.emit(0x7d); st(CL);
+  g(RH); g(X); e.emit(0x7d); g(RL); g(Y); e.emit(0x54); e.emit(0xad); e.emit(0x7d); st(CH);
+  // half = 1 << (SH - 1)
+  e.i64(0n); st(X); e.i64(1n); st(Y);
+  g(SH); e.i32(1); e.emit(0x6b); st(EB);
+  shl128(X, Y, EB);
+  // up = rem > half || (rem == half && Q odd)
+  g(CH); g(X); e.emit(0x56); g(CH); g(X); e.emit(0x51); g(CL); g(Y); e.emit(0x56); e.emit(0x71); e.emit(0x72);
+  g(CH); g(X); e.emit(0x51); g(CL); g(Y); e.emit(0x51); e.emit(0x71); g(Q); e.i64(1n); e.emit(0x83); e.emit(0xa7); e.emit(0x71);
+  e.emit(0x72);
+  if_("up"); g(Q); e.i64(1n); e.emit(0x7c); st(Q); end();
+  end();
+  end();
+  // assemble
+  g(TRX); if_("neg"); g(SGN); st(X); else_(); e.i64(0n); st(X); end();
+  g(TP); e.i32(1); g(BIAS); e.emit(0x6b); e.emit(0x4e); if_("normal");
+  g(Q); e.i64(1n); g(MBITS); e.i32(1); e.emit(0x6a); e.emit(0xad); e.emit(0x86); e.emit(0x5a); if_("carry");
+  g(Q); e.i64(1n); e.emit(0x88); st(Q); g(TP); e.i32(1); e.emit(0x6a); st(TP);
+  end();
+  g(TP); g(BIAS); e.emit(0x4a); if_("ovf"); g(X); g(EXPM); e.emit(0x84); ret(); end();
+  g(X); g(TP); g(BIAS); e.emit(0x6a); e.emit(0xad); g(MBITS); e.emit(0xad); e.emit(0x86); e.emit(0x84); g(Q); g(FRAC); e.emit(0x83); e.emit(0x84); ret();
+  end();
+  g(X); g(Q); e.emit(0x84);
+  e.emit(0x0b);
+  return [2, 16, I64, 20, I32, ...e.code];
 }
 
 // ---------- per-instruction lowering ----------
@@ -1038,8 +1246,10 @@ function lowerOp(e: Emitter, op: Op, insn: Insn, memBytes: number) {
       mergeFloat(e, XMM(op.d), op.size === 8);
       return;
     case "fma":
-      // Not lowered yet: the interpreter computes it exactly. Stop rather than guess.
-      exitWith(e, Stop.unsupported, insn.pc);
+      e.get(XMM(op.a)); e.get(XMM(op.b)); e.get(XMM(op.c));
+      e.i32((op.size === 8 ? 0 : 1) | (op.negProduct ? 2 : 0) | (op.negAddend ? 4 : 0));
+      e.emit(0x10, 9);
+      mergeFloat(e, XMM(op.d), op.size === 8);
       return;
     case "div2": {
       const w = op.w;

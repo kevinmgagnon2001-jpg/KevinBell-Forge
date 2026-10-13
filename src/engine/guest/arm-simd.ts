@@ -547,7 +547,7 @@ export function decodeSimd(word: number, _pc: bigint, ops: Op[], R: (n: number, 
   }
 
   // ---------- scalar floating point ----------
-  if ((word & 0x5f000000) >>> 0 === 0x1e000000) {
+  if ((word & 0x5e000000) >>> 0 === 0x1e000000) {
     const ftype = bits(word, 23, 22);
     if (ftype > 1) return "half-precision floating point is not in the map";
     const fsize = (ftype ? 8 : 4) as 4 | 8;
