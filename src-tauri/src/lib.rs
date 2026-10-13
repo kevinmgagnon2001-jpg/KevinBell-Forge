@@ -276,10 +276,27 @@ fn guest_resume(sessions: tauri::State<'_, native_guest::GuestSessions>, id: u32
     sessions.resume(id, max_events)
 }
 
-/// `invoke("guest_swap", { id, module })`
+/// `invoke("guest_swap", moduleBytes, { headers: { "forge-session": id } })`: the module travels as raw
+/// bytes (a glibc program's module is megabytes; as a JSON number array it was three times that and slow
+/// to encode and parse). `invoke("guest_swap", { id, module })` is still accepted.
 #[tauri::command]
-fn guest_swap(sessions: tauri::State<'_, native_guest::GuestSessions>, id: u32, module: Vec<u8>) -> Result<(), String> {
-    sessions.swap(id, &module)
+fn guest_swap(sessions: tauri::State<'_, native_guest::GuestSessions>, request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    match request.body() {
+        tauri::ipc::InvokeBody::Raw(module) => {
+            let id = request
+                .headers()
+                .get("forge-session")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<u32>().ok())
+                .ok_or("guest_swap needs a forge-session header")?;
+            sessions.swap(id, module)
+        }
+        tauri::ipc::InvokeBody::Json(args) => {
+            let id = args.get("id").and_then(|v| v.as_u64()).ok_or("guest_swap needs an id")? as u32;
+            let module: Vec<u8> = serde_json::from_value(args.get("module").cloned().unwrap_or_default()).map_err(|e| e.to_string())?;
+            sessions.swap(id, &module)
+        }
+    }
 }
 
 /// `invoke("guest_end", { id })`
@@ -312,6 +329,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::sandbox::run_i32;
+    use tauri::Manager;
 
     /// Produced by src/engine/wasm-backend.ts from: mov x0, 9 ; add x0, x0, 2 ; ret
     const SAMPLE: &[u8] = &[
@@ -328,5 +346,43 @@ mod tests {
     #[test]
     fn junk_is_refused() {
         assert!(run_i32(&[0, 1, 2, 3], "run", 0, 1_000_000).is_err());
+    }
+
+    /// The real guest_swap command, called the way the page calls it: raw bytes, session in a header.
+    #[test]
+    fn guest_swap_takes_raw_bytes_with_the_session_in_a_header() {
+        use tauri::ipc::{CallbackFn, InvokeBody};
+        use tauri::webview::InvokeRequest;
+        let app = tauri::test::mock_builder()
+            .manage(super::native_guest::GuestSessions::default())
+            .invoke_handler(tauri::generate_handler![super::guest_swap])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
+        // A minimal guest module: the shape the runner needs (exported memory and run()).
+        let module = br#"(module (memory (export "mem") 1 1) (func (export "run") (result i32) i32.const 9))"#;
+        let sessions = app.state::<super::native_guest::GuestSessions>();
+        let id = sessions.start(module, "x86_64", vec![], 0x2000, 0x8000, vec![], 1000, Default::default()).unwrap();
+        let call = |session: Option<String>| {
+            let mut headers = tauri::http::HeaderMap::new();
+            if let Some(v) = session {
+                headers.insert("forge-session", v.parse().unwrap());
+            }
+            tauri::test::get_ipc_response(
+                &webview,
+                InvokeRequest {
+                    cmd: "guest_swap".into(),
+                    callback: CallbackFn(0),
+                    error: CallbackFn(1),
+                    url: "tauri://localhost".parse().unwrap(),
+                    body: InvokeBody::Raw(module.to_vec()),
+                    headers,
+                    invoke_key: tauri::test::INVOKE_KEY.into(),
+                },
+            )
+        };
+        assert!(call(Some(id.to_string())).is_ok());
+        assert_eq!(call(None).unwrap_err(), serde_json::json!("guest_swap needs a forge-session header"));
+        assert_eq!(call(Some("999".into())).unwrap_err(), serde_json::json!("no such guest session"));
     }
 }

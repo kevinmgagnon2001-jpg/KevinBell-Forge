@@ -13,7 +13,9 @@ import { lowerProgram } from "./guest/wasm.ts";
 const NATIVE_FN_BITS = 10;
 
 
-type TauriInternals = { invoke: (cmd: string, args?: Record<string, unknown>) => Promise<unknown> };
+type TauriInternals = {
+  invoke: (cmd: string, args?: Record<string, unknown> | Uint8Array, options?: { headers?: Record<string, string> }) => Promise<unknown>;
+};
 
 function tauri(): TauriInternals | null {
   const internals = (globalThis as { __TAURI_INTERNALS__?: TauriInternals }).__TAURI_INTERNALS__;
@@ -69,10 +71,10 @@ export async function runLinuxHosted(bytes: Uint8Array, options: LinuxOptions = 
   const { program, fetch, memBytes } = prepared;
   const shimView = new LinuxShim(prepared.arch, prepared.brkBase, prepared.mmapTop); // collects output for the report
   // Small functions: wasmtime compiles ahead of time, and its compile time grows sharply with function size.
-  const lower = () => Array.from(lowerProgram(program, memBytes, { fnBits: NATIVE_FN_BITS }).bytes);
+  const lower = () => lowerProgram(program, memBytes, { fnBits: NATIVE_FN_BITS }).bytes;
   const stdin = typeof options.stdin === "string" ? new TextEncoder().encode(options.stdin) : options.stdin ?? new Uint8Array();
   const id = (await native.invoke("guest_start", {
-    module: lower(),
+    module: Array.from(lower()),
     arch: prepared.arch,
     chunks: sparseChunks(prepared.memory).map((c) => [c.addr, Array.from(c.bytes)]),
     brkBase: Number(prepared.brkBase),
@@ -108,7 +110,8 @@ export async function runLinuxHosted(bytes: Uint8Array, options: LinuxOptions = 
           detail = again.detail;
           break;
         }
-        await native.invoke("guest_swap", { id, module: lower() });
+        // Raw bytes: a module is megabytes, far too big to send as a JSON number array.
+        await native.invoke("guest_swap", lower(), { headers: { "forge-session": String(id) } });
         continue;
       }
       if (r.status === "trap") {

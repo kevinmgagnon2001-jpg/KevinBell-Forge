@@ -35,7 +35,13 @@ fn handle(sessions: &GuestSessions, cmd: &str, args: &Value) -> Result<Value, St
             serde_json::to_value(r).map_err(|e| e.to_string())
         }
         "guest_swap" => {
-            let module: Vec<u8> = field(args, "module")?;
+            let module: Vec<u8> = match args.get("raw").and_then(Value::as_str) {
+                // Stands in for Tauri's raw-bytes body: hex here, since this bridge speaks JSON lines.
+                Some(hex) => (0..hex.len() / 2)
+                    .map(|i| u8::from_str_radix(&hex[i * 2..i * 2 + 2], 16).map_err(|e| e.to_string()))
+                    .collect::<Result<_, _>>()?,
+                None => field(args, "module")?,
+            };
             sessions.swap(field(args, "id")?, &module)?;
             Ok(Value::Null)
         }

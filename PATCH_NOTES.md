@@ -212,6 +212,9 @@ Tests: `npm run test:engine` (107 pass) and `rustc --edition 2021 --test src-tau
   failed at once with "No supported storage backend found": wllama keeps weights in the Origin Private File
   System, which the desktop WebView does not offer. src/engine/model-cache.ts keeps wllama's storage where it
   exists and otherwise holds the weights in memory for the session (they download again next launch).
+- Module swaps travel as raw bytes (Tauri's binary IPC body, session id in a forge-session header) instead
+  of a JSON number array three times the size; a glibc program's swap went from about 18 MB of text to 6 MB.
+  A test calls the real guest_swap command through Tauri's mock runtime.
 - CI: .github/workflows/checks.yml runs lint, typecheck, engine tests and the web build, plus the desktop
   host's cargo tests and the native guest tests, on every push.
 - Tests: 113 engine tests, 9 Rust tests, 4 native guest tests.
@@ -219,7 +222,6 @@ Tests: `npm run test:engine` (107 pass) and `rustc --edition 2021 --test src-tau
 ## Still not done
 - The window was opened on x86-64 Linux only (not ARM, not macOS/Windows), and no installer has been built yet (work item 3).
 - Model weights in the desktop app live in memory only; a Tauri-side file store would keep them across launches.
-- Tauri's IPC sends modules as JSON number arrays (about 18 MB per swap for a glibc program); a binary channel
-  would cut that.
+- guest_start still sends its module and memory image as JSON (once per run); only swaps go as raw bytes.
 - Directories cannot be listed (getdents) and files cannot be mapped (file-backed mmap); dup, pipes and
   rename are not there yet.

@@ -32,8 +32,10 @@ function startBridge() {
   child.on("exit", () => {
     for (const w of waiting.splice(0)) w.reject(new Error("guest bridge exited"));
   });
-  const invoke = (cmd: string, args: Record<string, unknown> = {}) =>
+  const invoke = (cmd: string, body: Record<string, unknown> | Uint8Array = {}, options?: { headers?: Record<string, string> }) =>
     new Promise<unknown>((resolve, reject) => {
+      // A raw-bytes body (as Tauri delivers guest_swap) crosses this JSON-lines bridge as hex.
+      const args = body instanceof Uint8Array ? { id: Number(options?.headers?.["forge-session"]), raw: Buffer.from(body).toString("hex") } : body;
       waiting.push({ resolve, reject });
       child.stdin.write(JSON.stringify({ cmd, args }) + "\n");
     });

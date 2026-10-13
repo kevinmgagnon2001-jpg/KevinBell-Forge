@@ -23,7 +23,9 @@ function fakeDesktop() {
     const inst = new WebAssembly.Instance(m, {});
     return { run: inst.exports.run as () => number, mem: new Uint8Array((inst.exports.mem as WebAssembly.Memory).buffer) };
   };
-  const invoke = async (cmd: string, a: Record<string, any> = {}) => {
+  const invoke = async (cmd: string, body: Record<string, any> | Uint8Array = {}, options?: { headers?: Record<string, string> }) => {
+    // guest_swap sends the module as raw bytes with the session in a header, as Tauri delivers it.
+    const a: Record<string, any> = body instanceof Uint8Array ? { id: Number(options?.headers?.["forge-session"]), module: Array.from(body) } : body;
     if (cmd === "guest_start") {
       const vm = instantiate(a.module);
       for (const [addr, bytes] of a.chunks as [number, number[]][]) vm.mem.set(bytes, addr);
