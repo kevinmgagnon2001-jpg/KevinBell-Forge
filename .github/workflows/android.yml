@@ -29,14 +29,14 @@ concurrency:
 
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       NDK_VERSION: "27.2.12479018"
       # Modern phones are 64-bit ARM. Add more with e.g. "aarch64 armv7" (old 32-bit phones).
       ANDROID_TARGETS: "aarch64"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Version from the tag
         id: version
@@ -53,22 +53,25 @@ jobs:
           jq --arg v "$VERSION" '.version = $v' src-tauri/tauri.conf.json > conf.tmp && mv conf.tmp src-tauri/tauri.conf.json
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - uses: android-actions/setup-android@v3
-
-      - name: Android NDK
+      - name: Android SDK and NDK
+        # GitHub's Ubuntu runners come with the Android SDK; add the NDK version the build uses.
         run: |
-          sdkmanager --install "ndk;${NDK_VERSION}" > /dev/null
-          echo "NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          .github/scripts/step.sh "Install the Android NDK" "$SDKMANAGER" --install "ndk;${NDK_VERSION}" "platforms;android-34" "build-tools;34.0.0"
+          echo "NDK_HOME=$SDK/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -80,20 +83,20 @@ jobs:
 
       - name: Install JavaScript dependencies
         # `npm install` rather than `npm ci`: it tolerates a lock file that is a little behind package.json.
-        run: npm install --no-audit --no-fund
+        run: .github/scripts/step.sh "npm install" npm install --no-audit --no-fund
 
       - name: Engine tests (the same checks as on desktop)
-        run: npm run test:engine
+        run: .github/scripts/step.sh "Engine tests" npm run test:engine
 
       - name: Build the app's web interface
-        run: npm run build:desktop
+        run: .github/scripts/step.sh "Web interface build" npm run build:desktop
 
       - name: Generate the Android project
         run: |
           # src-tauri/gen is generated, never committed; start clean every time.
           rm -rf src-tauri/gen/android
-          npx tauri android init --ci
-          npx tauri icon src-tauri/icons/icon.png
+          .github/scripts/step.sh "tauri android init" npx tauri android init --ci
+          .github/scripts/step.sh "tauri icon" npx tauri icon src-tauri/icons/icon.png
           # Islands and compute devices on your own network speak plain http://. Android blocks
           # that in release builds unless the app opts in.
           GRADLE=src-tauri/gen/android/app/build.gradle.kts
@@ -104,7 +107,7 @@ jobs:
       - name: Build the APK
         run: |
           # The web interface was built above, so skip Tauri's own beforeBuildCommand.
-          npx tauri android build --apk --target ${ANDROID_TARGETS} --config '{"build":{"beforeBuildCommand":""}}'
+          .github/scripts/step.sh "Android compile" npx tauri android build --apk --target ${ANDROID_TARGETS} --config '{"build":{"beforeBuildCommand":""}}'
 
       - name: Sign the APK
         id: sign
