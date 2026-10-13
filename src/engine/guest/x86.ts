@@ -736,7 +736,7 @@ export function decodeX86(fetch: Fetch, pc: bigint): Decoded {
           if (op2 === 0x11) {
             if (m.ea) ops.push({ k: "store", s: reg(X(xr)), ea: m.ea, size });
             else if (size === 8) ops.push({ k: "mov", d: X(m.rm), s: reg(X(xr)), w: 64 });
-            else ops.push({ k: "mov", d: X(m.rm), s: reg(X(xr)), w: 32 }), ops.splice(-1, 1, ...mergeLow32(X(m.rm), X(xr)));
+            else ops.push(...mergeLow32(X(m.rm), X(xr)));
           } else if (m.ea) {
             ops.push({ k: "load", d: X(xr), ea: m.ea, size, signed: false, w: 64 });
             ops.push({ k: "mov", d: X(xr) + 1, s: imm(0), w: 64 });

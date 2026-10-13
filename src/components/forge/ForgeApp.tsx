@@ -57,27 +57,6 @@ function SceneSlot() {
   );
 }
 
-function ManifoldShell({ fault }: { fault: string }) {
-  const power = useForge((s) => s.residentPower);
-  const progress = useForge((s) => s.residentProgress);
-  const detail = useForge((s) => s.residentDetail);
-  return (
-    <div className="view is-shell">
-      <div className="shell-stage" aria-hidden="true">
-        <div className="shell-platform" />
-        <div className="shell-avatar" />
-      </div>
-      <div className="view-wait">
-        <strong>{fault ? "Manifold failed" : "Opening the manifold"}</strong>
-        <div className="weight-bar is-busy" aria-hidden="true">
-          <span />
-        </div>
-        <p>{fault || (power ? detail : "The model is off.")}</p>
-      </div>
-    </div>
-  );
-}
-
 class ViewBoundary extends Component<{ children: ReactNode; onFault: (fault: string) => void }, { fault: string }> {
   state = { fault: "" };
 
@@ -110,7 +89,6 @@ function ManifoldBanner({ opening, fault }: { opening: boolean; fault: string })
   const criticDetail = useForge((s) => s.criticDetail);
   const spec = residentById(useForge((s) => s.residentId));
   const loading = power && (status === "loading" || status === "off");
-  const failed = status === "error" || Boolean(fault);
   const quiet = !fault && !(criticPower && criticStatus === "loading" && status === "ready");
   const width = status === "ready" ? 100 : Math.max(progress, loading ? 4 : 0);
   const amount =

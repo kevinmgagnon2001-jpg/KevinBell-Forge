@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="AetherForge">
+  <rect width="32" height="32" rx="7" fill="#1c2128"/>
+  <path fill="#d5d8de" fill-rule="evenodd" d="M16 5.2 26.5 26.8h-4.5l-1.8-4.55H11.8L10 26.8H5.5L16 5.2zm0 7.7-2.2 5.55h4.4L16 12.9z"/>
+  <path fill="#d4a24a" d="M12.1 18.35h7.8v2.15h-7.8z"/>
+</svg>

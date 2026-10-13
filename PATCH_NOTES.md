@@ -161,3 +161,16 @@ Tests: `npm run test:engine` (107 pass) and `rustc --edition 2021 --test src-tau
 - docs/ANDROID.md: how to get it on a phone, signing, known gaps.
 - Not yet run: the Android compile itself (no SDK or crates in the build sandbox). YAML, shell steps
   and the signing round-trip were checked offline.
+
+## Refinement pass (ninth pass)
+- package-lock.json is back in sync with package.json (@tauri-apps/cli and esbuild were missing), so the
+  Android workflow now installs with `npm ci`.
+- The Android build has completed on GitHub (Actions run #5); docs/ANDROID.md no longer says it never ran.
+  `npm run build:desktop` (the desktop and Android web build) also runs cleanly.
+- Lint errors fixed (0 errors): `const` where nothing reassigns, an expression-statement push/splice in the
+  x86 movss/movsd decoder replaced by the equivalent single push, unused constants and the unused
+  `ManifoldShell` component removed.
+- Phone layout (<= 600px): the view is taller (64dvh); the second readout line that sat on top of the HUD is
+  hidden; the texture arc is scaled to 78% so it clears the view buttons and the look pad; Find room sits above
+  the look pad instead of squeezing the move row; toolbar and quick-intent buttons keep their labels on one line.
+- Desktop: the controls hint moved to the left, above the move keys, so it no longer covers the texture arc.

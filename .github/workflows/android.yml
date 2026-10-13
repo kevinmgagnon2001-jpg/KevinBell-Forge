@@ -82,8 +82,9 @@ jobs:
           workspaces: src-tauri -> target
 
       - name: Install JavaScript dependencies
-        # `npm install` rather than `npm ci`: it tolerates a lock file that is a little behind package.json.
-        run: .github/scripts/step.sh "npm install" npm install --no-audit --no-fund
+        # `npm ci` installs exactly what package-lock.json lists. If it fails with "not in sync",
+        # run `npm install` locally and commit the updated lock file.
+        run: .github/scripts/step.sh "npm ci" npm ci --no-audit --no-fund
 
       - name: Engine tests (the same checks as on desktop)
         run: .github/scripts/step.sh "Engine tests" npm run test:engine

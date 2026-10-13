@@ -12,6 +12,7 @@ Open **[Releases](../../releases)** on your phone and tap the newest `Forge-…-
 npm install
 npm run dev              # the web app at http://localhost:8080
 npm run test:engine      # engine tests (hardware-checked x86 and ARM translation, sandbox, islands)
+npm run lint && npm run typecheck
 npm run cli:build        # the `forge` command-line tool -> bin/forge
 ```
 

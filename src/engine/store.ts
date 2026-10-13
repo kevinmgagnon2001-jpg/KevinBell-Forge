@@ -364,8 +364,7 @@ export const useForge = create<ForgeState>((set, get) => {
       });
       let lastPaint = 0;
       let lastLabel = "";
-      let task: Promise<void>;
-      task = ensureResident(id, (progress, label, bytes) => {
+      const task: Promise<void> = ensureResident(id, (progress, label, bytes) => {
         if (get().residentId !== id || !get().residentPower) return;
         const now = Date.now();
         if (now - lastPaint < 80 && progress < 100 && label === lastLabel) return;

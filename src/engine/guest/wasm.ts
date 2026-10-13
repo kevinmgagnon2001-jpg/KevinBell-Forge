@@ -35,14 +35,11 @@ const I_IDX = ZF + 6; // dispatch index
 const CHUNK_BITS = 15;
 const CHUNK = 1 << CHUNK_BITS;
 const V0 = ZF + I32_LOCALS; // two v128 scratch locals
-const V1 = V0 + 1;
 const V128 = 0x7b;
 const F64 = 0x7c;
 const FA_ = V0 + 2; // f64 scratch: a
 const FB_ = V0 + 3; // f64 scratch: b
 const FR_ = V0 + 4; // f64 scratch: result
-
-const MAX_SPAN = 1 << 20;
 
 function uleb(value: number): number[] {
   const out: number[] = [];
