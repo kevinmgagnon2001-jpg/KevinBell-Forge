@@ -1,6 +1,7 @@
 import wasmUrl from "@wllama/wllama/esm/wasm/wllama.wasm?url";
 import { residentById, type ResidentId } from "./resident-catalog";
 import { FORGE_TOOLS, TOOL_GRAMMAR, type ResidentToolCall } from "./resident-parse";
+import { modelCacheManager } from "./model-cache";
 
 type ProgressFn = (progress: number, label: string, bytes?: { loaded: number; total: number }) => void;
 
@@ -75,10 +76,10 @@ export function ensureResident(id: ResidentId, onProgress: ProgressFn): Promise<
   abort = controller;
   inflight = (async () => {
     onProgress(0, "Loading the runtime");
-    const { Wllama } = await import("@wllama/wllama");
+    const { Wllama, CacheManager } = await import("@wllama/wllama");
     if (mine !== ticket) return;
     onProgress(0, "Asking Hugging Face for the weights");
-    const next = new Wllama({ default: wasmUrl }) as unknown as Engine;
+    const next = new Wllama({ default: wasmUrl }, { cacheManager: modelCacheManager(CacheManager) }) as unknown as Engine;
     engine = next;
     currentId = id;
     const heavy = spec.id === "spark-x2.5-4b";
