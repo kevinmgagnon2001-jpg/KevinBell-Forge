@@ -223,5 +223,33 @@ Tests: `npm run test:engine` (107 pass) and `rustc --edition 2021 --test src-tau
 - The window was opened on x86-64 Linux only (not ARM, not macOS/Windows), and no installer has been built yet (work item 3).
 - Model weights in the desktop app live in memory only; a Tauri-side file store would keep them across launches.
 - guest_start still sends its module and memory image as JSON (once per run); only swaps go as raw bytes.
-- Directories cannot be listed (getdents) and files cannot be mapped (file-backed mmap); dup, pipes and
-  rename are not there yet.
+- Files cannot be mapped (file-backed mmap) and cannot be renamed yet (see the next pass for directories,
+  dup and pipes).
+
+## Directories, descriptors and pipes for guests (N7, second part)
+Tests: `npm run test:engine` (118 pass), `rustc --edition 2021 --test src-tauri/src/guest.rs` (8 pass),
+`npm run test:native` (5 pass).
+
+- Directories are real now: the host's tree implies them, programs make them (mkdir, mkdirat) and remove
+  them (rmdir, unlinkat with AT_REMOVEDIR; ENOTEMPTY, ENOTDIR and EBUSY as Linux answers). open/openat on a
+  directory gives a directory descriptor (O_DIRECTORY on both architectures; AArch64's bit is translated),
+  getdents64 lists it (".", "..", then entries by name, DT_DIR/DT_REG), and lseek rewinds it.
+- Paths are walked like Linux walks them: openat, newfstatat, faccessat, mkdirat and unlinkat resolve
+  relative to a directory descriptor; every component before the last must be a directory (ENOTDIR through
+  a file, ENOENT through a missing one); creating a file in a missing directory fails.
+- Descriptors share open file descriptions: dup, dup2, dup3 and fcntl (F_DUPFD, F_DUPFD_CLOEXEC, F_GETFD,
+  F_SETFD, F_GETFL, F_SETFL for O_APPEND) behave as on Linux, dup'd descriptors share one offset, and
+  close-on-exec stays with the descriptor. The standard streams live in the same table, so dup3(fd, 1)
+  sends stdout into a file and closing 0, 1 or 2 really closes it.
+- pipe and pipe2: 64 KiB, bytes in order, end of file once every write end is closed, EPIPE once every read
+  end is. A program has one thread, so a read of an empty pipe that still has a writer, or a write to a
+  full one, answers EAGAIN where Linux would wait forever.
+- The report's tree lists directories as "path/" with no contents, and a host tree may pass empty
+  directories the same way.
+- Same rules in TypeScript (src/engine/guest/files.ts) and Rust (guest.rs, mod files).
+- Fixtures checked against the real CPU, tree left behind included: fixtures/linux/dirs.c (raw system
+  calls, x86-64 and AArch64) and libc-dirs.c (glibc: mkdir, opendir/readdir, stat, rmdir, remove, dup2,
+  pipe + fdopen, fcntl). build.sh records each tree as dirs.tree / libc-dirs.tree.
+
+## Still not done
+- File-backed mmap, rename, symbolic links, poll/select, and more than one thread or process.

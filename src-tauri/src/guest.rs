@@ -97,16 +97,17 @@ impl Arch {
             Arch::X86_64 => match nr {
                 0 => "read", 1 => "write", 2 => "open", 3 => "close", 5 => "fstat", 8 => "lseek", 9 => "mmap", 10 => "mprotect",
                 11 => "munmap", 12 => "brk", 13 => "rt_sigaction", 14 => "rt_sigprocmask", 16 => "ioctl", 20 => "writev",
-                21 => "access", 28 => "madvise", 39 => "getpid", 60 => "exit", 63 => "uname", 87 => "unlink", 89 => "readlink",
+                21 => "access", 22 => "pipe", 28 => "madvise", 32 => "dup", 33 => "dup2", 39 => "getpid", 60 => "exit",
+                63 => "uname", 72 => "fcntl", 83 => "mkdir", 84 => "rmdir", 87 => "unlink", 89 => "readlink",
                 102 => "getuid", 104 => "getgid", 107 => "geteuid", 108 => "getegid", 158 => "arch_prctl", 186 => "gettid",
-                201 => "time", 218 => "set_tid_address", 228 => "clock_gettime", 231 => "exit_group", 257 => "openat",
-                262 => "newfstatat", 263 => "unlinkat", 267 => "readlinkat", 269 => "faccessat", 273 => "set_robust_list",
-                302 => "prlimit64", 318 => "getrandom", 334 => "rseq",
+                201 => "time", 217 => "getdents64", 218 => "set_tid_address", 228 => "clock_gettime", 231 => "exit_group",
+                257 => "openat", 258 => "mkdirat", 262 => "newfstatat", 263 => "unlinkat", 267 => "readlinkat", 269 => "faccessat",
+                273 => "set_robust_list", 292 => "dup3", 293 => "pipe2", 302 => "prlimit64", 318 => "getrandom", 334 => "rseq",
                 _ => "",
             },
             Arch::Aarch64 => match nr {
-                29 => "ioctl", 35 => "unlinkat", 48 => "faccessat", 56 => "openat", 57 => "close", 62 => "lseek", 63 => "read",
-                64 => "write", 66 => "writev",
+                23 => "dup", 24 => "dup3", 25 => "fcntl", 29 => "ioctl", 34 => "mkdirat", 35 => "unlinkat", 48 => "faccessat",
+                56 => "openat", 57 => "close", 59 => "pipe2", 61 => "getdents64", 62 => "lseek", 63 => "read", 64 => "write", 66 => "writev",
                 78 => "readlinkat", 79 => "newfstatat", 80 => "fstat", 93 => "exit", 94 => "exit_group", 96 => "set_tid_address",
                 99 => "set_robust_list", 113 => "clock_gettime", 134 => "rt_sigaction", 135 => "rt_sigprocmask", 160 => "uname",
                 172 => "getpid", 174 => "getuid", 175 => "geteuid", 176 => "getgid", 177 => "getegid", 178 => "gettid",
@@ -177,12 +178,20 @@ fn page_up(v: u64) -> u64 {
 
 // ---------- files (work item N7) ----------
 
-/// A guest program's files: a private in-memory tree the host hands over, plus the open descriptors.
-/// Only paths in the tree exist. Same rules as GuestFiles in src/engine/guest/files.ts; keep in step.
+/// A guest program's files: a private in-memory tree the host hands over, the standard streams, pipes
+/// and the open descriptors. Only paths in the tree exist. Same rules as GuestFiles in
+/// src/engine/guest/files.ts (read its header for the model); keep the two in step.
 pub mod files {
     use super::{EBADF, EEXIST, EINVAL, EISDIR, EMFILE, ENOENT, ENOSPC};
-    use std::collections::{BTreeMap, HashMap};
-    use std::sync::{Arc, Mutex};
+    use std::collections::{BTreeMap, BTreeSet, VecDeque};
+    use std::sync::{Arc, Mutex, MutexGuard};
+
+    const EAGAIN: i64 = -11;
+    const EBUSY: i64 = -16;
+    const ENOTDIR: i64 = -20;
+    const ESPIPE: i64 = -29;
+    const EPIPE: i64 = -32;
+    const ENOTEMPTY: i64 = -39;
 
     pub const O_ACCMODE: u64 = 3;
     pub const O_WRONLY: u64 = 1;
@@ -191,9 +200,19 @@ pub mod files {
     pub const O_EXCL: u64 = 0x80;
     pub const O_TRUNC: u64 = 0x200;
     pub const O_APPEND: u64 = 0x400;
+    /// The x86-64 value. The shim translates AArch64's (0x4000) to this.
+    pub const O_DIRECTORY: u64 = 0x10000;
+    pub const O_CLOEXEC: u64 = 0x80000;
+    pub const AT_FDCWD: i64 = -100;
+    pub const AT_REMOVEDIR: u64 = 0x200;
     pub const MAX_TREE_BYTES: usize = 64 * 1024 * 1024;
+    /// Most descriptors open at once besides the three standard ones.
     pub const MAX_OPEN: usize = 256;
     pub const MAX_FILES: usize = 4096;
+    /// Highest descriptor number + 1.
+    pub const FD_LIMIT: i64 = 1024;
+    pub const PIPE_BYTES: usize = 65536;
+    const SINK_BYTES: usize = 64 * 1024 * 1024;
 
     /// "/a/./b/../c" and "a//c" both become "/a/c". ".." never climbs above the root.
     pub fn normalize(path: &str) -> String {
@@ -210,187 +229,571 @@ pub mod files {
         format!("/{}", parts.join("/"))
     }
 
-    type Node = Arc<Mutex<Vec<u8>>>;
-
-    struct Open {
-        node: Node,
-        pos: usize,
-        read: bool,
-        write: bool,
-        append: bool,
+    fn parent(path: &str) -> String {
+        match path.rfind('/') {
+            Some(0) | None => "/".to_string(),
+            Some(i) => path[..i].to_string(),
+        }
     }
 
+    fn lk<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+        m.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    type Node = Arc<Mutex<Vec<u8>>>;
+    type PipeRef = Arc<Mutex<VecDeque<u8>>>;
+
+    /// An open file description: what dup'd descriptors share.
+    enum Desc {
+        File { node: Node, pos: usize, read: bool, write: bool, append: bool },
+        Dir { path: String, pos: usize },
+        Pipe { pipe: PipeRef, write: bool },
+        Stream(u8),
+    }
+
+    struct Slot {
+        desc: Arc<Mutex<Desc>>,
+        cloexec: bool,
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Kind {
+        File,
+        Dir,
+        Fifo,
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
     pub struct Stat {
-        pub dir: bool,
+        pub kind: Kind,
         pub size: usize,
     }
 
-    #[derive(Default)]
     pub struct GuestFiles {
         tree: BTreeMap<String, Node>,
-        fds: HashMap<u64, Open>,
+        /// Every directory, root included.
+        dirs: BTreeSet<String>,
+        fds: BTreeMap<i64, Slot>,
         total: usize,
+        stdin: Vec<u8>,
+        stdin_at: usize,
+        pub stdout: Vec<u8>,
+        pub stderr: Vec<u8>,
     }
 
     impl GuestFiles {
-        pub fn new(files: BTreeMap<String, Vec<u8>>) -> GuestFiles {
-            let mut out = GuestFiles::default();
+        /// Paths ending in "/" are empty directories.
+        pub fn new(files: BTreeMap<String, Vec<u8>>, stdin: Vec<u8>) -> GuestFiles {
+            let mut out = GuestFiles {
+                tree: BTreeMap::new(),
+                dirs: BTreeSet::from(["/".to_string()]),
+                fds: BTreeMap::new(),
+                total: 0,
+                stdin,
+                stdin_at: 0,
+                stdout: Vec::new(),
+                stderr: Vec::new(),
+            };
             for (path, data) in files {
                 let key = normalize(&path);
                 if key == "/" {
                     continue;
                 }
+                if path.ends_with('/') {
+                    if !out.tree.contains_key(&key) {
+                        out.add_dir(&key);
+                    }
+                    continue;
+                }
+                if out.dirs.contains(&key) {
+                    continue;
+                }
+                out.add_dir(&parent(&key));
                 out.total += data.len();
                 if let Some(old) = out.tree.insert(key, Arc::new(Mutex::new(data))) {
-                    out.total -= old.lock().map(|d| d.len()).unwrap_or(0);
+                    out.total -= lk(&old).len();
                 }
+            }
+            for s in 0..3u8 {
+                out.fds.insert(s as i64, Slot { desc: Arc::new(Mutex::new(Desc::Stream(s))), cloexec: false });
             }
             out
         }
 
-        fn is_dir(&self, path: &str) -> bool {
-            if path == "/" {
-                return true;
+        /// Adds a directory and its parents, dropping any file in the way (host trees only).
+        fn add_dir(&mut self, path: &str) {
+            let mut p = path.to_string();
+            while p != "/" && !self.dirs.contains(&p) {
+                if let Some(file) = self.tree.remove(&p) {
+                    self.total -= lk(&file).len();
+                }
+                self.dirs.insert(p.clone());
+                p = parent(&p);
             }
-            let prefix = format!("{path}/");
-            self.tree.keys().any(|k| k.starts_with(&prefix))
+        }
+
+        /// Resolves a path the way Linux walks one (see files.ts `walk`).
+        fn walk(&self, dirfd: i64, raw: &str) -> Result<String, i64> {
+            let mut stack: Vec<String> = Vec::new();
+            if !raw.starts_with('/') && dirfd != AT_FDCWD {
+                let slot = self.fds.get(&dirfd).ok_or(EBADF)?;
+                match &*lk(&slot.desc) {
+                    Desc::Dir { path, .. } => stack.extend(path.split('/').filter(|p| !p.is_empty()).map(String::from)),
+                    _ => return Err(ENOTDIR),
+                }
+            }
+            let parts: Vec<&str> = raw.split('/').filter(|p| !p.is_empty() && *p != ".").collect();
+            for (i, part) in parts.iter().enumerate() {
+                if *part == ".." {
+                    stack.pop();
+                } else {
+                    stack.push(part.to_string());
+                }
+                if i + 1 == parts.len() {
+                    break;
+                }
+                let at = format!("/{}", stack.join("/"));
+                if self.tree.contains_key(&at) {
+                    return Err(ENOTDIR);
+                }
+                if !self.dirs.contains(&at) {
+                    return Err(ENOENT);
+                }
+            }
+            Ok(format!("/{}", stack.join("/")))
+        }
+
+        fn lowest_free(&self, min: i64) -> Option<i64> {
+            if self.fds.len() >= MAX_OPEN + 3 {
+                return None;
+            }
+            (min..FD_LIMIT).find(|fd| !self.fds.contains_key(fd))
+        }
+
+        fn install(&mut self, desc: Arc<Mutex<Desc>>, cloexec: bool, min: i64) -> i64 {
+            match self.lowest_free(min) {
+                Some(fd) => {
+                    self.fds.insert(fd, Slot { desc, cloexec });
+                    fd
+                }
+                None => EMFILE,
+            }
+        }
+
+        fn desc(&self, fd: i64) -> Option<Arc<Mutex<Desc>>> {
+            self.fds.get(&fd).map(|s| s.desc.clone())
+        }
+
+        /// Is any descriptor open on this end of the pipe? (No description lock may be held.)
+        fn pipe_end_open(&self, pipe: &PipeRef, write: bool) -> bool {
+            self.fds.values().any(|s| matches!(&*lk(&s.desc), Desc::Pipe { pipe: p, write: w } if Arc::ptr_eq(p, pipe) && *w == write))
         }
 
         pub fn open(&mut self, raw: &str, flags: u64) -> i64 {
-            let path = normalize(raw);
-            if self.is_dir(&path) {
-                return EISDIR;
-            }
+            self.open_at(AT_FDCWD, raw, flags)
+        }
+
+        pub fn open_at(&mut self, dirfd: i64, raw: &str, flags: u64) -> i64 {
+            let path = match self.walk(dirfd, raw) {
+                Ok(p) => p,
+                Err(e) => return e,
+            };
             let acc = flags & O_ACCMODE;
             if acc == O_ACCMODE {
                 return EINVAL;
             }
-            let node = match self.tree.get(&path) {
+            let write = acc == O_WRONLY || acc == O_RDWR;
+            let cloexec = flags & O_CLOEXEC != 0;
+            if self.dirs.contains(&path) {
+                if flags & O_CREAT != 0 && flags & O_EXCL != 0 {
+                    return EEXIST;
+                }
+                if write || flags & O_CREAT != 0 {
+                    return EISDIR;
+                }
+                return self.install(Arc::new(Mutex::new(Desc::Dir { path, pos: 0 })), cloexec, 0);
+            }
+            let existing = self.tree.get(&path).cloned();
+            if flags & O_DIRECTORY != 0 {
+                return if existing.is_some() { ENOTDIR } else { ENOENT };
+            }
+            let node = match existing {
                 Some(n) => {
                     if flags & O_CREAT != 0 && flags & O_EXCL != 0 {
                         return EEXIST;
                     }
-                    n.clone()
+                    n
                 }
                 None => {
                     if flags & O_CREAT == 0 {
                         return ENOENT;
                     }
-                    if self.tree.len() >= MAX_FILES {
+                    if self.tree.len() + self.dirs.len() >= MAX_FILES {
                         return ENOSPC;
+                    }
+                    if self.lowest_free(0).is_none() {
+                        return EMFILE;
                     }
                     let n: Node = Arc::new(Mutex::new(Vec::new()));
                     self.tree.insert(path, n.clone());
                     n
                 }
             };
-            let write = acc == O_WRONLY || acc == O_RDWR;
-            let Some(fd) = (3..3 + MAX_OPEN as u64).find(|fd| !self.fds.contains_key(fd)) else { return EMFILE };
-            if flags & O_TRUNC != 0 && write {
-                if let Ok(mut d) = node.lock() {
-                    self.total -= d.len();
-                    d.clear();
-                }
+            let desc = Desc::File { node: node.clone(), pos: 0, read: acc != O_WRONLY, write, append: flags & O_APPEND != 0 };
+            let fd = self.install(Arc::new(Mutex::new(desc)), cloexec, 0);
+            if fd >= 0 && flags & O_TRUNC != 0 && write {
+                let mut d = lk(&node);
+                self.total -= d.len();
+                d.clear();
             }
-            self.fds.insert(fd, Open { node, pos: 0, read: acc != O_WRONLY, write, append: flags & O_APPEND != 0 });
-            fd as i64
+            fd
         }
 
-        pub fn close(&mut self, fd: u64) -> i64 {
+        pub fn close(&mut self, fd: i64) -> i64 {
             if self.fds.remove(&fd).is_some() { 0 } else { EBADF }
         }
 
-        pub fn read(&mut self, fd: u64, max: usize) -> Result<Vec<u8>, i64> {
-            let f = self.fds.get_mut(&fd).filter(|f| f.read).ok_or(EBADF)?;
-            let d = f.node.lock().map_err(|_| EBADF)?;
-            let n = max.min(d.len().saturating_sub(f.pos));
-            let out = d[f.pos.min(d.len())..f.pos.min(d.len()) + n].to_vec();
-            f.pos += n;
-            Ok(out)
+        pub fn read(&mut self, fd: i64, max: usize) -> Result<Vec<u8>, i64> {
+            let desc = self.desc(fd).ok_or(EBADF)?;
+            let mut g = lk(&desc);
+            match &mut *g {
+                Desc::Stream(0) => {
+                    let n = max.min(self.stdin.len() - self.stdin_at);
+                    let out = self.stdin[self.stdin_at..self.stdin_at + n].to_vec();
+                    self.stdin_at += n;
+                    Ok(out)
+                }
+                Desc::Stream(_) => Err(EBADF),
+                Desc::Dir { .. } => Err(EISDIR),
+                Desc::Pipe { write: true, .. } => Err(EBADF),
+                Desc::Pipe { pipe, .. } => {
+                    let pipe = pipe.clone();
+                    drop(g);
+                    let mut p = lk(&pipe);
+                    if p.is_empty() {
+                        drop(p);
+                        return if max > 0 && self.pipe_end_open(&pipe, true) { Err(EAGAIN) } else { Ok(Vec::new()) };
+                    }
+                    let n = max.min(p.len());
+                    Ok(p.drain(..n).collect())
+                }
+                Desc::File { read: false, .. } => Err(EBADF),
+                Desc::File { node, pos, .. } => {
+                    let d = lk(node);
+                    let n = max.min(d.len().saturating_sub(*pos));
+                    let start = (*pos).min(d.len());
+                    let out = d[start..start + n].to_vec();
+                    *pos += n;
+                    Ok(out)
+                }
+            }
         }
 
-        pub fn write(&mut self, fd: u64, data: &[u8]) -> i64 {
-            let Some(f) = self.fds.get_mut(&fd).filter(|f| f.write) else { return EBADF };
-            let Ok(mut d) = f.node.lock() else { return EBADF };
-            if f.append {
-                f.pos = d.len();
+        pub fn write(&mut self, fd: i64, data: &[u8]) -> i64 {
+            let Some(desc) = self.desc(fd) else { return EBADF };
+            let mut g = lk(&desc);
+            match &mut *g {
+                Desc::Stream(0) => EBADF,
+                Desc::Stream(s) => {
+                    let sink = if *s == 1 { &mut self.stdout } else { &mut self.stderr };
+                    if sink.len() < SINK_BYTES {
+                        sink.extend_from_slice(data);
+                    }
+                    data.len() as i64
+                }
+                Desc::Dir { .. } => EBADF,
+                Desc::Pipe { write: false, .. } => EBADF,
+                Desc::Pipe { pipe, .. } => {
+                    let pipe = pipe.clone();
+                    drop(g);
+                    if !self.pipe_end_open(&pipe, false) {
+                        return EPIPE;
+                    }
+                    if data.is_empty() {
+                        return 0;
+                    }
+                    let mut p = lk(&pipe);
+                    let n = data.len().min(PIPE_BYTES - p.len());
+                    if n == 0 {
+                        return EAGAIN;
+                    }
+                    p.extend(&data[..n]);
+                    n as i64
+                }
+                Desc::File { write: false, .. } => EBADF,
+                Desc::File { node, pos, append, .. } => {
+                    let mut d = lk(node);
+                    if *append {
+                        *pos = d.len();
+                    }
+                    let end = *pos + data.len();
+                    let added = end.saturating_sub(d.len());
+                    if self.total + added > MAX_TREE_BYTES {
+                        return ENOSPC;
+                    }
+                    if end > d.len() {
+                        d.resize(end, 0);
+                    }
+                    d[*pos..end].copy_from_slice(data);
+                    self.total += added;
+                    *pos = end;
+                    data.len() as i64
+                }
             }
-            let end = f.pos + data.len();
-            let added = end.saturating_sub(d.len());
-            if self.total + added > MAX_TREE_BYTES {
-                return ENOSPC;
-            }
-            if end > d.len() {
-                d.resize(end, 0);
-            }
-            d[f.pos..end].copy_from_slice(data);
-            self.total += added;
-            f.pos = end;
-            data.len() as i64
         }
 
-        pub fn lseek(&mut self, fd: u64, offset: i64, whence: u64) -> i64 {
-            let Some(f) = self.fds.get_mut(&fd) else { return EBADF };
-            let size = f.node.lock().map(|d| d.len()).unwrap_or(0) as i64;
-            let base = match whence {
-                0 => 0,
-                1 => f.pos as i64,
-                2 => size,
+        pub fn lseek(&mut self, fd: i64, offset: i64, whence: u64) -> i64 {
+            let Some(desc) = self.desc(fd) else { return EBADF };
+            let mut g = lk(&desc);
+            let (pos, size) = match &mut *g {
+                Desc::Pipe { .. } | Desc::Stream(_) => return ESPIPE,
+                Desc::Dir { pos, .. } => (pos, None),
+                Desc::File { node, pos, .. } => {
+                    let size = lk(node).len() as i64;
+                    (pos, Some(size))
+                }
+            };
+            let base = match (whence, size) {
+                (0, _) => 0,
+                (1, _) => *pos as i64,
+                (2, Some(size)) => size,
                 _ => return EINVAL,
             };
             let at = base.saturating_add(offset);
             if at < 0 || at > MAX_TREE_BYTES as i64 {
                 return EINVAL;
             }
-            f.pos = at as usize;
+            *pos = at as usize;
             at
         }
 
-        pub fn stat_fd(&self, fd: u64) -> Result<Stat, i64> {
-            let f = self.fds.get(&fd).ok_or(EBADF)?;
-            Ok(Stat { dir: false, size: f.node.lock().map(|d| d.len()).unwrap_or(0) })
+        /// The standard streams have no file behind them here (-ENOENT); libc then falls back to its defaults.
+        pub fn stat_fd(&self, fd: i64) -> Result<Stat, i64> {
+            let desc = self.desc(fd).ok_or(EBADF)?;
+            let g = lk(&desc);
+            match &*g {
+                Desc::Stream(_) => Err(ENOENT),
+                Desc::Dir { .. } => Ok(Stat { kind: Kind::Dir, size: 4096 }),
+                Desc::Pipe { .. } => Ok(Stat { kind: Kind::Fifo, size: 0 }),
+                Desc::File { node, .. } => Ok(Stat { kind: Kind::File, size: lk(node).len() }),
+            }
         }
 
         pub fn stat_path(&self, raw: &str) -> Result<Stat, i64> {
-            let path = normalize(raw);
+            self.stat_at(AT_FDCWD, raw)
+        }
+
+        pub fn stat_at(&self, dirfd: i64, raw: &str) -> Result<Stat, i64> {
+            let path = self.walk(dirfd, raw)?;
             if let Some(n) = self.tree.get(&path) {
-                return Ok(Stat { dir: false, size: n.lock().map(|d| d.len()).unwrap_or(0) });
+                return Ok(Stat { kind: Kind::File, size: lk(n).len() });
             }
-            if self.is_dir(&path) { Ok(Stat { dir: true, size: 4096 }) } else { Err(ENOENT) }
+            if self.dirs.contains(&path) { Ok(Stat { kind: Kind::Dir, size: 4096 }) } else { Err(ENOENT) }
+        }
+
+        pub fn mkdir_at(&mut self, dirfd: i64, raw: &str) -> i64 {
+            let path = match self.walk(dirfd, raw) {
+                Ok(p) => p,
+                Err(e) => return e,
+            };
+            if self.dirs.contains(&path) || self.tree.contains_key(&path) {
+                return EEXIST;
+            }
+            if self.tree.len() + self.dirs.len() >= MAX_FILES {
+                return ENOSPC;
+            }
+            self.dirs.insert(path);
+            0
         }
 
         pub fn unlink(&mut self, raw: &str) -> i64 {
-            let path = normalize(raw);
+            self.unlink_at(AT_FDCWD, raw, 0)
+        }
+
+        /// unlink, or rmdir with AT_REMOVEDIR.
+        pub fn unlink_at(&mut self, dirfd: i64, raw: &str, flags: u64) -> i64 {
+            let path = match self.walk(dirfd, raw) {
+                Ok(p) => p,
+                Err(e) => return e,
+            };
+            if flags & AT_REMOVEDIR != 0 {
+                if path == "/" {
+                    return EBUSY;
+                }
+                if self.tree.contains_key(&path) {
+                    return ENOTDIR;
+                }
+                if !self.dirs.contains(&path) {
+                    return ENOENT;
+                }
+                let prefix = format!("{path}/");
+                if self.tree.keys().chain(self.dirs.iter()).any(|k| k.starts_with(&prefix)) {
+                    return ENOTEMPTY;
+                }
+                self.dirs.remove(&path);
+                return 0;
+            }
             match self.tree.remove(&path) {
                 // Descriptors already open keep the contents, as on Linux.
                 Some(n) => {
-                    self.total -= n.lock().map(|d| d.len()).unwrap_or(0);
+                    self.total -= lk(&n).len();
                     0
                 }
                 None => {
-                    if self.is_dir(&path) { EISDIR } else { ENOENT }
+                    if self.dirs.contains(&path) { EISDIR } else { ENOENT }
                 }
             }
         }
 
-        /// The tree as it stands, path -> contents.
+        /// ".", "..", then the directory's entries by name: (name, is a directory).
+        fn entries(&self, path: &str) -> Vec<(String, bool)> {
+            if !self.dirs.contains(path) {
+                return Vec::new(); // removed while open: Linux lists nothing
+            }
+            let prefix = if path == "/" { "/".to_string() } else { format!("{path}/") };
+            let direct = |k: &String| k.len() > prefix.len() && k.starts_with(&prefix) && !k[prefix.len()..].contains('/');
+            let mut out: Vec<(String, bool)> = self.tree.keys().filter(|k| direct(k)).map(|k| (k[prefix.len()..].to_string(), false)).collect();
+            out.extend(self.dirs.iter().filter(|k| direct(k)).map(|k| (k[prefix.len()..].to_string(), true)));
+            out.sort();
+            let mut all = vec![(".".to_string(), true), ("..".to_string(), true)];
+            all.extend(out);
+            all
+        }
+
+        /// getdents64: as many struct linux_dirent64 records as fit in `max` bytes.
+        pub fn getdents(&mut self, fd: i64, max: usize) -> Result<Vec<u8>, i64> {
+            let desc = self.desc(fd).ok_or(EBADF)?;
+            let mut g = lk(&desc);
+            let Desc::Dir { path, pos } = &mut *g else { return Err(ENOTDIR) };
+            let list = self.entries(path);
+            let mut out = Vec::new();
+            while *pos < list.len() {
+                let (name, dir) = &list[*pos];
+                let reclen = (19 + name.len() + 1 + 7) & !7;
+                if out.len() + reclen > max {
+                    if out.is_empty() {
+                        return Err(EINVAL);
+                    }
+                    break;
+                }
+                let mut rec = vec![0u8; reclen];
+                rec[0..8].copy_from_slice(&(*pos as u64 + 1000).to_le_bytes()); // d_ino: stable per position, never 0
+                rec[8..16].copy_from_slice(&(*pos as i64 + 1).to_le_bytes()); // d_off: where the next call resumes
+                rec[16..18].copy_from_slice(&(reclen as u16).to_le_bytes());
+                rec[18] = if *dir { 4 } else { 8 }; // DT_DIR, DT_REG
+                rec[19..19 + name.len()].copy_from_slice(name.as_bytes());
+                out.extend(rec);
+                *pos += 1;
+            }
+            Ok(out)
+        }
+
+        pub fn dup(&mut self, fd: i64, min: i64, cloexec: bool) -> i64 {
+            let Some(desc) = self.desc(fd) else { return EBADF };
+            if !(0..FD_LIMIT).contains(&min) {
+                return EINVAL;
+            }
+            self.install(desc, cloexec, min)
+        }
+
+        pub fn dup3(&mut self, old: i64, new: i64, flags: u64) -> i64 {
+            if flags & !O_CLOEXEC != 0 {
+                return EINVAL;
+            }
+            let Some(desc) = self.desc(old) else { return EBADF };
+            if old == new {
+                return EINVAL;
+            }
+            if !(0..FD_LIMIT).contains(&new) {
+                return EBADF;
+            }
+            if !self.fds.contains_key(&new) && self.fds.len() >= MAX_OPEN + 3 {
+                return EMFILE;
+            }
+            self.fds.insert(new, Slot { desc, cloexec: flags & O_CLOEXEC != 0 });
+            new
+        }
+
+        pub fn dup2(&mut self, old: i64, new: i64) -> i64 {
+            if old == new {
+                return if self.fds.contains_key(&old) { new } else { EBADF };
+            }
+            self.dup3(old, new, 0)
+        }
+
+        pub fn fcntl(&mut self, fd: i64, cmd: u64, arg: u64) -> i64 {
+            if !self.fds.contains_key(&fd) {
+                return EBADF;
+            }
+            if cmd == 0 || cmd == 1030 {
+                // F_DUPFD, F_DUPFD_CLOEXEC
+                return if (0..FD_LIMIT).contains(&(arg as i64)) { self.dup(fd, arg as i64, cmd == 1030) } else { EINVAL };
+            }
+            let Some(slot) = self.fds.get_mut(&fd) else { return EBADF };
+            match cmd {
+                1 => slot.cloexec as i64, // F_GETFD
+                2 => {
+                    slot.cloexec = arg & 1 != 0; // F_SETFD
+                    0
+                }
+                3 => match &*lk(&slot.desc) {
+                    // F_GETFL
+                    Desc::File { read, write, append, .. } => {
+                        (if *read && *write { O_RDWR } else if *write { O_WRONLY } else { 0 } | if *append { O_APPEND } else { 0 }) as i64
+                    }
+                    Desc::Pipe { write, .. } => if *write { O_WRONLY as i64 } else { 0 },
+                    Desc::Dir { .. } => 0,
+                    Desc::Stream(_) => O_RDWR as i64,
+                },
+                4 => {
+                    // F_SETFL: only O_APPEND is honoured (O_NONBLOCK changes nothing here)
+                    if let Desc::File { append, .. } = &mut *lk(&slot.desc) {
+                        *append = arg & O_APPEND != 0;
+                    }
+                    0
+                }
+                _ => EINVAL,
+            }
+        }
+
+        /// pipe2: (read end, write end), or an errno.
+        pub fn pipe(&mut self, flags: u64) -> Result<(i64, i64), i64> {
+            if flags & !(O_CLOEXEC | 0x800) != 0 {
+                return Err(EINVAL); // O_NONBLOCK is accepted: nothing here blocks
+            }
+            if self.fds.len() + 2 > MAX_OPEN + 3 {
+                return Err(EMFILE);
+            }
+            let pipe: PipeRef = Arc::new(Mutex::new(VecDeque::new()));
+            let cloexec = flags & O_CLOEXEC != 0;
+            let r = self.install(Arc::new(Mutex::new(Desc::Pipe { pipe: pipe.clone(), write: false })), cloexec, 0);
+            let w = self.install(Arc::new(Mutex::new(Desc::Pipe { pipe, write: true })), cloexec, 0);
+            Ok((r, w))
+        }
+
+        /// The tree as it stands, path -> contents. Directories appear as "path/" with no contents.
         pub fn snapshot(&self) -> BTreeMap<String, Vec<u8>> {
-            self.tree.iter().map(|(k, n)| (k.clone(), n.lock().map(|d| d.clone()).unwrap_or_default())).collect()
+            let mut out: BTreeMap<String, Vec<u8>> = self.tree.iter().map(|(k, n)| (k.clone(), lk(n).clone())).collect();
+            for d in self.dirs.iter().filter(|d| *d != "/") {
+                out.insert(format!("{d}/"), Vec::new());
+            }
+            out
         }
     }
 }
 
 // ---------- the shim ----------
 
+/// A descriptor argument: the low 32 bits, signed, as the kernel reads an int.
+fn fd(v: u64) -> i64 {
+    v as u32 as i32 as i64
+}
+
 pub struct Shim {
     pub arch: Arch,
-    pub stdout: Vec<u8>,
-    pub stderr: Vec<u8>,
     pub counts: BTreeMap<String, u32>,
     pub unsupported: BTreeSet<String>,
     pub exit_code: Option<i32>,
-    stdin: Vec<u8>,
-    stdin_at: usize,
     brk_base: u64,
     brk: u64,
     mmap_top: u64,
@@ -411,32 +814,15 @@ impl Shim {
             .unwrap_or(0x9e37_79b9_7f4a_7c15);
         Shim {
             arch,
-            stdout: Vec::new(),
-            stderr: Vec::new(),
             counts: BTreeMap::new(),
             unsupported: BTreeSet::new(),
             exit_code: None,
-            stdin,
-            stdin_at: 0,
             brk_base,
             brk: brk_base,
             mmap_top,
             seed,
-            files: files::GuestFiles::new(tree),
+            files: files::GuestFiles::new(tree, stdin),
         }
-    }
-
-    fn out(&mut self, fd: u64, data: &[u8]) -> i64 {
-        let sink = match fd {
-            1 => &mut self.stdout,
-            2 => &mut self.stderr,
-            3..=0xffff => return self.files.write(fd, data),
-            _ => return EBADF,
-        };
-        if sink.len() < 64 * 1024 * 1024 {
-            sink.extend_from_slice(data);
-        }
-        data.len() as i64
     }
 
     /// A NUL-terminated path from guest memory.
@@ -453,16 +839,38 @@ impl Shim {
         Err(ENAMETOOLONG)
     }
 
-    /// openat-style calls take a directory descriptor; only the working directory ("/") exists.
-    fn at_path(mem: &[u8], dirfd: u64, addr: u64) -> Result<String, i64> {
+    /// A path argument: empty paths do not name anything.
+    fn path_arg(mem: &[u8], addr: u64) -> Result<String, i64> {
         let p = Self::path(mem, addr)?;
-        if p.is_empty() {
-            return Err(ENOENT);
+        if p.is_empty() { Err(ENOENT) } else { Ok(p) }
+    }
+
+    /// O_DIRECTORY is 0x4000 on AArch64 (where 0x10000 is O_DIRECT); GuestFiles takes the x86-64 bits.
+    fn open_flags(&self, flags: u64) -> u64 {
+        let mut f = flags & 0xffff_ffff;
+        if self.arch == Arch::Aarch64 {
+            let dir = f & 0x4000 != 0;
+            f &= !(0x4000 | 0x10000);
+            if dir {
+                f |= files::O_DIRECTORY;
+            }
         }
-        if !p.starts_with('/') && dirfd as i32 != -100 {
-            return Err(EBADF);
+        f
+    }
+
+    /// Copies bytes the shim produced into guest memory and returns their count.
+    fn give(mem: &mut [u8], addr: u64, got: Result<Vec<u8>, i64>) -> i64 {
+        match got {
+            Err(e) => e,
+            Ok(data) if data.is_empty() => 0,
+            Ok(data) => match range(mem, addr, data.len() as u64) {
+                Some(r) => {
+                    mem[r].copy_from_slice(&data);
+                    data.len() as i64
+                }
+                None => EFAULT,
+            },
         }
-        Ok(p)
     }
 
     /// struct stat for this architecture (x86-64, or the generic layout AArch64 uses).
@@ -472,7 +880,11 @@ impl Shim {
             Err(e) => return e,
         };
         let mut out = vec![0u8; if self.arch == Arch::X86_64 { 144 } else { 128 }];
-        let mode: u32 = if st.dir { 0o40755 } else { 0o100644 };
+        let mode: u32 = match st.kind {
+            files::Kind::Dir => 0o40755,
+            files::Kind::Fifo => 0o10600,
+            files::Kind::File => 0o100644,
+        };
         out[8..16].copy_from_slice(&(st.size as u64 + 2).to_le_bytes()); // st_ino
         if self.arch == Arch::X86_64 {
             out[16..24].copy_from_slice(&1u64.to_le_bytes()); // st_nlink
@@ -507,7 +919,7 @@ impl Shim {
                 match range(mem, a[1], len) {
                     Some(r) => {
                         let data = mem[r].to_vec();
-                        self.out(a[0], &data)
+                        self.files.write(fd(a[0]), &data)
                     }
                     None => EFAULT,
                 }
@@ -516,47 +928,27 @@ impl Shim {
                 let mut total = 0i64;
                 let mut ret = 0i64;
                 for i in 0..a[2].min(1024) {
-                    let Some(r) = range(mem, a[1] + i * 16, 16) else { ret = EFAULT; break };
+                    let Some(r) = range(mem, a[1] + i * 16, 16) else { ret = if total > 0 { total } else { EFAULT }; break };
                     let base = rd64(mem, r.start);
                     let len = rd64(mem, r.start + 8) & 0x7fff_ffff;
-                    let Some(d) = range(mem, base, len) else { ret = EFAULT; break };
+                    let Some(d) = range(mem, base, len) else { ret = if total > 0 { total } else { EFAULT }; break };
                     let data = mem[d].to_vec();
-                    let n = self.out(a[0], &data);
-                    if n < 0 { ret = n; break; }
+                    let n = self.files.write(fd(a[0]), &data);
+                    if n < 0 {
+                        ret = if total > 0 { total } else { n };
+                        break;
+                    }
                     total += n;
                     ret = total;
+                    if (n as u64) < len {
+                        break;
+                    }
                 }
                 ret
             }
-            "read" if (3..=0xffff).contains(&a[0]) => match self.files.read(a[0], a[2].min(0x7fff_ffff) as usize) {
-                Err(e) => e,
-                Ok(data) if data.is_empty() => 0,
-                Ok(data) => match range(mem, a[1], data.len() as u64) {
-                    Some(r) => {
-                        mem[r].copy_from_slice(&data);
-                        data.len() as i64
-                    }
-                    None => EFAULT,
-                },
-            },
             "read" => {
-                if a[0] != 0 {
-                    EBADF
-                } else {
-                    let n = (a[2].min(0x7fff_ffff) as usize).min(self.stdin.len() - self.stdin_at);
-                    if n == 0 {
-                        0
-                    } else {
-                        match range(mem, a[1], n as u64) {
-                            Some(r) => {
-                                mem[r].copy_from_slice(&self.stdin[self.stdin_at..self.stdin_at + n]);
-                                self.stdin_at += n;
-                                n as i64
-                            }
-                            None => EFAULT,
-                        }
-                    }
-                }
+                let got = self.files.read(fd(a[0]), a[2].min(0x7fff_ffff) as usize);
+                Self::give(mem, a[1], got)
             }
             "exit" | "exit_group" => {
                 self.exit_code = Some((a[0] & 0xff) as i32);
@@ -597,49 +989,88 @@ impl Shim {
                 }
             }
             "munmap" | "mprotect" | "madvise" | "rt_sigaction" | "rt_sigprocmask" | "set_robust_list" => 0,
-            "close" => {
-                if a[0] < 3 { 0 } else { self.files.close(a[0]) }
-            }
+            "close" => self.files.close(fd(a[0])),
             "openat" | "open" => {
-                let (dirfd, at, flags) = if name == "open" { (-100i64 as u64, a[0], a[1]) } else { (a[0], a[1], a[2]) };
-                match Self::at_path(mem, dirfd, at) {
-                    Ok(p) => self.files.open(&p, flags & 0xffff_ffff),
+                let (dirfd, at, flags) = if name == "open" { (files::AT_FDCWD, a[0], a[1]) } else { (fd(a[0]), a[1], a[2]) };
+                let flags = self.open_flags(flags);
+                match Self::path_arg(mem, at) {
+                    Ok(p) => self.files.open_at(dirfd, &p, flags),
                     Err(e) => e,
                 }
             }
-            "lseek" => self.files.lseek(a[0], a[1] as i64, a[2]),
-            // Standard streams have no file behind them here; libc then falls back to its defaults.
+            "lseek" => self.files.lseek(fd(a[0]), a[1] as i64, a[2] & 0xffff_ffff),
             "fstat" => {
-                if a[0] < 3 { ENOENT } else { let st = self.files.stat_fd(a[0]); self.stat(mem, a[1], st) }
+                let st = self.files.stat_fd(fd(a[0]));
+                self.stat(mem, a[1], st)
             }
-            "newfstatat" => {
+            "newfstatat" => match Self::path(mem, a[1]) {
+                Err(e) => e,
                 // fstat(fd) arrives as newfstatat(fd, "", buf, AT_EMPTY_PATH).
-                if a[3] & 0x1000 != 0 && Self::path(mem, a[1]).map(|p| p.is_empty()).unwrap_or(false) {
-                    if a[0] < 3 { ENOENT } else { let st = self.files.stat_fd(a[0]); self.stat(mem, a[2], st) }
-                } else {
-                    match Self::at_path(mem, a[0], a[1]) {
-                        Ok(p) => {
-                            let st = self.files.stat_path(&p);
-                            self.stat(mem, a[2], st)
-                        }
-                        Err(e) => e,
+                Ok(p) if p.is_empty() => {
+                    if a[3] & 0x1000 != 0 {
+                        let st = self.files.stat_fd(fd(a[0]));
+                        self.stat(mem, a[2], st)
+                    } else {
+                        ENOENT
                     }
                 }
-            }
+                Ok(p) => {
+                    let st = self.files.stat_at(fd(a[0]), &p);
+                    self.stat(mem, a[2], st)
+                }
+            },
             "access" | "faccessat" => {
-                let p = if name == "access" { Self::path(mem, a[0]) } else { Self::at_path(mem, a[0], a[1]) };
-                match p.and_then(|p| self.files.stat_path(&p)) {
+                let (dirfd, at) = if name == "access" { (files::AT_FDCWD, a[0]) } else { (fd(a[0]), a[1]) };
+                match Self::path_arg(mem, at).and_then(|p| self.files.stat_at(dirfd, &p)) {
                     Ok(_) => 0,
                     Err(e) => e,
                 }
             }
-            "unlink" | "unlinkat" => {
-                let p = if name == "unlink" { Self::path(mem, a[0]) } else { Self::at_path(mem, a[0], a[1]) };
-                match p {
-                    Ok(p) => self.files.unlink(&p),
+            "unlink" | "rmdir" | "unlinkat" => {
+                let (dirfd, at, flags) = match name.as_str() {
+                    "unlinkat" => (fd(a[0]), a[1], a[2]),
+                    "rmdir" => (files::AT_FDCWD, a[0], files::AT_REMOVEDIR),
+                    _ => (files::AT_FDCWD, a[0], 0),
+                };
+                if flags & !files::AT_REMOVEDIR != 0 {
+                    EINVAL
+                } else {
+                    match Self::path_arg(mem, at) {
+                        Ok(p) => self.files.unlink_at(dirfd, &p, flags),
+                        Err(e) => e,
+                    }
+                }
+            }
+            "mkdir" | "mkdirat" => {
+                let (dirfd, at) = if name == "mkdir" { (files::AT_FDCWD, a[0]) } else { (fd(a[0]), a[1]) };
+                match Self::path_arg(mem, at) {
+                    Ok(p) => self.files.mkdir_at(dirfd, &p),
                     Err(e) => e,
                 }
             }
+            "getdents64" => {
+                let got = self.files.getdents(fd(a[0]), a[2].min(0x7fff_ffff) as usize);
+                Self::give(mem, a[1], got)
+            }
+            "dup" => self.files.dup(fd(a[0]), 0, false),
+            "dup2" => self.files.dup2(fd(a[0]), fd(a[1])),
+            "dup3" => self.files.dup3(fd(a[0]), fd(a[1]), a[2] & 0xffff_ffff),
+            "fcntl" => self.files.fcntl(fd(a[0]), a[1] & 0xffff_ffff, a[2]),
+            "pipe" | "pipe2" => match self.files.pipe(if name == "pipe" { 0 } else { a[1] & 0xffff_ffff }) {
+                Err(e) => e,
+                Ok((r, w)) => match range(mem, a[0], 8) {
+                    Some(at) => {
+                        mem[at.start..at.start + 4].copy_from_slice(&(r as i32).to_le_bytes());
+                        mem[at.start + 4..at.start + 8].copy_from_slice(&(w as i32).to_le_bytes());
+                        0
+                    }
+                    None => {
+                        self.files.close(r);
+                        self.files.close(w);
+                        EFAULT
+                    }
+                },
+            },
             "ioctl" => ENOTTY,
             "getpid" | "gettid" | "getuid" | "geteuid" | "getgid" | "getegid" | "set_tid_address" => 1000,
             "uname" => {
@@ -800,7 +1231,7 @@ mod tests {
             let mut shim = Shim::new(arch, 0x10000, 0x80000, vec![], BTreeMap::new());
             let mut budget = 1_000;
             assert_eq!(drive(&mut vm, &mut shim, &mut budget, 1_000, 10), Event::Exit(7));
-            assert_eq!(shim.stdout, b"hello");
+            assert_eq!(shim.files.stdout, b"hello");
             assert_eq!(shim.counts.get("write"), Some(&1));
         }
     }
@@ -819,7 +1250,7 @@ mod tests {
         set_reg(&mut mem, 6, (MEM - 2) as u64);
         shim.handle(&mut mem);
         assert_eq!(reg(&mem, 0) as i64, EFAULT);
-        assert!(shim.stdout.is_empty());
+        assert!(shim.files.stdout.is_empty());
     }
 
     #[test]
@@ -921,8 +1352,8 @@ mod tests {
             assert_eq!(call(&mut shim, &mut mem, write, &[out, 0x2200, 3]), 3);
             assert_eq!(call(&mut shim, &mut mem, lseek, &[out, (-100i64) as u64, 1]), EINVAL);
             assert_eq!(call(&mut shim, &mut mem, openat, &[cwd, 0x2100, (files::O_WRONLY | files::O_CREAT | files::O_EXCL) as u64, 0]), EEXIST);
-            assert_eq!(call(&mut shim, &mut mem, openat, &[cwd, 0x2300, 0, 0]), EISDIR, ".. stays at the root");
-            assert_eq!(call(&mut shim, &mut mem, openat, &[7, 0x2000, 0, 0]), EBADF, "no other directories to be relative to");
+            assert_eq!(call(&mut shim, &mut mem, openat, &[cwd, 0x2300, files::O_WRONLY, 0]), EISDIR, ".. stays at the root");
+            assert_eq!(call(&mut shim, &mut mem, openat, &[7, 0x2000, 0, 0]), EBADF, "7 is not open");
             assert_eq!(call(&mut shim, &mut mem, close, &[fd]), 0);
             assert_eq!(call(&mut shim, &mut mem, close, &[fd]), EBADF);
             assert_eq!(call(&mut shim, &mut mem, unlinkat, &[cwd, 0x2000, 0]), 0);
@@ -930,6 +1361,62 @@ mod tests {
             let snap = shim.files.snapshot();
             assert_eq!(snap.keys().collect::<Vec<_>>(), vec!["/out.txt"]);
             assert_eq!(snap["/out.txt"], b"\0\0\0\0xyz", "a hole before the write reads as zeros");
+            assert!(shim.unsupported.is_empty());
+        }
+    }
+
+    #[test]
+    fn directories_dup_and_pipes_on_both_architectures() {
+        // The numbers fixtures/linux/dirs.c uses on each architecture.
+        for (arch, openat, read, write, close, mkdirat, getdents64, dup, dup3, pipe2, o_directory) in
+            [(Arch::X86_64, 257, 0, 1, 3, 258, 217, 32, 292, 293, 0x10000), (Arch::Aarch64, 56, 63, 64, 57, 34, 61, 23, 24, 59, 0x4000)]
+        {
+            let mut shim = Shim::new(arch, 0x40000, 0x80000, vec![], BTreeMap::new());
+            let mut mem = vec![0u8; MEM];
+            mem[0x2000..0x2002].copy_from_slice(b"d\0");
+            mem[0x2100..0x2106].copy_from_slice(b"f.txt\0");
+            mem[0x2200..0x2204].copy_from_slice(b"ping");
+            let call = |shim: &mut Shim, mem: &mut Vec<u8>, nr: u64, args: &[u64]| {
+                set_reg(mem, arch.nr_reg(), nr);
+                for (i, v) in args.iter().enumerate() {
+                    set_reg(mem, arch.arg_regs()[i], *v);
+                }
+                shim.handle(mem);
+                reg(mem, arch.ret_reg()) as i64
+            };
+            let cwd = -100i64 as u64;
+            assert_eq!(call(&mut shim, &mut mem, mkdirat, &[cwd, 0x2000, 0o755]), 0);
+            let d = call(&mut shim, &mut mem, openat, &[cwd, 0x2000, o_directory, 0]) as u64;
+            assert_eq!(d, 3);
+            let f = call(&mut shim, &mut mem, openat, &[d, 0x2100, files::O_WRONLY | files::O_CREAT, 0o644]) as u64;
+            assert_eq!(f, 4, "created relative to the directory descriptor");
+            assert_eq!(call(&mut shim, &mut mem, dup3, &[f, 1, 0]), 1, "stdout now goes to d/f.txt");
+            assert_eq!(call(&mut shim, &mut mem, write, &[1, 0x2200, 4]), 4);
+            assert!(shim.files.stdout.is_empty());
+            let n = call(&mut shim, &mut mem, getdents64, &[d, 0x3000, 4096]) as usize;
+            let mut names = Vec::new();
+            let mut at = 0x3000;
+            while at < 0x3000 + n {
+                let reclen = u16::from_le_bytes([mem[at + 16], mem[at + 17]]) as usize;
+                let name: Vec<u8> = mem[at + 19..].iter().take_while(|b| **b != 0).copied().collect();
+                names.push((String::from_utf8(name).unwrap(), mem[at + 18]));
+                at += reclen;
+            }
+            assert_eq!(names, vec![(".".into(), 4), ("..".into(), 4), ("f.txt".into(), 8)]);
+            assert_eq!(call(&mut shim, &mut mem, pipe2, &[0x4000, 0]), 0);
+            let (r, w) = (rd64(&mem, 0x4000) & 0xffff_ffff, rd64(&mem, 0x4000) >> 32);
+            assert_eq!((r, w), (5, 6));
+            let w2 = call(&mut shim, &mut mem, dup, &[w]) as u64;
+            assert_eq!(call(&mut shim, &mut mem, write, &[w2, 0x2200, 4]), 4);
+            assert_eq!(call(&mut shim, &mut mem, close, &[w]), 0);
+            assert_eq!(call(&mut shim, &mut mem, read, &[r, 0x5000, 2]), 2);
+            assert_eq!(call(&mut shim, &mut mem, close, &[w2]), 0);
+            assert_eq!(call(&mut shim, &mut mem, read, &[r, 0x5000, 10]), 2, "the rest, then end of file");
+            assert_eq!(call(&mut shim, &mut mem, read, &[r, 0x5000, 10]), 0);
+            assert_eq!(&mem[0x5000..0x5002], b"ng");
+            let snap = shim.files.snapshot();
+            assert_eq!(snap.keys().collect::<Vec<_>>(), vec!["/d/", "/d/f.txt"]);
+            assert_eq!(snap["/d/f.txt"], b"ping");
             assert!(shim.unsupported.is_empty());
         }
     }

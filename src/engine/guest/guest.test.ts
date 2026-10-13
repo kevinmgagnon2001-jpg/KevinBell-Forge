@@ -5,6 +5,7 @@ import { decodeArm } from "./arm.ts";
 import { describeOp, Stop } from "./ir.ts";
 import { runLinux } from "./linux.ts";
 import { decodeX86 } from "./x86.ts";
+import { parseRecordedTree } from "../../../scripts/fixture-tree.ts";
 
 const fixture = (name: string) => new Uint8Array(readFileSync(new URL(`../../../fixtures/linux/${name}`, import.meta.url)));
 const text = (name: string) => readFileSync(new URL(`../../../fixtures/linux/${name}`, import.meta.url), "utf8");
@@ -150,6 +151,26 @@ test("files: raw system calls on x86-64 and AArch64, and glibc stdio, match real
       assert.deepEqual(report.unsupportedSyscalls, []);
       const tree = Object.fromEntries(Object.entries(report.files).map(([k, v]) => [k, new TextDecoder().decode(v)]));
       assert.deepEqual(tree, run.tree, `${run.file} ${engine}`);
+    }
+  }
+});
+
+test("directories, dup, fcntl and pipes: raw system calls on x86-64 and AArch64, and glibc, match real hardware", () => {
+  const input = fixture("files-in.txt");
+  const runs = [
+    { file: "dirs-x86_64.elf", name: "dirs" },
+    { file: "dirs-aarch64.elf", name: "dirs" },
+    { file: "libc-dirs-x86_64.elf", name: "libc-dirs" },
+  ];
+  for (const run of runs) {
+    for (const engine of ["tiered", "interpreter", "wasm"] as const) {
+      const report = runLinux(fixture(run.file), { engine, files: { "in.txt": input } });
+      assert.equal(report.ok, true, `${run.file} ${engine}: ${report.detail}`);
+      assert.equal(report.stdout, text(`${run.name}.expected`), `${run.file} ${engine}`);
+      assert.equal(report.exitCode, Number(text(`${run.name}.exitcode`).trim()));
+      assert.deepEqual(report.unsupportedSyscalls, []);
+      const tree = Object.fromEntries(Object.entries(report.files).map(([k, v]) => [k, new TextDecoder().decode(v)]));
+      assert.deepEqual(tree, parseRecordedTree(text(`${run.name}.tree`)), `${run.file} ${engine}`);
     }
   }
 });

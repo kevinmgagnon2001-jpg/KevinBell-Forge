@@ -7,8 +7,9 @@
  * The shim is a capability boundary, not a kernel. It implements what ordinary command-line
  * programs need to print and exit (write, writev, read from a provided stdin, brk, anonymous mmap,
  * exit), plus files inside a private tree the host hands over (options.files): open, read, write,
- * seek, stat and unlink act on that tree only, and the tree as the program left it comes back in the
- * report. Everything else answers -ENOSYS, recorded in the report. The host's own files, network,
+ * seek, stat, unlink, directories (mkdir, getdents64, rmdir), dup/dup2/dup3, fcntl and pipes act on
+ * that tree and the program's own descriptors only, and the tree as the program left it comes back in
+ * the report. Everything else answers -ENOSYS, recorded in the report. The host's own files, network,
  * processes and signals are not reachable. Bytes the lifter does not know are reported and never executed.
  */
 import { readElf, PF_X, type Segment } from "./elf.ts";
@@ -16,7 +17,7 @@ import { GuestState, Interpreter, type Engine } from "./machine.ts";
 import { STOP_NAME, Stop, TP, type Gap, type GuestArch, type StopCode } from "./ir.ts";
 import { inText, lift, newProgram, type Program } from "./lift.ts";
 import { instantiate, lowerProgram } from "./wasm.ts";
-import { GuestFiles } from "./files.ts";
+import { AT_FDCWD, GuestFiles, O_DIRECTORY, type ByteSink, type Stat } from "./files.ts";
 
 export type LinuxOptions = {
   /** "tiered" (default): interpreter first, WebAssembly once the program runs long. "wasm": WebAssembly from the start. */
@@ -30,8 +31,9 @@ export type LinuxOptions = {
   /** Upper bound on host round trips (system calls and re-lifts). */
   maxEvents?: number;
   /**
-   * The program's file tree, path -> contents. Relative paths resolve against "/". The program sees
-   * only these files (and any it creates); nothing outside the tree is reachable.
+   * The program's file tree, path -> contents. Relative paths resolve against "/"; a path ending in
+   * "/" is an empty directory. The program sees only these files (and any it creates); nothing
+   * outside the tree is reachable.
    */
   files?: FileTree;
 };
@@ -54,12 +56,11 @@ export type LinuxReport = {
   unsupportedSyscalls: string[];
   instructions: number;
   relifts: number;
-  /** The file tree as the program left it. */
+  /** The file tree as the program left it. Directories appear as "path/" with empty contents. */
   files: Record<string, Uint8Array>;
 };
 
 const ENOSYS = -38n;
-const EBADF = -9n;
 const EINVAL = -22n;
 const ENOMEM = -12n;
 const ENOTTY = -25n;
@@ -73,14 +74,14 @@ export const ABI: Record<GuestArch, { nr: number; args: number[]; ret: number; s
     args: [7, 6, 2, 10, 8, 9],
     ret: 0,
     sp: 4,
-    names: { 0: "read", 1: "write", 2: "open", 3: "close", 5: "fstat", 8: "lseek", 9: "mmap", 10: "mprotect", 11: "munmap", 12: "brk", 13: "rt_sigaction", 14: "rt_sigprocmask", 16: "ioctl", 20: "writev", 21: "access", 28: "madvise", 39: "getpid", 60: "exit", 63: "uname", 87: "unlink", 89: "readlink", 102: "getuid", 104: "getgid", 107: "geteuid", 108: "getegid", 158: "arch_prctl", 186: "gettid", 201: "time", 218: "set_tid_address", 228: "clock_gettime", 231: "exit_group", 257: "openat", 262: "newfstatat", 263: "unlinkat", 267: "readlinkat", 269: "faccessat", 273: "set_robust_list", 302: "prlimit64", 318: "getrandom", 334: "rseq" },
+    names: { 0: "read", 1: "write", 2: "open", 3: "close", 5: "fstat", 8: "lseek", 9: "mmap", 10: "mprotect", 11: "munmap", 12: "brk", 13: "rt_sigaction", 14: "rt_sigprocmask", 16: "ioctl", 20: "writev", 21: "access", 22: "pipe", 28: "madvise", 32: "dup", 33: "dup2", 39: "getpid", 60: "exit", 63: "uname", 72: "fcntl", 83: "mkdir", 84: "rmdir", 87: "unlink", 89: "readlink", 102: "getuid", 104: "getgid", 107: "geteuid", 108: "getegid", 158: "arch_prctl", 186: "gettid", 201: "time", 217: "getdents64", 218: "set_tid_address", 228: "clock_gettime", 231: "exit_group", 257: "openat", 258: "mkdirat", 262: "newfstatat", 263: "unlinkat", 267: "readlinkat", 269: "faccessat", 273: "set_robust_list", 292: "dup3", 293: "pipe2", 302: "prlimit64", 318: "getrandom", 334: "rseq" },
   },
   aarch64: {
     nr: 8,
     args: [0, 1, 2, 3, 4, 5],
     ret: 0,
     sp: 31,
-    names: { 29: "ioctl", 35: "unlinkat", 48: "faccessat", 56: "openat", 57: "close", 62: "lseek", 63: "read", 64: "write", 66: "writev", 78: "readlinkat", 79: "newfstatat", 80: "fstat", 93: "exit", 94: "exit_group", 96: "set_tid_address", 99: "set_robust_list", 113: "clock_gettime", 134: "rt_sigaction", 135: "rt_sigprocmask", 160: "uname", 172: "getpid", 174: "getuid", 175: "geteuid", 176: "getgid", 177: "getegid", 178: "gettid", 214: "brk", 215: "munmap", 222: "mmap", 226: "mprotect", 233: "madvise", 261: "prlimit64", 278: "getrandom", 293: "rseq" },
+    names: { 23: "dup", 24: "dup3", 25: "fcntl", 29: "ioctl", 34: "mkdirat", 35: "unlinkat", 48: "faccessat", 56: "openat", 57: "close", 59: "pipe2", 61: "getdents64", 62: "lseek", 63: "read", 64: "write", 66: "writev", 78: "readlinkat", 79: "newfstatat", 80: "fstat", 93: "exit", 94: "exit_group", 96: "set_tid_address", 99: "set_robust_list", 113: "clock_gettime", 134: "rt_sigaction", 135: "rt_sigprocmask", 160: "uname", 172: "getpid", 174: "getuid", 175: "geteuid", 176: "getgid", 177: "getegid", 178: "gettid", 214: "brk", 215: "munmap", 222: "mmap", 226: "mprotect", 233: "madvise", 261: "prlimit64", 278: "getrandom", 293: "rseq" },
   },
 };
 
@@ -229,24 +230,8 @@ export function sparseChunks(memory: Uint8Array, gap = 64): { addr: number; byte
   return out;
 }
 
-class ByteSink {
-  private parts: Uint8Array[] = [];
-  private size = 0;
-  push(data: Uint8Array) {
-    if (this.size > 64 * 1024 * 1024) return;
-    this.parts.push(data);
-    this.size += data.length;
-  }
-  bytes(): Uint8Array {
-    const out = new Uint8Array(this.size);
-    let at = 0;
-    for (const p of this.parts) {
-      out.set(p, at);
-      at += p.length;
-    }
-    return out;
-  }
-}
+/** A descriptor argument: the low 32 bits, signed, as the kernel reads an int. */
+const fd = (v: bigint) => Number(BigInt.asIntN(32, v));
 
 /**
  * The Linux system-call shim. The same table is implemented in Rust for the desktop host
@@ -254,13 +239,9 @@ class ByteSink {
  */
 export class LinuxShim {
   readonly arch: GuestArch;
-  readonly stdout = new ByteSink();
-  readonly stderr = new ByteSink();
   readonly counts: Record<string, number> = {};
   readonly unsupported = new Set<string>();
   exitCode: number | null = null;
-  private stdin: Uint8Array;
-  private stdinAt = 0;
   private brkBase: bigint;
   private brk: bigint;
   private mmapTop: bigint;
@@ -271,16 +252,15 @@ export class LinuxShim {
     this.brkBase = brkBase;
     this.brk = brkBase;
     this.mmapTop = mmapTop;
-    this.stdin = typeof stdin === "string" ? enc.encode(stdin) : stdin ?? new Uint8Array();
-    this.files = new GuestFiles(files);
+    this.files = new GuestFiles(files, stdin);
   }
 
-  private writeOut(fd: bigint, data: Uint8Array): bigint {
-    if (fd === 1n) this.stdout.push(data);
-    else if (fd === 2n) this.stderr.push(data);
-    else if (fd >= 3n && fd < 0x10000n) return this.files.write(Number(fd), data);
-    else return EBADF;
-    return BigInt(data.length);
+  get stdout(): ByteSink {
+    return this.files.stdout;
+  }
+
+  get stderr(): ByteSink {
+    return this.files.stderr;
   }
 
   /** A NUL-terminated path from guest memory, or an errno. */
@@ -296,11 +276,11 @@ export class LinuxShim {
   }
 
   /** struct stat for this architecture (x86-64, or the generic layout AArch64 uses). */
-  private stat(state: GuestState, buf: bigint, st: { dir: boolean; size: number } | bigint): bigint {
+  private stat(state: GuestState, buf: bigint, st: Stat | bigint): bigint {
     if (typeof st === "bigint") return st;
     const out = new Uint8Array(this.arch === "x86_64" ? 144 : 128);
     const v = new DataView(out.buffer);
-    const mode = st.dir ? 0o40755 : 0o100644;
+    const mode = st.kind === "dir" ? 0o40755 : st.kind === "fifo" ? 0o10600 : 0o100644;
     const ino = BigInt(st.size + 2);
     v.setBigUint64(8, ino, true);
     if (this.arch === "x86_64") {
@@ -317,13 +297,21 @@ export class LinuxShim {
     return state.write(buf, out) ? 0n : EFAULT;
   }
 
-  /** openat/newfstatat/unlinkat/faccessat take a directory descriptor; only the working directory ("/") exists. */
-  private atPath(state: GuestState, dirfd: bigint, addr: bigint): string | bigint {
+  /** A path argument: empty paths do not name anything. */
+  private pathArg(state: GuestState, addr: bigint): string | bigint {
     const path = this.path(state, addr);
-    if (typeof path !== "string") return path;
-    if (!path) return ENOENT;
-    if (!path.startsWith("/") && BigInt.asIntN(32, dirfd) !== -100n) return EBADF;
-    return path;
+    return path === "" ? ENOENT : path;
+  }
+
+  /** O_DIRECTORY is 0x4000 on AArch64 (where 0x10000 is O_DIRECT); GuestFiles takes the x86-64 bits. */
+  private openFlags(flags: bigint): number {
+    let f = Number(flags & 0xffffffffn);
+    if (this.arch === "aarch64") {
+      const dir = f & 0x4000;
+      f &= ~(0x4000 | 0x10000);
+      if (dir) f |= O_DIRECTORY;
+    }
+    return f;
   }
 
   /** Answer the system call the guest is making. Returns "exit" when the program ends. */
@@ -344,7 +332,7 @@ export class LinuxShim {
       case "write": {
         const len = Number(a2 > 0x7fffffffn ? 0x7fffffffn : a2);
         const data = state.read(a1, len);
-        return data ? this.writeOut(a0, data.slice()) : EFAULT;
+        return data ? this.files.write(fd(a0), data.slice()) : EFAULT;
       }
       case "writev": {
         let total = 0n;
@@ -354,23 +342,17 @@ export class LinuxShim {
           const v = new DataView(iov.buffer, iov.byteOffset, 16);
           const data = state.read(v.getBigUint64(0, true), Number(v.getBigUint64(8, true) & 0x7fffffffn));
           if (!data) return EFAULT;
-          const n = this.writeOut(a0, data.slice());
-          if (n < 0n) return n;
+          const n = this.files.write(fd(a0), data.slice());
+          if (n < 0n) return total || n;
           total += n;
+          if (n < BigInt(data.length)) break;
         }
         return total;
       }
       case "read": {
-        if (a0 >= 3n && a0 < 0x10000n) {
-          const got = this.files.read(Number(a0), Number(a2 > 0x7fffffffn ? 0x7fffffffn : a2));
-          if (typeof got === "bigint") return got;
-          return got.length && !state.write(a1, got) ? EFAULT : BigInt(got.length);
-        }
-        if (a0 !== 0n) return EBADF;
-        const n = Math.max(0, Math.min(Number(a2 > 0x7fffffffn ? 0x7fffffffn : a2), this.stdin.length - this.stdinAt));
-        if (n > 0 && !state.write(a1, this.stdin.subarray(this.stdinAt, this.stdinAt + n))) return EFAULT;
-        this.stdinAt += n;
-        return BigInt(n);
+        const got = this.files.read(fd(a0), Number(a2 > 0x7fffffffn ? 0x7fffffffn : a2));
+        if (typeof got === "bigint") return got;
+        return got.length && !state.write(a1, got) ? EFAULT : BigInt(got.length);
       }
       case "exit":
       case "exit_group":
@@ -405,39 +387,68 @@ export class LinuxShim {
       case "set_robust_list":
         return 0n;
       case "close":
-        return a0 < 3n ? 0n : this.files.close(a0 < 0x10000n ? Number(a0) : -1);
+        return this.files.close(fd(a0));
       case "openat":
       case "open": {
-        const [dirfd, at, flags] = name === "open" ? [-100n, a0, a1] : [a0, a1, a2];
-        const path = this.atPath(state, dirfd, at);
-        return typeof path === "string" ? this.files.open(path, Number(flags & 0xffffffffn)) : path;
+        const [dirfd, at, flags] = name === "open" ? [AT_FDCWD, a0, a1] : [fd(a0), a1, a2];
+        const path = this.pathArg(state, at);
+        return typeof path === "string" ? this.files.openAt(dirfd, path, this.openFlags(flags)) : path;
       }
       case "lseek":
-        return this.files.lseek(a0 < 0x10000n ? Number(a0) : -1, BigInt.asIntN(64, a1), Number(a2));
+        return this.files.lseek(fd(a0), BigInt.asIntN(64, a1), Number(a2 & 0xffffffffn));
       case "fstat":
-        // Standard streams have no file behind them here; libc then falls back to its defaults.
-        if (a0 < 3n) return ENOENT;
-        return this.stat(state, a1, this.files.statFd(a0 < 0x10000n ? Number(a0) : -1));
+        return this.stat(state, a1, this.files.statFd(fd(a0)));
       case "newfstatat": {
+        const path = this.path(state, a1);
+        if (typeof path !== "string") return path;
         // fstat(fd) arrives as newfstatat(fd, "", buf, AT_EMPTY_PATH).
-        if ((a3 & 0x1000n) !== 0n) {
-          const p = this.path(state, a1);
-          if (p === "") return a0 < 3n ? ENOENT : this.stat(state, a2, this.files.statFd(a0 < 0x10000n ? Number(a0) : -1));
-        }
-        const path = this.atPath(state, a0, a1);
-        return typeof path === "string" ? this.stat(state, a2, this.files.statPath(path)) : path;
+        if (path === "") return (a3 & 0x1000n) !== 0n ? this.stat(state, a2, this.files.statFd(fd(a0))) : ENOENT;
+        return this.stat(state, a2, this.files.statAt(fd(a0), path));
       }
       case "access":
       case "faccessat": {
-        const path = name === "access" ? this.path(state, a0) : this.atPath(state, a0, a1);
+        const path = this.pathArg(state, name === "access" ? a0 : a1);
         if (typeof path !== "string") return path;
-        const st = this.files.statPath(path);
+        const st = this.files.statAt(name === "access" ? AT_FDCWD : fd(a0), path);
         return typeof st === "bigint" ? st : 0n;
       }
       case "unlink":
+      case "rmdir":
       case "unlinkat": {
-        const path = name === "unlink" ? this.path(state, a0) : this.atPath(state, a0, a1);
-        return typeof path === "string" ? this.files.unlink(path) : path;
+        const path = this.pathArg(state, name === "unlinkat" ? a1 : a0);
+        if (typeof path !== "string") return path;
+        if (name === "unlinkat") return a2 & ~0x200n ? EINVAL : this.files.unlinkAt(fd(a0), path, Number(a2));
+        return this.files.unlinkAt(AT_FDCWD, path, name === "rmdir" ? 0x200 : 0);
+      }
+      case "mkdir":
+      case "mkdirat": {
+        const path = this.pathArg(state, name === "mkdir" ? a0 : a1);
+        return typeof path === "string" ? this.files.mkdirAt(name === "mkdir" ? AT_FDCWD : fd(a0), path) : path;
+      }
+      case "getdents64": {
+        const got = this.files.getdents(fd(a0), Number(a2 > 0x7fffffffn ? 0x7fffffffn : a2));
+        if (typeof got === "bigint") return got;
+        return got.length && !state.write(a1, got) ? EFAULT : BigInt(got.length);
+      }
+      case "dup":
+        return this.files.dup(fd(a0));
+      case "dup2":
+        return this.files.dup2(fd(a0), fd(a1));
+      case "dup3":
+        return this.files.dup3(fd(a0), fd(a1), Number(a2 & 0xffffffffn));
+      case "fcntl":
+        return this.files.fcntl(fd(a0), Number(a1 & 0xffffffffn), a2);
+      case "pipe":
+      case "pipe2": {
+        const ends = this.files.pipe(name === "pipe" ? 0 : Number(a1 & 0xffffffffn));
+        if (typeof ends === "bigint") return ends;
+        const buf = new Uint8Array(8);
+        new DataView(buf.buffer).setInt32(0, ends[0], true);
+        new DataView(buf.buffer).setInt32(4, ends[1], true);
+        if (state.write(a0, buf)) return 0n;
+        this.files.close(ends[0]);
+        this.files.close(ends[1]);
+        return EFAULT;
       }
       case "ioctl":
         return ENOTTY;

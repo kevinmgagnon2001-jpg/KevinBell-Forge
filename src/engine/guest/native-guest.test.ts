@@ -46,8 +46,7 @@ function fakeDesktop() {
     if (cmd !== "guest_resume") throw new Error(cmd);
     const state = new GuestState(s.mem);
     const reply = (status: string, code = 0, pc = 0n, fault = 0n) => {
-      const out = { status, code, detail: "", pc: Number(pc), fault: Number(fault), exitCode: s.shim.exitCode, stdout: Array.from(s.shim.stdout.bytes()), stderr: [], syscalls: { ...s.shim.counts }, unsupported: [...s.shim.unsupported], fuelUsed: s.start - s.budget, files: status === "running" || status === "needs-code" ? null : Object.fromEntries(Object.entries(s.shim.files.snapshot()).map(([k, v]) => [k, Array.from(v)])) };
-      (s.shim as unknown as { stdout: { bytes: () => Uint8Array } }).stdout = new (s.shim.stdout.constructor as any)();
+      const out = { status, code, detail: "", pc: Number(pc), fault: Number(fault), exitCode: s.shim.exitCode, stdout: Array.from(s.shim.stdout.take()), stderr: [], syscalls: { ...s.shim.counts }, unsupported: [...s.shim.unsupported], fuelUsed: s.start - s.budget, files: status === "running" || status === "needs-code" ? null : Object.fromEntries(Object.entries(s.shim.files.snapshot()).map(([k, v]) => [k, Array.from(v)])) };
       return out;
     };
     for (let e = 0; e < a.maxEvents; e += 1) {

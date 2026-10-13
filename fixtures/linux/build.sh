@@ -43,3 +43,20 @@ cp "$d/stdout" files.expected; cp "$d/exitcode" files.exitcode; cp "$d/out.txt" 
 d="$(run_in_tree libc-files-x86_64.elf)"
 cp "$d/stdout" libc-files.expected; cp "$d/report.txt" libc-files.report.txt; rm -rf "$d"
 ls -l files-*.elf libc-files-*.elf
+
+# Directories, descriptors and pipes (N7, second part): the same raw-syscall program on both
+# architectures and a glibc one. The tree each leaves behind is recorded as "d /path" for a directory
+# and "f /path <size>" followed by the contents and a newline for a file.
+gcc -O2 $BASE -no-pie dirs.c -o dirs-x86_64.elf
+clang --target=aarch64-linux-gnu -O2 $BASE -fuse-ld=lld dirs.c -o dirs-aarch64.elf
+gcc -static -O2 -no-pie -s libc-dirs.c -o libc-dirs-x86_64.elf
+dump_tree() {
+  (cd "$1" && find . -mindepth 1 \( -name prog -o -name stdout -o -name exitcode \) -prune -o -print | LC_ALL=C sort | while read -r p; do
+    if [ -d "$p" ]; then echo "d ${p#.}"; else echo "f ${p#.} $(wc -c < "$p")"; cat "$p"; echo; fi
+  done)
+}
+for prog in dirs libc-dirs; do
+  d="$(run_in_tree $prog-x86_64.elf)"
+  cp "$d/stdout" $prog.expected; cp "$d/exitcode" $prog.exitcode; dump_tree "$d" > $prog.tree; rm -rf "$d"
+done
+ls -l dirs-*.elf libc-dirs-*.elf

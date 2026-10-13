@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import test, { after } from "node:test";
 import { runLinuxHosted } from "../src/engine/native-host.ts";
+import { parseRecordedTree } from "./fixture-tree.ts";
 
 const root = new URL("../", import.meta.url);
 const bridgePath = new URL("src-tauri/target/debug/examples/guest_bridge", root).pathname;
@@ -100,4 +101,17 @@ test("files: raw system calls on both architectures and glibc stdio, through was
   assert.equal(libc.stdout, text("libc-files.expected"));
   assert.deepEqual(Object.keys(libc.files), ["/in.txt", "/report.txt"]);
   assert.equal(new TextDecoder().decode(libc.files["/report.txt"]), text("libc-files.report.txt"));
+});
+
+test("directories, dup, fcntl and pipes: both architectures and glibc, through wasmtime, tree left behind included", { skip }, async () => {
+  const input = fixture("files-in.txt");
+  for (const [build, name] of [["dirs-x86_64.elf", "dirs"], ["dirs-aarch64.elf", "dirs"], ["libc-dirs-x86_64.elf", "libc-dirs"]]) {
+    const report = await runLinuxHosted(fixture(build), { files: { "in.txt": input } });
+    assert.equal(report.ok, true, `${build}: ${report.detail}`);
+    assert.equal(report.stdout, text(`${name}.expected`), build);
+    assert.equal(report.exitCode, Number(text(`${name}.exitcode`).trim()));
+    assert.deepEqual(report.unsupportedSyscalls, [], build);
+    const tree = Object.fromEntries(Object.entries(report.files).map(([k, v]) => [k, new TextDecoder().decode(v)]));
+    assert.deepEqual(tree, parseRecordedTree(text(`${name}.tree`)), build);
+  }
 });
