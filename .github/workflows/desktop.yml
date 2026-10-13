@@ -1,7 +1,8 @@
 # Builds the Forge desktop installers on GitHub's servers and attaches them to the GitHub Release.
 #
 #   Push a tag like v0.6.1  -> installers on the "Forge v0.6.1" Release (next to the Android APK).
-#   Actions tab -> "Desktop installers" -> "Run workflow" -> test builds on the run page.
+#   Actions tab -> "Desktop installers" -> "Run workflow" -> test builds on the run page. Pushes that
+#   change src-tauri/ or this workflow also make test builds.
 #
 #   Linux x86-64 and ARM64: .deb and .AppImage. Both are opened on a virtual display first, and
 #   screenshots are kept on the run page; nothing is published if the window does not stay up.
@@ -15,6 +16,9 @@ name: Desktop installers
 on:
   push:
     tags: ["v*"]
+    # Also on branch pushes that change the desktop app or how it is packaged (tags ignore paths).
+    branches: ["**"]
+    paths: ["src-tauri/**", ".github/workflows/desktop.yml", ".github/scripts/desktop-smoke.sh"]
   workflow_dispatch:
 
 permissions:
