@@ -147,7 +147,12 @@ function authPopupPlugin(): Plugin {
 // AGENTS.md § "First scaffold".
 // `vite build --mode desktop` (npm run build:desktop) builds a static single-page app for the native
 // window (Tauri): no server, no Vercel output, no hosted-preview chrome. Everything else is unchanged.
-export default defineConfig(({ command, isPreview, mode }) => ({
+export default defineConfig(({ command, isPreview, mode: requestedMode }) => {
+  // The SPA prerender step starts a preview server that resolves this config again without
+  // `--mode desktop`; remember the choice for the rest of the process so Nitro stays out.
+  if (requestedMode === "desktop") process.env.FORGE_DESKTOP_BUILD = "1";
+  const mode = process.env.FORGE_DESKTOP_BUILD === "1" ? "desktop" : requestedMode;
+  return {
   server: {
     host: "0.0.0.0",
     port: 8080,
@@ -188,4 +193,5 @@ export default defineConfig(({ command, isPreview, mode }) => ({
       : []),
     viteReact(),
   ],
-}));
+};
+});
