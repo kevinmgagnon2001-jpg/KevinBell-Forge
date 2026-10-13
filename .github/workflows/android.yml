@@ -3,6 +3,10 @@
 #   Push a tag like v0.6.1  -> a Release named "Forge v0.6.1" with Forge-0.6.1-android.apk on it.
 #   Actions tab -> "Android APK" -> "Run workflow" -> a test build (download it from the run page).
 #
+# Before anything is published, an x86_64 build of the same app is installed on an Android emulator
+# and launched; the Release only goes out if it starts and keeps running. Screenshots and the
+# page's console log are kept on the run page (artifact "android-smoke").
+#
 # On the phone: open the Release page, tap the .apk, allow "install unknown apps" once, install.
 # Nothing has to be installed on your own computer; the Android SDK, NDK, Java and Rust all live
 # here. See docs/ANDROID.md.
@@ -31,10 +35,16 @@ jobs:
   apk:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    outputs:
+      apk: ${{ steps.sign.outputs.apk }}
+      emulator_apk: ${{ steps.sign.outputs.emulator_apk }}
+      version: ${{ steps.version.outputs.version }}
+      permanent: ${{ steps.sign.outputs.permanent }}
     env:
       NDK_VERSION: "27.2.12479018"
-      # Modern phones are 64-bit ARM. Add more with e.g. "aarch64 armv7" (old 32-bit phones).
-      ANDROID_TARGETS: "aarch64"
+      # Modern phones are 64-bit ARM; x86_64 is the emulator the smoke test runs. Add "armv7" for
+      # old 32-bit phones. Each target becomes its own APK (--split-per-abi).
+      ANDROID_TARGETS: "aarch64 x86_64"
     steps:
       - uses: actions/checkout@v5
 
@@ -108,7 +118,7 @@ jobs:
       - name: Build the APK
         run: |
           # The web interface was built above, so skip Tauri's own beforeBuildCommand.
-          .github/scripts/step.sh "Android compile" npx tauri android build --apk --target ${ANDROID_TARGETS} --config '{"build":{"beforeBuildCommand":""}}'
+          .github/scripts/step.sh "Android compile" npx tauri android build --apk --split-per-abi --target ${ANDROID_TARGETS} --config '{"build":{"beforeBuildCommand":""}}'
 
       - name: Sign the APK
         id: sign
@@ -117,9 +127,11 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
-          UNSIGNED="$(find src-tauri/gen/android/app/build/outputs/apk -name '*release*.apk' | head -n 1)"
-          if [[ -z "$UNSIGNED" ]]; then
-            echo "::error::No release APK was produced"; find src-tauri/gen/android/app/build/outputs -type f; exit 1
+          find src-tauri/gen/android/app/build/outputs/apk -name '*.apk'
+          ARM="$(find src-tauri/gen/android/app/build/outputs/apk -name '*release*.apk' | grep -iE 'arm64|aarch64' | head -n 1)"
+          X86="$(find src-tauri/gen/android/app/build/outputs/apk -name '*release*.apk' | grep -i 'x86_64' | head -n 1)"
+          if [[ -z "$ARM" || -z "$X86" ]]; then
+            echo "::error::Expected an arm64 and an x86_64 release APK"; find src-tauri/gen/android/app/build/outputs -type f; exit 1
           fi
           BUILD_TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)"
           if [[ -n "$KEYSTORE_B64" && -n "$KEYSTORE_PASSWORD" && -n "$KEY_ALIAS" ]]; then
@@ -133,13 +145,20 @@ jobs:
               -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Forge" > /dev/null 2>&1
             echo "permanent=false" >> "$GITHUB_OUTPUT"
           fi
+          sign() {
+            "$BUILD_TOOLS/zipalign" -f -p 4 "$1" aligned.apk
+            "$BUILD_TOOLS/apksigner" sign --ks "$RUNNER_TEMP/forge.jks" --ks-pass "pass:$KEYSTORE_PASSWORD" \
+              --key-pass "pass:$KEYSTORE_PASSWORD" --ks-key-alias "$KEY_ALIAS" --out "$2" aligned.apk
+            "$BUILD_TOOLS/apksigner" verify "$2"
+            rm -f aligned.apk
+          }
           OUT="Forge-${{ steps.version.outputs.version }}-android.apk"
-          "$BUILD_TOOLS/zipalign" -f -p 4 "$UNSIGNED" aligned.apk
-          "$BUILD_TOOLS/apksigner" sign --ks "$RUNNER_TEMP/forge.jks" --ks-pass "pass:$KEYSTORE_PASSWORD" \
-            --key-pass "pass:$KEYSTORE_PASSWORD" --ks-key-alias "$KEY_ALIAS" --out "$OUT" aligned.apk
-          "$BUILD_TOOLS/apksigner" verify "$OUT"
-          rm -f "$RUNNER_TEMP/forge.jks" aligned.apk
+          EMU="Forge-${{ steps.version.outputs.version }}-android-x86_64.apk"
+          sign "$ARM" "$OUT"
+          sign "$X86" "$EMU"
+          rm -f "$RUNNER_TEMP/forge.jks"
           echo "apk=$OUT" >> "$GITHUB_OUTPUT"
+          echo "emulator_apk=$EMU" >> "$GITHUB_OUTPUT"
 
       - name: Keep the APK on the run page
         uses: actions/upload-artifact@v4
@@ -147,12 +166,60 @@ jobs:
           name: ${{ steps.sign.outputs.apk }}
           path: ${{ steps.sign.outputs.apk }}
 
+      - name: Keep the emulator APK for the smoke test
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.sign.outputs.emulator_apk }}
+          path: ${{ steps.sign.outputs.emulator_apk }}
+          retention-days: 7
+
+  smoke:
+    name: Launch on an Android emulator
+    needs: apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.apk.outputs.emulator_apk }}
+      - name: Let the emulator use KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Install, launch and watch Forge
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          disable-animations: true
+          script: .github/scripts/android-smoke.sh "${{ needs.apk.outputs.emulator_apk }}" android-smoke
+      - name: Keep screenshots and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-smoke
+          path: android-smoke
+          retention-days: 14
+
+  release:
+    name: Publish the Release
+    needs: [apk, smoke]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ needs.apk.outputs.apk }}
       - name: Publish the Release
-        if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          name: Forge v${{ steps.version.outputs.version }}
-          files: ${{ steps.sign.outputs.apk }}
+          name: Forge v${{ needs.apk.outputs.version }}
+          files: ${{ needs.apk.outputs.apk }}
           body: |
-            **Android:** open this page on your phone, tap `${{ steps.sign.outputs.apk }}` below, and allow installs from your browser when Android asks (once).
-            ${{ steps.sign.outputs.permanent == 'true' && 'Installs over the previous version; your data is kept.' || 'Signed with a one-off key: if an older Forge is installed, uninstall it first.' }}
+            **Android:** open this page on your phone, tap `${{ needs.apk.outputs.apk }}` below, and allow installs from your browser when Android asks (once).
+            ${{ needs.apk.outputs.permanent == 'true' && 'Installs over the previous version; your data is kept.' || 'Signed with a one-off key: if an older Forge is installed, uninstall it first.' }}
