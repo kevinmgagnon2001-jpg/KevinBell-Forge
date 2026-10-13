@@ -178,4 +178,6 @@ Tests: `npm run test:engine` (107 pass) and `rustc --edition 2021 --test src-tau
 - Phone layout (<= 600px): the view is taller (64dvh); the second readout line that sat on top of the HUD is
   hidden; the texture arc is scaled to 78% so it clears the view buttons and the look pad; Find room sits above
   the look pad instead of squeezing the move row; toolbar and quick-intent buttons keep their labels on one line.
+- Selection and gaze outlines draw the box's 12 edges instead of a wireframe, so flat panels (the terminal
+  screen) no longer show a diagonal seam. The manifold banner sits below the HUD readout instead of over it.
 - Desktop: the controls hint moved to the left, above the move keys, so it no longer covers the texture arc.
