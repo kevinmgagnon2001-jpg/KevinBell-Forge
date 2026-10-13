@@ -1,0 +1,10 @@
+forge workload
+primes below 10000: 1229
+fib(24): 46368
+sorted: -100 -7 -1 0 3 5 5 12 19 42 64 77
+fnv1a("forge"): 0x5eb725ab22e70e02
+names: zero one two three four five many many
+pipeline: -80460899
+longest collatz below 3000: 2919 (216 steps)
+division: -176366 -5 281474132
+stdin bytes: 3

@@ -1,0 +1,7 @@
+glibc on Forge: argc=1 argv0=set
+sorted: min=-49972 median=763 max=49974
+13 words, 9 distinct: brown=1 dog=1 end=1 fox=2 jumps=1 lazy=1 over=1 quick=1 the=4
+snprintf: [0000beef|ab    |  +42|   xy|-9000000000|18000000000000000000|Q|%] len=64
+strtol: -1234 255 511
+upper: MIXED CASE TEXT, strstr: lazy dog the fox the end, memcmp: 1
+big: 1048575 bytes, last=z

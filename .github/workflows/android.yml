@@ -1,0 +1,154 @@
+# Builds the Forge Android app (APK) on GitHub's servers and attaches it to a GitHub Release.
+#
+#   Push a tag like v0.6.1  -> a Release named "Forge v0.6.1" with Forge-0.6.1-android.apk on it.
+#   Actions tab -> "Android APK" -> "Run workflow" -> a test build (download it from the run page).
+#
+# On the phone: open the Release page, tap the .apk, allow "install unknown apps" once, install.
+# Nothing has to be installed on your own computer; the Android SDK, NDK, Java and Rust all live
+# here. See docs/ANDROID.md.
+#
+# Signing: Android only installs signed apps, and only lets a new version replace the old one if
+# both were signed with the same key. Put a permanent key in the repository secrets
+# (ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS) and every release
+# updates in place. Without them each build is signed with a one-off key: it installs fine, but
+# the next version needs the old one uninstalled first.
+
+name: Android APK
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to create the Release and upload the APK
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      NDK_VERSION: "27.2.12479018"
+      # Modern phones are 64-bit ARM. Add more with e.g. "aarch64 armv7" (old 32-bit phones).
+      ANDROID_TARGETS: "aarch64"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version from the tag
+        id: version
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(jq -r .version src-tauri/tauri.conf.json)"
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Tag must look like v1.2.3 (got '$GITHUB_REF_NAME')"; exit 1
+          fi
+          # Android uses this to decide that a new APK is an update of the installed one.
+          jq --arg v "$VERSION" '.version = $v' src-tauri/tauri.conf.json > conf.tmp && mv conf.tmp src-tauri/tauri.conf.json
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Android NDK
+        run: |
+          sdkmanager --install "ndk;${NDK_VERSION}" > /dev/null
+          echo "NDK_HOME=$ANDROID_HOME/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android,i686-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install JavaScript dependencies
+        # `npm install` rather than `npm ci`: it tolerates a lock file that is a little behind package.json.
+        run: npm install --no-audit --no-fund
+
+      - name: Engine tests (the same checks as on desktop)
+        run: npm run test:engine
+
+      - name: Build the app's web interface
+        run: npm run build:desktop
+
+      - name: Generate the Android project
+        run: |
+          # src-tauri/gen is generated, never committed; start clean every time.
+          rm -rf src-tauri/gen/android
+          npx tauri android init --ci
+          npx tauri icon src-tauri/icons/icon.png
+          # Islands and compute devices on your own network speak plain http://. Android blocks
+          # that in release builds unless the app opts in.
+          GRADLE=src-tauri/gen/android/app/build.gradle.kts
+          if grep -q 'usesCleartextTraffic' "$GRADLE"; then
+            sed -i 's/manifestPlaceholders\["usesCleartextTraffic"\] = "false"/manifestPlaceholders["usesCleartextTraffic"] = "true"/' "$GRADLE"
+          fi
+
+      - name: Build the APK
+        run: |
+          # The web interface was built above, so skip Tauri's own beforeBuildCommand.
+          npx tauri android build --apk --target ${ANDROID_TARGETS} --config '{"build":{"beforeBuildCommand":""}}'
+
+      - name: Sign the APK
+        id: sign
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          UNSIGNED="$(find src-tauri/gen/android/app/build/outputs/apk -name '*release*.apk' | head -n 1)"
+          if [[ -z "$UNSIGNED" ]]; then
+            echo "::error::No release APK was produced"; find src-tauri/gen/android/app/build/outputs -type f; exit 1
+          fi
+          BUILD_TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)"
+          if [[ -n "$KEYSTORE_B64" && -n "$KEYSTORE_PASSWORD" && -n "$KEY_ALIAS" ]]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/forge.jks"
+            echo "permanent=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No signing key in the repository secrets. This APK is signed with a one-off key, so installing the next version will need this one uninstalled first. See docs/ANDROID.md."
+            KEYSTORE_PASSWORD="$(openssl rand -hex 16)"
+            KEY_ALIAS=forge
+            keytool -genkeypair -keystore "$RUNNER_TEMP/forge.jks" -storepass "$KEYSTORE_PASSWORD" -keypass "$KEYSTORE_PASSWORD" \
+              -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Forge" > /dev/null 2>&1
+            echo "permanent=false" >> "$GITHUB_OUTPUT"
+          fi
+          OUT="Forge-${{ steps.version.outputs.version }}-android.apk"
+          "$BUILD_TOOLS/zipalign" -f -p 4 "$UNSIGNED" aligned.apk
+          "$BUILD_TOOLS/apksigner" sign --ks "$RUNNER_TEMP/forge.jks" --ks-pass "pass:$KEYSTORE_PASSWORD" \
+            --key-pass "pass:$KEYSTORE_PASSWORD" --ks-key-alias "$KEY_ALIAS" --out "$OUT" aligned.apk
+          "$BUILD_TOOLS/apksigner" verify "$OUT"
+          rm -f "$RUNNER_TEMP/forge.jks" aligned.apk
+          echo "apk=$OUT" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the APK on the run page
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.sign.outputs.apk }}
+          path: ${{ steps.sign.outputs.apk }}
+
+      - name: Publish the Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Forge v${{ steps.version.outputs.version }}
+          files: ${{ steps.sign.outputs.apk }}
+          body: |
+            **Android:** open this page on your phone, tap `${{ steps.sign.outputs.apk }}` below, and allow installs from your browser when Android asks (once).
+            ${{ steps.sign.outputs.permanent == 'true' && 'Installs over the previous version; your data is kept.' || 'Signed with a one-off key: if an older Forge is installed, uninstall it first.' }}

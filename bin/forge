@@ -1,0 +1,4 @@
+#!/bin/sh
+# Forge command line. Needs Node 22 or newer.
+here="$(cd "$(dirname "$0")" && pwd)"
+exec node "$here/../dist/forge.mjs" "$@"

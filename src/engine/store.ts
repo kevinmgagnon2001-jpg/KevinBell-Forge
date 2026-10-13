@@ -1,0 +1,704 @@
+import { create } from "zustand";
+import { propose, sceneRefs } from "./bonded";
+import { nearestColorName } from "./color";
+import { executeProposal } from "./harness";
+import { bootWorld, ensureAvatar, ensureHelm, labWorld, stepWorld } from "./manifold";
+import { DEFAULT_MODEL_PATH, MEMORY_BUDGET_MB, TOOL_NAMES } from "./os";
+import { DEFAULT_RESIDENT_ID, isResidentId, residentById, type ResidentId } from "./resident-catalog";
+import { completeCritic, criticReady, ensureCritic, releaseCritic } from "./critic";
+import { mergeLibrary, type NeuralAsset } from "./library";
+import type { BondedModel, LogEntry, PluginKind, ProposedAction, Skill, World } from "./types";
+import { ENGINE_VERSION, GROK_MODEL } from "./types";
+import { completeResident, ensureResident, releaseResident, residentReady } from "./resident";
+import { researchTask } from "./research-call";
+import { runModuleD } from "./module-d-call";
+import { settleIntent } from "./turn";
+import { currentGaze } from "@/components/forge/look";
+import { wantsSecondModel } from "./vm";
+
+const STORAGE_KEY = "aetherforge-manifold-v2";
+
+export type ForgeState = World & {
+  osTicks: number;
+  history: LogEntry[];
+  logSeq: number;
+  selectedId: number | null;
+  running: boolean;
+  busy: boolean;
+  plugin: PluginKind;
+  model: BondedModel;
+  memoryBudgetMb: number;
+  ticksPerIntent: number;
+  residentId: ResidentId;
+  residentPower: boolean;
+  residentStatus: "off" | "loading" | "ready" | "error";
+  residentProgress: number;
+  residentLoaded: number;
+  residentTotal: number;
+  residentDetail: string;
+  criticPower: boolean;
+  criticStatus: "off" | "loading" | "ready" | "error";
+  criticProgress: number;
+  criticDetail: string;
+  library: NeuralAsset[];
+  stepSim: (count?: number) => void;
+  setRunning: (running: boolean) => void;
+  select: (id: number | null) => void;
+  submitIntent: (intent: string) => Promise<void>;
+  submitScript: (intent: string) => Promise<void>;
+  bootResident: () => Promise<void>;
+  setResidentPower: (power: boolean) => void;
+  setResidentModel: (id: ResidentId) => void;
+  setCriticPower: (power: boolean) => void;
+  bootCritic: () => Promise<void>;
+  dispatchManual: (name: string, args: Record<string, string>) => void;
+  setPlugin: (plugin: PluginKind) => void;
+  setTicks: (ticks: number) => void;
+  importGguf: (fileName: string, magicOk: boolean) => string | null;
+  reset: () => void;
+  despawn: (id: number) => void;
+  hydrate: () => void;
+  /** Add lines to the log from outside the harness (file drops, portals, the Linux layer). */
+  note: (entries: Omit<LogEntry, "id">[]) => void;
+  /** Replace the world with one built outside the harness (a visited island placed beside ours). */
+  adopt: (world: World, entries: Omit<LogEntry, "id">[]) => void;
+};
+
+function demoModel(): BondedModel {
+  return { name: "demo-bonded", path: DEFAULT_MODEL_PATH, loaded: true, validated: false };
+}
+
+function bootHistory(): { history: LogEntry[]; logSeq: number } {
+  const history: LogEntry[] = [
+    {
+      id: 1,
+      tone: "engine",
+      title: "Boot",
+      body: `AetherForge v${ENGINE_VERSION} — engine-as-harness`,
+    },
+    {
+      id: 2,
+      tone: "engine",
+      title: "Resident",
+      body: "The lab is live. The helm on the architect is the computer you wear. ForgeTerminal on the bench is the same manifold, standing in the room.",
+    },
+    {
+      id: 3,
+      tone: "engine",
+      title: "Avatar",
+      body: "Architect Avatar entity id: 1",
+    },
+    {
+      id: 4,
+      tone: "engine",
+      title: "Tools",
+      body: TOOL_NAMES.join(", "),
+    },
+  ];
+  return { history, logSeq: history.length + 1 };
+}
+
+function freshCore() {
+  const world = labWorld();
+  const terminal = Object.values(world.entities).find((entity) => entity.tags.includes("terminal"));
+  return {
+    ...world,
+    osTicks: 0,
+    selectedId: (terminal?.id ?? 1) as number | null,
+    running: false,
+    busy: false,
+    plugin: "demo" as PluginKind,
+    model: demoModel(),
+    memoryBudgetMb: MEMORY_BUDGET_MB,
+    ticksPerIntent: 3,
+    residentId: DEFAULT_RESIDENT_ID,
+    residentPower: true,
+    residentStatus: "loading" as const,
+    residentProgress: 0,
+    residentLoaded: 0,
+    residentTotal: 0,
+    residentDetail: "Fetching Gemma into this page",
+    criticPower: false,
+    criticStatus: "off" as const,
+    criticProgress: 0,
+    criticDetail: "Second model is off. Spawn a critic when you want another opinion.",
+    library: [] as NeuralAsset[],
+    ...bootHistory(),
+  };
+}
+
+function megabytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 MB";
+  const mb = bytes / 1048576;
+  return `${mb >= 10 ? mb.toFixed(0) : mb.toFixed(1)} MB`;
+}
+
+function argLine(args: Record<string, string>): string {
+  const parts = Object.entries(args).map(([key, value]) => `${key}=${value}`);
+  return parts.length ? parts.join("  ") : "—";
+}
+
+type Persisted = {
+  world: World;
+  osTicks: number;
+  history: LogEntry[];
+  logSeq: number;
+  selectedId: number | null;
+  plugin: PluginKind;
+  model: BondedModel;
+  ticksPerIntent: number;
+  residentId: ResidentId;
+  residentPower: boolean;
+  criticPower: boolean;
+  library?: NeuralAsset[];
+};
+
+function cleanLibrary(value: unknown): NeuralAsset[] {
+  if (!Array.isArray(value)) return [];
+  const assets: NeuralAsset[] = [];
+  for (const row of value) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as NeuralAsset;
+    if (typeof item.id !== "string" || typeof item.name !== "string" || typeof item.palette !== "string") continue;
+    assets.push(item);
+  }
+  return assets.slice(-24);
+}
+
+function isEntityRecord(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  return Object.values(value as Record<string, unknown>).every((entity) => {
+    if (!entity || typeof entity !== "object") return false;
+    const row = entity as { id?: unknown; name?: unknown; tags?: unknown; transform?: { position?: unknown } };
+    return typeof row.id === "number" && typeof row.name === "string" && !!row.transform?.position && Array.isArray(row.tags);
+  });
+}
+
+function sceneBrief(world: World): string {
+  const all = Object.values(world.entities).sort((a, b) => a.id - b.id);
+  const cells = all.filter((entity) => entity.tags.includes("live") || entity.tags.includes("locked"));
+  const cellIds = new Set(cells.map((entity) => entity.id));
+  const rest = all.filter((entity) => !cellIds.has(entity.id));
+  const lineOf = (entity: (typeof all)[number]) => {
+    const position = entity.transform.position;
+    const asset =
+      entity.representation.kind === "mesh"
+        ? entity.representation.assetId
+        : entity.representation.kind === "gaussian"
+          ? "gaussian"
+          : entity.tags.includes("architect")
+            ? "you"
+            : "agent";
+    const who = entity.tags.includes("architect") ? "you" : entity.tags.includes("agent") ? entity.customData.role || "agent" : asset;
+    return `${entity.id} ${entity.name} ${who} ${nearestColorName(entity.customData.color)} ${position.x.toFixed(1)},${position.y.toFixed(1)},${position.z.toFixed(1)}`;
+  };
+  const lines = rest.slice(0, 16).map(lineOf);
+  if (rest.length > 16) lines.push(`…${rest.length - 16} more`);
+  const groups = new Map<string, typeof cells>();
+  for (const cell of cells) {
+    const key = `${(cell.customData.piece || "?").toUpperCase()}|${nearestColorName(cell.customData.color)}|${cell.tags.includes("live") ? "falling" : "stacked"}`;
+    const list = groups.get(key) ?? [];
+    list.push(cell);
+    groups.set(key, list);
+  }
+  for (const [key, list] of groups) {
+    const [piece, color, state] = key.split("|");
+    const ids = list.map((entity) => entity.id).join(",");
+    lines.push(`${ids} ${piece} ${color} ${state} tetris x${list.length}`);
+  }
+  return lines
+    .concat((world.skills ?? []).slice(-4).map((skill) => `skill ${skill.name} (${skill.job})`))
+    .join("\n");
+}
+
+let residentBoot: Promise<void> | null = null;
+
+export const useForge = create<ForgeState>((set, get) => {
+  const pushLog = (entries: Omit<LogEntry, "id">[]) => {
+    set((state) => {
+      let seq = state.logSeq;
+      const made = entries.map((entry) => ({ ...entry, id: seq++ }));
+      return { history: [...state.history, ...made].slice(-80), logSeq: seq };
+    });
+  };
+
+  const commit = (world: World, selectedId: number | null, entries: Omit<LogEntry, "id">[]) => {
+    set((state) => {
+      let seq = state.logSeq;
+      const made = entries.map((entry) => ({ ...entry, id: seq++ }));
+      return {
+        ...world,
+        selectedId,
+        history: [...state.history, ...made].slice(-80),
+        logSeq: seq,
+      };
+    });
+  };
+
+  const finish = (proposal: ProposedAction, userTitle: string, userBody: string, modelTitle: string) => {
+    const latest = get();
+    const executed = executeProposal(latest, proposal);
+    const selected =
+      proposal.kind === "tool_call" && proposal.arguments.id
+        ? Number(proposal.arguments.id) || latest.selectedId
+        : latest.selectedId;
+    const spawned = executed.world.nextId > latest.nextId ? executed.world.nextId - 1 : null;
+    commit(
+      executed.world,
+      spawned ?? (selected != null && executed.world.entities[selected] ? selected : latest.selectedId),
+      [
+        { tone: "user", title: userTitle, body: userBody },
+        {
+          tone: "model",
+          title: proposal.toolName ? `${modelTitle} · ${proposal.toolName}` : modelTitle,
+          body: `${proposal.message ?? "No action"}\n${argLine(proposal.arguments)}`,
+        },
+        { tone: executed.ok ? "engine" : "warn", title: executed.ok ? "Result" : "Failed", body: executed.result },
+      ],
+    );
+  };
+
+  return {
+    ...freshCore(),
+    stepSim: (count = 1) => {
+      set((state) => {
+        const world = stepWorld(state, count);
+        const steps = world.tick - state.tick;
+        return { ...world, osTicks: state.osTicks + steps };
+      });
+    },
+    setRunning: (running) => set({ running }),
+    select: (id) => set({ selectedId: id }),
+    submitIntent: async (intentRaw) => {
+      const intent = intentRaw.trim().slice(0, 400);
+      if (!intent || get().busy) return;
+      const spec = residentById(get().residentId);
+      if (!get().residentPower) {
+        pushLog([
+          { tone: "user", title: "Intent", body: intent },
+          { tone: "warn", title: "Model off", body: `${spec.short} is powered down. Turn it on to forge.` },
+        ]);
+        return;
+      }
+      set({ busy: true });
+      try {
+        if (!residentReady(spec.id)) await get().bootResident();
+        const live = get();
+        if (!live.residentPower || live.residentId !== spec.id) return;
+        if (!residentReady(spec.id)) {
+          pushLog([
+            { tone: "user", title: "Intent", body: intent },
+            { tone: "warn", title: spec.short, body: live.residentDetail || "Model is not loaded." },
+          ]);
+          return;
+        }
+        if (wantsSecondModel(intent) && !get().criticPower) {
+          get().setCriticPower(true);
+        }
+        const before = get();
+        const critique =
+          before.criticPower
+            ? async (prompt: string) => (criticReady() ? completeCritic(prompt) : completeResident(prompt))
+            : null;
+        const settled = await settleIntent({
+          world: before,
+          intent,
+          label: spec.short,
+          model: before.model,
+          scene: [
+            sceneBrief(before),
+            ...before.library.slice(-4).map((asset) => `library ${asset.name} splat ${asset.bytes}B`),
+          ]
+            .filter(Boolean)
+            .join("\n"),
+          proposeTurn: (prompt) => completeResident(prompt),
+          critiqueTurn: critique,
+          research: async (query, failure) => researchTask({ data: { query, failure } }),
+          moduleD: (call) => runModuleD({ data: call }),
+          focus: before.selectedId,
+          gaze: currentGaze(),
+        });
+        const trace = settled.trace;
+        const idArg = Number(trace.proposal.arguments.id);
+        const spawned = trace.world.nextId > before.nextId ? trace.world.nextId - 1 : null;
+        const kept = Number.isFinite(idArg) && trace.world.entities[idArg] ? idArg : before.selectedId;
+        const selected =
+          spawned ?? (kept != null && trace.world.entities[kept] ? kept : (Object.values(trace.world.entities)[0]?.id ?? null));
+        commit(trace.world, selected, settled.notes);
+        if (settled.filed.length) set((state) => ({ library: mergeLibrary(state.library ?? [], settled.filed) }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "the turn failed";
+        pushLog([
+          { tone: "user", title: "Intent", body: intent },
+          { tone: "warn", title: "Failed", body: message.slice(0, 280) },
+        ]);
+      } finally {
+        set({ busy: false });
+      }
+    },
+    submitScript: async (intentRaw) => {
+      const intent = intentRaw.trim().slice(0, 400);
+      if (!intent || get().busy) return;
+      set({ busy: true });
+      try {
+        const state = get();
+        const proposal = propose(state.model, intent, sceneRefs(state.entities), TOOL_NAMES);
+        finish(proposal, "Script", intent, "Script");
+      } finally {
+        set({ busy: false });
+      }
+    },
+    bootResident: () => {
+      const id = get().residentId;
+      if (!get().residentPower) return Promise.resolve();
+      if (residentReady(id)) {
+        set({ residentStatus: "ready", residentProgress: 100, residentDetail: "Weights are in this page." });
+        return Promise.resolve();
+      }
+      if (residentBoot && get().residentStatus === "loading") return residentBoot;
+      const spec = residentById(id);
+      set({
+        residentStatus: "loading",
+        residentProgress: 0,
+        residentDetail: `Fetching ${spec.label} into this page`,
+      });
+      let lastPaint = 0;
+      let lastLabel = "";
+      let task: Promise<void>;
+      task = ensureResident(id, (progress, label, bytes) => {
+        if (get().residentId !== id || !get().residentPower) return;
+        const now = Date.now();
+        if (now - lastPaint < 80 && progress < 100 && label === lastLabel) return;
+        lastPaint = now;
+        lastLabel = label;
+        const file = label.split("/").pop() || label;
+        const loaded = bytes?.loaded ?? 0;
+        const total = bytes?.total ?? 0;
+        set({
+          residentProgress: progress,
+          residentLoaded: loaded,
+          residentTotal: total,
+          residentDetail:
+            progress >= 100
+              ? "Weights are in. Starting the model."
+              : total > 0
+                ? `${Math.round(progress)}% · ${megabytes(loaded)} of ${megabytes(total)}`
+                : file,
+        });
+      })
+        .then(() => {
+          if (get().residentId !== id || !get().residentPower) return;
+          if (!residentReady(id)) return;
+          set({ residentStatus: "ready", residentProgress: 100, residentDetail: `${spec.short} is on.` });
+          pushLog([
+            {
+              tone: "engine",
+              title: spec.short,
+              body: `${spec.label} is resident in this page (${spec.repo}).`,
+            },
+          ]);
+        })
+        .catch((error: unknown) => {
+          if (get().residentId !== id || !get().residentPower) return;
+          const message = error instanceof Error ? error.message : "could not load weights";
+          set({ residentStatus: "error", residentDetail: message.slice(0, 280) });
+          pushLog([{ tone: "warn", title: spec.short, body: message.slice(0, 280) }]);
+        })
+        .finally(() => {
+          if (residentBoot === task) residentBoot = null;
+        });
+      residentBoot = task;
+      return task;
+    },
+    setResidentPower: (power) => {
+      if (get().residentPower === power) return;
+      const spec = residentById(get().residentId);
+      if (!power) {
+        releaseResident();
+        residentBoot = null;
+        set({
+          residentPower: false,
+          residentStatus: "off",
+          residentProgress: 0,
+          residentDetail: "Powered down. Forge will not call a model.",
+        });
+        pushLog([{ tone: "engine", title: "Power", body: `${spec.short} is off.` }]);
+        return;
+      }
+      set({ residentPower: true, residentDetail: `Turning ${spec.short} on` });
+      pushLog([{ tone: "engine", title: "Power", body: `${spec.short} is on. Weights load into this page.` }]);
+      void get().bootResident();
+    },
+    setResidentModel: (id) => {
+      if (get().residentId === id) return;
+      const spec = residentById(id);
+      releaseResident();
+      residentBoot = null;
+      set({
+        residentId: id,
+        residentProgress: 0,
+        residentStatus: get().residentPower ? "loading" : "off",
+        residentDetail: get().residentPower ? `Switching to ${spec.label}` : "Powered down. Forge will not call a model.",
+      });
+      pushLog([
+        {
+          tone: "engine",
+          title: "Model",
+          body: `${spec.label} selected. ${spec.place === "in situ" ? "It runs in this page." : spec.blurb}`,
+        },
+      ]);
+      if (get().residentPower) void get().bootResident();
+    },
+    bootCritic: () => {
+      if (!get().criticPower) return Promise.resolve();
+      if (criticReady()) {
+        set({
+          criticStatus: "ready",
+          criticProgress: 100,
+          criticDetail: "A second Gemma is in this page and reviews after each command.",
+        });
+        return Promise.resolve();
+      }
+      set({
+        criticStatus: "ready",
+        criticProgress: Math.max(get().criticProgress, 1),
+        criticDetail: "Critic is live on Gemma. It reviews after each command while a second copy loads.",
+      });
+      let lastPaint = 0;
+      let lastLabel = "";
+      const giveUp = () => {
+        if (!get().criticPower || criticReady()) return;
+        releaseCritic();
+        set({
+          criticStatus: "ready",
+          criticProgress: 100,
+          criticDetail: "Critic is live on Gemma. A second copy did not start, so the same model reviews after the actor.",
+        });
+      };
+      const timer = window.setTimeout(giveUp, 16000);
+      return ensureCritic((progress, label) => {
+        if (!get().criticPower) return;
+        const now = Date.now();
+        if (now - lastPaint < 80 && progress < 100 && label === lastLabel) return;
+        lastPaint = now;
+        lastLabel = label;
+        if (criticReady()) return;
+        set({
+          criticStatus: "ready",
+          criticProgress: progress,
+          criticDetail:
+            progress >= 100
+              ? "Critic is live. The second copy is compiling and will take over if it starts."
+              : `Critic is live on Gemma. Second copy ${Math.round(progress)}%.`,
+        });
+      })
+        .then(() => {
+          window.clearTimeout(timer);
+          if (!get().criticPower) return;
+          if (criticReady()) {
+            set({
+              criticStatus: "ready",
+              criticProgress: 100,
+              criticDetail: "A second Gemma is in this page and reviews after each command.",
+            });
+            pushLog([{ tone: "engine", title: "Critic", body: "The second model is live and will review the next command." }]);
+            return;
+          }
+          giveUp();
+        })
+        .catch(() => {
+          window.clearTimeout(timer);
+          giveUp();
+        });
+    },
+    setCriticPower: (power) => {
+      if (get().criticPower === power) return;
+      if (!power) {
+        releaseCritic();
+        set({
+          criticPower: false,
+          criticStatus: "off",
+          criticProgress: 0,
+          criticDetail: "Second model is off.",
+        });
+        pushLog([{ tone: "engine", title: "Critic", body: "The second model is off." }]);
+        return;
+      }
+      set({ criticPower: true, criticStatus: "ready", criticProgress: 100, criticDetail: "Critic is live on Gemma." });
+      pushLog([{ tone: "engine", title: "Critic", body: "Second model requested. It loads beside Gemma and reviews the next commands." }]);
+      void get().bootCritic();
+    },
+    dispatchManual: (name, args) => {
+      const state = get();
+      const proposal: ProposedAction = { kind: "tool_call", toolName: name, arguments: args };
+      const executed = executeProposal(state, proposal);
+      const id = Number(args.id);
+      const spawned = executed.world.nextId > state.nextId ? executed.world.nextId - 1 : null;
+      const selected = spawned ?? (Number.isFinite(id) && executed.world.entities[id] ? id : state.selectedId);
+      commit(executed.world, selected, [
+        { tone: "user", title: "Manual", body: `${name}  ${argLine(args)}` },
+        { tone: executed.ok ? "engine" : "warn", title: executed.ok ? "Result" : "Failed", body: executed.result },
+      ]);
+    },
+    setPlugin: (plugin) => {
+      const state = get();
+      if (state.plugin === plugin) return;
+      set({ plugin });
+      const body =
+        plugin === "grok"
+          ? `Remote Grok (${GROK_MODEL}). One intent sends one request. The harness still validates every tool call.`
+          : plugin === "bonded"
+            ? state.model.validated
+              ? `Bonded model '${state.model.name}' is imported. The in-browser driver mirrors its tool calls.`
+              : `Bond a .gguf to record it. Until the header checks out, the demo driver proposes calls.`
+            : "Demo heuristic (no model file required).";
+      pushLog([{ tone: plugin === "bonded" && !state.model.validated ? "warn" : "engine", title: "Plugin", body }]);
+    },
+    setTicks: (ticks) => set({ ticksPerIntent: Math.max(1, Math.min(30, Math.round(ticks) || 3)) }),
+    importGguf: (fileName, magicOk) => {
+      const path = fileName.trim();
+      if (!path) return "model file not found: (empty)";
+      if (!path.toLowerCase().endsWith(".gguf")) return `expected a .gguf file: ${path}`;
+      if (!magicOk) return `not a valid GGUF file (bad magic): ${path}`;
+      const stem = path.split(/[/\\]/).pop()?.replace(/\.gguf$/i, "") || "bonded-model";
+      const model: BondedModel = { name: stem, path, loaded: true, validated: true };
+      set({ model, plugin: "bonded" });
+      pushLog([{ tone: "engine", title: "Bond", body: `Bonded model '${stem}' imported` }]);
+      return null;
+    },
+    note: (entries) => pushLog(entries),
+    adopt: (world, entries) => commit(ensureAvatar(world), get().selectedId, entries),
+    reset: () =>
+      set((state) => ({
+        ...freshCore(),
+        residentId: state.residentId,
+        residentPower: state.residentPower,
+        residentStatus: state.residentStatus,
+        residentProgress: state.residentProgress,
+        residentDetail: state.residentDetail,
+        criticPower: state.criticPower,
+        criticStatus: state.criticStatus,
+        criticProgress: state.criticProgress,
+        criticDetail: state.criticDetail,
+        library: state.library,
+      })),
+    despawn: (id) => {
+      const state = get();
+      const entity = state.entities[id];
+      if (!entity || entity.tags.includes("architect") || entity.tags.includes("helm")) return;
+      const executed = executeProposal(state, {
+        kind: "tool_call",
+        toolName: "delete_entity",
+        arguments: { id: String(id) },
+      });
+      const remaining = Object.values(executed.world.entities).sort((a, b) => a.id - b.id);
+      commit(executed.world, remaining.find((item) => !item.tags.includes("architect"))?.id ?? remaining[0]?.id ?? null, [
+        { tone: "engine", title: "Despawn", body: executed.result },
+      ]);
+    },
+    hydrate: () => {
+      if (typeof window === "undefined") return;
+      try {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (!raw) return;
+        const data = JSON.parse(raw) as Persisted;
+        if (!data.world || !isEntityRecord(data.world.entities)) return;
+        const hasLab = Object.values(data.world.entities).some((entity) => entity.tags?.includes("lab"));
+        if (!hasLab) {
+          set({
+            plugin: data.plugin === "grok" || data.plugin === "bonded" || data.plugin === "demo" ? data.plugin : "demo",
+            model: data.model?.path ? { ...demoModel(), ...data.model } : demoModel(),
+            ticksPerIntent: data.ticksPerIntent || 3,
+            residentId: isResidentId(data.residentId) ? data.residentId : DEFAULT_RESIDENT_ID,
+            residentPower: typeof data.residentPower === "boolean" ? data.residentPower : true,
+            criticPower: typeof data.criticPower === "boolean" ? data.criticPower : false,
+            library: cleanLibrary(data.library),
+            running: false,
+            busy: false,
+          });
+          return;
+        }
+        const world = ensureHelm(ensureAvatar({
+          ...data.world,
+          undo: Array.isArray(data.world.undo) ? data.world.undo.slice(-16) : [],
+          skills: cleanSkills(data.world.skills),
+          compat: Array.isArray(data.world.compat) ? data.world.compat.filter((item): item is string => typeof item === "string").slice(0, 8) : [],
+          gravity: bootWorld().gravity,
+          deltaTime: bootWorld().deltaTime,
+        }));
+        const ids = Object.keys(world.entities).map(Number);
+        const selected =
+          data.selectedId != null && world.entities[data.selectedId] ? data.selectedId : (ids[0] ?? null);
+        set({
+          ...world,
+          osTicks: data.osTicks || 0,
+          history: Array.isArray(data.history) ? data.history.slice(-80) : get().history,
+          logSeq: data.logSeq || get().logSeq,
+          selectedId: selected,
+          plugin: data.plugin === "grok" || data.plugin === "bonded" || data.plugin === "demo" ? data.plugin : "demo",
+          model: data.model?.path ? { ...demoModel(), ...data.model } : demoModel(),
+          ticksPerIntent: data.ticksPerIntent || 3,
+          residentId: isResidentId(data.residentId) ? data.residentId : DEFAULT_RESIDENT_ID,
+          residentPower: typeof data.residentPower === "boolean" ? data.residentPower : true,
+          criticPower: typeof data.criticPower === "boolean" ? data.criticPower : false,
+          library: cleanLibrary(data.library),
+          running: false,
+          busy: false,
+        });
+      } catch {
+        /* keep the boot manifold */
+      }
+    },
+  };
+});
+
+function cleanSkills(value: unknown): Skill[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((skill): skill is Skill => {
+      if (!skill || typeof skill !== "object") return false;
+      const row = skill as Skill;
+      return typeof row.name === "string" && Array.isArray(row.steps);
+    })
+    .slice(-12);
+}
+
+let persistReady = false;
+
+export function startPersist() {
+  if (persistReady || typeof window === "undefined") return;
+  persistReady = true;
+  useForge.getState().hydrate();
+  let timer = 0;
+  useForge.subscribe((state) => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => {
+      const payload: Persisted = {
+        world: {
+          entities: state.entities,
+          nextId: state.nextId,
+          tick: state.tick,
+          gravity: state.gravity,
+          deltaTime: state.deltaTime,
+          eventLog: state.eventLog.slice(-64),
+          events: state.events.slice(-64),
+          undo: (state.undo ?? []).slice(-16),
+          skills: (state.skills ?? []).slice(-12),
+          compat: (state.compat ?? []).slice(0, 8),
+        },
+        osTicks: state.osTicks,
+        history: state.history,
+        logSeq: state.logSeq,
+        selectedId: state.selectedId,
+        plugin: state.plugin,
+        model: state.model,
+        ticksPerIntent: state.ticksPerIntent,
+        residentId: state.residentId,
+        residentPower: state.residentPower,
+        criticPower: state.criticPower,
+        library: (state.library ?? []).slice(-24),
+      };
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    }, 200);
+  });
+}

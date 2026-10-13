@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Forge handoff</title>
+<style>
+@page { size: Letter; margin: 0.8in 0.8in 0.75in; }
+:root { --ink:#1f2328; --muted:#5b6470; --accent:#2f8f93; --line:#d5dbe1; --head:#e6f0f1; }
+* { box-sizing: border-box; }
+body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; color: var(--ink); font-size: 10.4pt; line-height: 1.45; margin: 0; }
+h1 { font-size: 22pt; margin: 0 0 6pt; }
+h2 { font-size: 14pt; color: var(--accent); margin: 18pt 0 6pt; }
+h3 { font-size: 11pt; margin: 12pt 0 4pt; }
+p { margin: 0 0 7pt; }
+ul { margin: 0 0 8pt; padding-left: 16pt; }
+li { margin: 0 0 3pt; }
+.cover { height: 9in; display: flex; flex-direction: column; justify-content: center; }
+.cover h1 { font-size: 34pt; text-align: center; }
+.lede { color: var(--muted); font-size: 12pt; }
+.status { color: var(--muted); margin-top: 22pt; }
+.page { break-before: page; }
+table { width: 100%; border-collapse: collapse; margin: 6pt 0 10pt; font-size: 9.2pt; break-inside: auto; }
+th, td { border: 1px solid var(--line); padding: 4pt 6pt; text-align: left; vertical-align: top; }
+th { background: var(--head); font-weight: 600; }
+tr { break-inside: avoid; }
+code, pre { font-family: "Courier New", Courier, monospace; font-size: 8.8pt; }
+pre { background: #f6f8fa; border: 1px solid var(--line); padding: 7pt 9pt; white-space: pre-wrap; margin: 4pt 0 10pt; break-inside: avoid; }
+blockquote { margin: 6pt 0 10pt 14pt; font-style: italic; font-size: 11pt; }
+.done { color: #1d7a4f; font-weight: 600; }
+.part { color: #9a6a12; font-weight: 600; }
+.open { color: #7a7f87; font-weight: 600; }
+.note { color: var(--muted); font-size: 9.4pt; }
+</style></head><body>
+
+<section class="cover">
+  <h1>Forge</h1>
+  <p class="lede">An engine, harness and operating layer where every app is its own world, every world is a self-hosted node, and worlds link to each other across the internet.</p>
+  <p>After the abstract, this document has three parts:</p>
+  <ul>
+    <li><b>1. Mission statement</b>: what Forge is for and the principles it will not trade away.</li>
+    <li><b>2. Specification</b>: the architecture, the formats and protocols, and the exact state of every piece (built and tested, scaffolded, or planned).</li>
+    <li><b>3. Wants and needs for the next model</b>: the ordered work list with what is now done, acceptance tests, the guardrails, the open decisions, and what the human owner has to provide.</li>
+  </ul>
+  <p class="status">Status at this handoff (third edition, October 2026): 107 automated tests pass in the TypeScript engine and 6 in the Rust shim. Static Linux programs for x86-64 and ARM64 run inside Forge and print exactly what real hardware prints, now including ordinary statically linked glibc programs (printf, malloc, floating point) on x86-64. Forge ships as a command-line program and as a single-file Linux executable built offline. The desktop app is fully configured but has never been compiled, because this build environment could not reach crates.io or npm.</p>
+</section>
+
+<section class="page">
+<h2 style="font-size:18pt;color:var(--ink);margin-top:0">Abstract</h2>
+<p><b>Forge: an AI-native multiverse engine</b></p>
+<p>Forge is a cross-platform game and application engine in which every instance is a self-hosted world, and worlds link into a shared multiverse. Each world runs on its owner's hardware, x86 or ARM, desktop or mobile, and joins the network through signed portals; when its owner stops it, it leaves.</p>
+<p>Contributors share skills, mechanics and code. An in-engine agent decompiles each contribution into a neutral intermediate form, rewrites it, verifies it against a test fixture, and lowers it to WebAssembly. The result is one optimized, portable form that any instance can run, whatever its screen or processor. As of this edition that path is real for ordinary compiled programs: x86-64 and ARM64 Linux executables are lifted into one IR and run as WebAssembly with results identical to the processor they were built for. Contributions can be fused: one world's outputs wired to another's inputs, producing mechanics no single author wrote.</p>
+<p>A small local model routes user intent to verified skills. A frontier model authors new skills, which become permanent local features once they pass their tests.</p>
+<p>Because compute varies across devices, rendering adapts continuously. A Nanite-style cluster level-of-detail system acts as the master throttle, scaling geometry, resolution, Gaussian splats and neural textures to each device's budget. Every participant sees the same multiverse at the fidelity their hardware can sustain.</p>
+<p>Forge runs two ways, and permanence is always the owner's choice. By default it is a normal app that runs inside any existing operating system on any hardware. For those who want the most from it, Forge can replace the original operating system entirely and boot as the system itself. Either way, everything routes through it and the device's own functions (calls, text messages, notifications, files, other apps) are passed through, so a phone stays a fully working phone and a PC stays a fully working PC. Each person's setup is shaped by their own taste.</p>
+<p>One Forge spans all of a person's devices. Rather than a separate install on each, phones, PCs, TVs and tablets link into a single shared instance with the same worlds, skills and saves. Unlike casting, every linked device can both display and control, each renders at its own resolution, and the simulation itself moves to whichever device is strongest at the moment.</p>
+<p>That same pooling makes Forge one AI computer. Linked devices split a model between them, so an owner can run models larger than any single device could hold, natively, with the engine's skills and worlds on top. The short version: your devices become one AI computer, and one world.</p>
+</section>
+
+<section class="page">
+<h2 style="font-size:18pt;color:var(--ink);margin-top:0">1. Mission statement</h2>
+<blockquote>Every app is a world. Every world is a node someone owns. Worlds connect like web pages do, and a world lives exactly as long as its owner keeps it running.</blockquote>
+<p>Forge is a single program that runs the same way on x86 and ARM, on Windows, macOS, Linux and mobile. It opens its own window like any desktop app. Inside it, each application runs as an island: its own functional universe with its own rules, scene and tools. Islands are hosted by the people who make them, on their own machines, and they link to each other through portals. Standing next to another person's island, or stepping through a portal into it, should feel like moving through one continuous place. When an owner shuts their app down, their patch of the network disappears with it.</p>
+<h2>What it is for</h2>
+<ul>
+<li><b>A universal runtime.</b> Software arrives in many forms (WebAssembly, scripts, 3D assets, models, native binaries). Forge identifies each, routes it to the right layer, and runs what it can verify.</li>
+<li><b>One portable bytecode.</b> WebAssembly is the common layer. Code written for x86 or ARM is lifted into a neutral form and lowered to WebAssembly, so it runs anywhere Forge runs.</li>
+<li><b>Intent in, features out.</b> A small local model is a router of intent. The skills and tools are the engine features. A frontier cloud model writes new skills; once a skill passes its test, it is local forever and no longer needs the cloud.</li>
+<li><b>Fusion.</b> Apps combine by wiring one island's outputs to another's inputs, not by mashing code together.</li>
+<li><b>Guest or native, your choice.</b> Forge is a complete, normal app inside any operating system. Owners who want the most from it can drop their original operating system and boot Forge instead. The same engine, worlds and skills work in both modes; phone and PC functions are passed through, never lost.</li>
+<li><b>One Forge, every device.</b> A person's devices link into one instance instead of each running its own. Any device can show, control, compute or host, and the work moves to wherever it runs best.</li>
+<li><b>One AI computer.</b> Linked devices pool memory and compute to run local models bigger than any one of them could. This is the first reason AI-focused users install Forge, before the multiverse exists.</li>
+</ul>
+<h2>Principles</h2>
+<ul>
+<li><b>Owners own their nodes.</b> No central server is required to host or reach an island.</li>
+<li><b>Identity is a key.</b> An island is whoever holds its private key. Nothing can claim an island's name without it.</li>
+<li><b>A request is never a grant.</b> Visitors ask; hosts decide. Every capability is explicit and minimal.</li>
+<li><b>Unknown code does not run.</b> Bytes the engine cannot verify are reported as gaps, never executed.</li>
+<li><b>Verified before trusted.</b> Every new translation rule, skill or injected module must pass a fixture test before the system uses it.</li>
+<li><b>Permanence is optional.</b> Running as an app is the default and is never a lesser version. Taking over a device is opt-in, and the owner can return to the stock system at any time without losing data.</li>
+<li><b>Honest about limits.</b> Some software cannot be run or translated perfectly. Forge says so rather than pretending.</li>
+</ul>
+</section>
+
+<section class="page">
+<h2 style="font-size:18pt;color:var(--ink);margin-top:0">2. Specification</h2>
+<h2>2.1 Layers</h2>
+<pre>+-------------------------------------------------------------+
+|  Window: the 3D world UI (React Three Fiber) in a native     |
+|  window via Tauri, or in a browser tab                       |
++---------------------------+---------------------------------+
+|  Islands + portals         |  Intent router (small model)    |
+|  signed identity, forge:// |  skills = engine features       |
+|  content hash, live sync   |  skill registry, fixtures       |
++---------------------------+---------------------------------+
+|  Ingest: identify any file and route it; script gate         |
++-------------------------------------------------------------+
+|  Guest IR: x86-64 &lt;-&gt; neutral 64-bit IR &lt;-&gt; AArch64 | Wasm    |
+|  Linux layer: ELF loader + system-call shim                  |
++-------------------------------------------------------------+
+|  Sandbox runtime: WebAssembly with no imports, fuel-limited, |
+|  in the page, a worker, or wasmtime natively                 |
++-------------------------------------------------------------+
+|  Host: Windows / macOS / Linux / Android / iOS, x86 or ARM   |
++-------------------------------------------------------------+</pre>
+<h2>2.2 Component status</h2>
+<table>
+<tr><th style="width:28%">Component</th><th style="width:32%">Files</th><th>State</th></tr>
+<tr><td>Movement and cameras (third person, first person, bench)</td><td>components/forge/pilot.tsx, look.tsx</td><td>Fixed in code. Not yet tested by hand in a browser. Untouched this pass.</td></tr>
+<tr><td>Avatar recovery</td><td>engine/manifold.ts (ensureAvatar), store.ts</td><td>Built, tested</td></tr>
+<tr><td>Renderer quality by device</td><td>engine/hardware.ts, Viewport.tsx</td><td>Built, tested. Software overlay off unless ?soft=1</td></tr>
+<tr><td>File ingest</td><td>engine/ingest.ts, components/forge/Bridge.tsx</td><td>Built, tested. Static Linux programs are now "ready". Drop-a-file UI added (not hand-tested).</td></tr>
+<tr><td><b>Guest IR v2</b> (x86-64 and AArch64 in, WebAssembly out)</td><td>engine/guest/ir.ts, x86.ts, arm.ts, lift.ts, machine.ts, wasm.ts</td><td><b>New. Built, tested against the real CPU</b>: 8 compiled builds of one C program (gcc and clang, -O0 to -O3, both architectures) and 150 random programs, each 4 ways</td></tr>
+<tr><td><b>Linux layer</b></td><td>engine/guest/elf.ts, linux.ts, linux-worker.ts, linux-client.ts; scripts/forge-run.ts</td><td><b>New. Built, tested.</b> Static, non-TLS programs (freestanding or musl-style)</td></tr>
+<tr><td>First compat IR (four ops)</td><td>engine/isa.ts, wasm-backend.ts</td><td>Kept for the in-world harness demo and its tests; superseded by guest/</td></tr>
+<tr><td>Native-or-browser run call</td><td>engine/native-host.ts</td><td>Built, tested (first IR only)</td></tr>
+<tr><td>Island identity, manifest, portal handshake</td><td>engine/island.ts</td><td>Built, tested, including attack cases</td></tr>
+<tr><td>Self-hosted island node</td><td>scripts/island-node.ts</td><td>Built, tested over real HTTP. Now serves its world and live sync</td></tr>
+<tr><td><b>Island content and live sync</b></td><td>engine/island-content.ts, portal-client.ts (enterIsland, syncIsland)</td><td><b>New. Built, tested</b> with two visitors over HTTP on one machine</td></tr>
+<tr><td><b>Portals in the world</b></td><td>island-content.ts (makePortal, portalAt), portal-tool.ts, Bridge.tsx, Viewport.tsx</td><td><b>New.</b> Engine built and tested; UI wired, not hand-tested</td></tr>
+<tr><td><b>Skill registry and router</b></td><td>engine/skills.ts, bounded.ts</td><td><b>New. Built, tested</b> (wasm and ARM-Linux skills, offline routing)</td></tr>
+<tr><td><b>Safe-compile gate for scripts</b></td><td>engine/script-gate.ts</td><td><b>New. Built, tested</b> (static layer)</td></tr>
+<tr><td><b>Pooled model inference</b></td><td>engine/pooled.ts, scripts/compute-node.ts</td><td><b>New. Built, tested</b> across separate processes with a toy model</td></tr>
+<tr><td>Desktop host (Tauri + wasmtime)</td><td>src-tauri/</td><td>Written. Icons, static frontend build and installer config in place. Never compiled</td></tr>
+<tr><td><b>Native guest runner (N1)</b></td><td>src-tauri/src/guest.rs, lib.rs native_guest; engine/native-host.ts runLinuxHosted</td><td><b>New.</b> Shim and run loop tested in Rust (std only). Page protocol tested against a stand-in. wasmtime glue checked against API stubs only</td></tr>
+<tr><td><b>glibc on x86-64 (N2)</b></td><td>engine/guest/x86.ts, ir.ts, machine.ts, wasm.ts</td><td><b>New. Built, tested</b> against the CPU: 300 committed random programs (about 2,400 more run) plus glibc printf/malloc/float programs</td></tr>
+<tr><td><b>Isolated script runtime (N3)</b></td><td>engine/script-runtime.ts</td><td><b>New. Built, tested</b> (worker, message-only API, time limit)</td></tr>
+<tr><td><b>Command line and standalone executable</b></td><td>scripts/forge-cli.ts, build-cli.mjs, sea-inject.mjs, make-sea.sh; bin/</td><td><b>New. Built and run here</b> (Linux x64 single file, no Node needed)</td></tr>
+<tr><td>Multi-device linking</td><td>engine/device-link.ts</td><td>Built, tested. No transport or state streaming yet</td></tr>
+<tr><td>Multiplayer replication</td><td>engine/replication.ts</td><td>Built, tested. Now wired to HTTP sync. No client-side prediction</td></tr>
+<tr><td>Adjacency, native mode, device shell levels, local mesh, zones across machines</td><td>-</td><td>Planned</td></tr>
+</table>
+</section>
+
+<section class="page">
+<h2>2.3 Island address</h2>
+<p><code>forge://host[:port]/slug</code>. The host is a DNS name or IP, lowercased on normalization. The slug is lowercase letters, digits and hyphens, at most 64 characters. Anything else is rejected. Today the address maps to <code>http(s)://host:port</code> for transport.</p>
+<h2>2.4 Island manifest (version 1)</h2>
+<pre>{
+  "forge": "island",       "version": 1,
+  "id":        "&lt;first 22 chars of base64url(SHA-256(publicKey))&gt;",
+  "name":      "My Island",                 (1 to 80 chars)
+  "address":   "forge://example.com:7420/my-island",
+  "publicKey": "&lt;base64url raw Ed25519 public key, 32 bytes&gt;",
+  "entry":     { "kind": "wasm" | "world", "sha256": "...", "bytes": 0 },
+  "wants":     ["render", "input"],          (capabilities this island asks for)
+  "portals":   ["forge://other.example/their-island"]
+}
+signature = Ed25519( "manifest|" + canonical_json(manifest) )
+canonical_json = JSON with object keys sorted, undefined dropped</pre>
+<p>New this edition: for a <code>"world"</code> entry, <code>sha256</code> and <code>bytes</code> describe the island's starting world, encoded as canonical JSON <code>{ "forge": "island-world", "version": 1, "entities": [...] }</code>. The owner's avatar is not part of the entry.</p>
+<h2>2.5 Capabilities</h2>
+<p>render, input, audio, storage, portal, fetch, compute. A host's policy lists what it allows; a grant is the intersection of what the visitor asked for and what the host allows. A host may also block island ids. The script gate uses the same names: a script may only touch fetch, storage, compute, audio or render APIs if its island was granted them.</p>
+<h2>2.6 Portal handshake</h2>
+<ul>
+<li><b>Visitor to host:</b> <code>hello</code> = { from: signed manifest, to: address, wants, nonce (16 random bytes) } signed over <code>hello|nonce|to|visitorId|sortedWants</code>.</li>
+<li><b>Host checks:</b> the visitor manifest verifies; the id matches the key; the hello is addressed to this island; the hello signature verifies; the visitor is not blocked. Then it grants wants and allow.</li>
+<li><b>Host to visitor:</b> <code>welcome</code> = { host: signed manifest, grant, nonce } signed over <code>welcome|nonce|visitorId|hostId|sortedGrant</code>. New: the HTTP reply also carries <code>session</code>, a random 144-bit bearer token for the content and sync endpoints (not part of the signature; use HTTPS across the internet).</li>
+<li><b>Visitor checks:</b> the host manifest verifies; its address is the one asked for; the nonce matches; the grant is a subset of the request; the signature verifies.</li>
+<li><b>Then:</b> the visitor downloads the entry and refuses it unless its size and SHA-256 equal the manifest's. Entities are structurally validated, placed beside the visitor's own island and tagged read-only.</li>
+</ul>
+<h2>2.7 Node endpoints</h2>
+<table>
+<tr><th style="width:36%">Method and path</th><th>Purpose</th></tr>
+<tr><td>GET /.well-known/forge-island</td><td>The signed manifest</td></tr>
+<tr><td>POST /portal/hello</td><td>Handshake. 200 with welcome and session, 403 refused, 400 malformed or over 64 KB</td></tr>
+<tr><td>GET /island/content</td><td>The starting world. Needs <code>Authorization: Forge &lt;session&gt;</code> and the render grant</td></tr>
+<tr><td>POST /island/sync</td><td><code>{ view: { position, forward, fovDeg?, range?, tier?, budget? } }</code> → <code>{ tick, enter, update, leave, bytes, dropped }</code>. Only what this visitor can see, inside its byte budget, only what changed. With the input grant, the visitor appears to others as a host-owned presence marker</td></tr>
+<tr><td>GET /health</td><td>Liveness. Offline is simply: this does not answer</td></tr>
+</table>
+<p>Run a node: <code>node --experimental-strip-types scripts/island-node.ts --name "My Island" --slug my-island --port 7420 --allow render,input,portal [--world saved-world.json] [--tick 100]</code>. The key is stored in <code>.forge/identity.json</code> with owner-only permissions and survives restarts.</p>
+</section>
+
+<section class="page">
+<h2>2.8 Guest IR and the Linux layer (new)</h2>
+<p>The first compat IR (four ops, 32-bit) is kept for the in-world demo. Real programs now go through <code>src/engine/guest/</code>:</p>
+<pre>static ELF (x86-64 or AArch64)
+  -> lift: decode from the entry point, follow branches, calls and return sites
+  -> guest IR (64-bit; widths 8/16/32/64 with x86 and ARM write rules)
+  -> WebAssembly: one module, no imports, exports run(): i32 and its memory
+  -> run until a system call -> Linux shim answers -> run again
+  (the reference interpreter runs the same IR, exactly, for checking)</pre>
+<ul>
+<li><b>IR operations:</b> mov; add, sub, and, or, xor, shl, shr, sar, ror, mul, umulh, smulh, udiv, sdiv, urem, srem; sign/zero extension; lea; loads and stores of 1, 2, 4, 8 bytes; set, csel, ccmp; conditional branch, cbz, tbz, direct and indirect jump; syscall; guards for division faults; halt. Flags are Z, S, C (x86 carry/borrow), O, plus K (last flag-setter was a subtraction), so ARM's carry is C xor K.</li>
+<li><b>x86-64 coverage:</b> prefixes 66, F3, REX; ModRM, SIB, RIP-relative; the ALU group (not adc/sbb); test, cmp, inc, dec, neg, not; shifts; imul (all forms), mul, div, idiv; mov, movzx, movsx, movsxd, lea, xchg; push, pop, call, ret, leave, jmp, jcc; setcc, cmovcc; cdq, cqo, cdqe; rep movs and rep stos; syscall; nop forms, endbr64.</li>
+<li><b>AArch64 coverage:</b> movz, movn, movk; add/sub immediate, shifted and extended (with flags); logical immediate and shifted (including bic, orn, eon); ubfm, sbfm, bfm (lsl, lsr, asr, uxt*, sxt*, ubfx, bfi); extr as ror; madd, msub, smaddl, umaddl, smulh, umulh; udiv, sdiv; variable shifts; csel, csinc, csinv, csneg; ccmp, ccmn; b, bl, b.cond, cbz, cbnz, tbz, tbnz, br, blr, ret; ldr/str (unsigned offset, unscaled, pre/post-index, register offset, literal), ldrs*, ldp/stp, ldpsw; adr, adrp; svc; hints and barriers.</li>
+<li><b>Safety:</b> unknown bytes are gaps and are never executed; the run stops at a gap with its address and bytes. Every memory access is bounds-checked; the first 4 KiB are a null page. A store into translated code stops the program ("self-modifying code is not supported"). Fuel bounds every run. The WebAssembly module imports nothing.</li>
+<li><b>Linux shim:</b> write, writev, read (from a provided stdin), brk, anonymous mmap, munmap, exit, exit_group, uname, getpid, getuid, set_tid_address, clock_gettime (a fixed clock), getrandom, ioctl (ENOTTY), signal calls (accepted, ignored). Everything else returns -ENOSYS and is listed in the report. No files, sockets or processes are reachable.</li>
+<li><b>How it is tested:</b> the real processor is the oracle. <code>fixtures/linux/</code> holds one C program (sieve, recursion, sort, hashing, a switch table, function pointers, signed and unsigned division, stdin) built 8 ways; every build must print exactly what the x86-64 build prints on real hardware, on both engines. <code>fixtures/compat-corpus.json</code> holds 150 random programs written as both x86-64 and AArch64 assembly and assembled by the real toolchains; each must give the hardware's answer 4 ways (x86 and ARM, interpreter and WebAssembly). 500 more were run during development. On its first run the corpus caught a real bug in the reference interpreter.</li>
+<li><b>Speed (this machine):</b> the compiled workload runs in 0.1 to 0.3 s through WebAssembly versus 0.5 to 1.5 s in the interpreter.</li>
+<li><b>Added in the third edition (x86-64):</b> fs: thread-local storage, cpuid (a baseline x86-64 with SSE2 and no AVX, vendor "ForgeVirtCPU"), SSE2 integer and data movement (lowered to WebAssembly SIMD), scalar SSE float with x86 NaN rules, parity, adc/sbb, rotates, shld/shrd, the bit-test family, bsf/bsr/tzcnt/lzcnt, cmpxchg/xadd, bswap, ah/bh/ch/dh, 128-by-64 division, carry/overflow after shifts, rotates and multiplies, the 67 prefix, rdssp, fnstcw/fldcw. Execution is tiered (interpreter, then WebAssembly), and programs are lowered as one function per 16 KiB of code.</li>
+<li><b>Not yet:</b> AVX, x87 arithmetic, packed float SSE, VEX (BMI); ARM SIMD/FP, atomics, system registers (so ARM glibc stops at its first gap); dynamic linking; threads; files.</li>
+</ul>
+<h2>2.9 Ingest routes</h2>
+<table>
+<tr><th>Detected by</th><th>Kind</th><th>Route</th></tr>
+<tr><td>00 61 73 6d</td><td>wasm</td><td>sandbox-vm (validated, imports and exports listed, not run)</td></tr>
+<tr><td>GGUF</td><td>gguf</td><td>resident-model</td></tr>
+<tr><td>glTF / .gltf</td><td>glb / gltf</td><td>scene-asset</td></tr>
+<tr><td>PNG, JPEG, WEBP, GIF</td><td>image</td><td>texture</td></tr>
+<tr><td>.js .ts .tsx .jsx .mjs .html</td><td>script</td><td>safe-compile gate (built)</td></tr>
+<tr><td>PK.. or gzip</td><td>archive</td><td>unpack (not yet built)</td></tr>
+<tr><td>ELF (static, x86-64 or ARM64)</td><td>native</td><td>Linux layer (built). Dynamic or PIE: refused with the reason</td></tr>
+<tr><td>MZ (PE), Mach-O</td><td>native</td><td>reported, not run (no Windows or macOS layer yet)</td></tr>
+<tr><td>anything else</td><td>unknown</td><td>reject</td></tr>
+</table>
+</section>
+
+<section class="page">
+<h2>2.10 Skills (new)</h2>
+<pre>{
+  "name": "factorial", "version": 1,
+  "description": "Factorial of a whole number n (n!).",
+  "examples": ["what is 5 factorial"],
+  "schema": { "type": "object", "properties": { "n": { "type": "integer", "minimum": 0, "maximum": 20 } }, "required": ["n"] },
+  "impl": { "kind": "wasm", "module": "&lt;base64url&gt;", "export": "fact" }      or { "kind": "linux", "elf": "&lt;base64url&gt;" },
+  "fixtures": [ { "args": { "n": 5 }, "expect": 120 } ]
+}</pre>
+<ul>
+<li><b>Getting in:</b> <code>proposeSkill</code> checks the shape and schema, refuses modules with imports, then runs every fixture here; one mismatch and nothing is installed. Versions only move up. The registry stores a hash of each implementation and drops any skill whose bytes changed when it is loaded again.</li>
+<li><b>Running:</b> wasm skills take the schema's numbers in order and return one number; they run in a worker that is terminated at the time limit. Linux skills (either architecture) get their arguments as canonical JSON on stdin and answer with JSON on stdout, through the Linux layer. Neither can reach the network.</li>
+<li><b>Routing:</b> a picker (the resident small model, or the built-in word-overlap picker) returns <code>{ skill, args }</code>. The router never trusts it: an unknown skill is refused and arguments are schema-checked before anything runs. Tested with the network disabled.</li>
+</ul>
+<h2>2.11 Script gate (new)</h2>
+<p><b>Second layer (third edition):</b> <code>runGatedScript(source, name, api)</code> gates the script, then runs it in its own worker where network, storage, workers, eval and the Function constructors have been removed and the shared prototypes frozen. The script's default export receives <code>forge</code>, whose methods only send messages; the host answers the ones it offers. A time limit and a call limit stop runaway scripts.</p>
+<p><code>gateScript(source, fileName, { grants, allowImports, typecheck })</code> uses the TypeScript compiler. It reports syntax errors, optional type errors (ES2022 library only, so host APIs are not even typed), and refuses: network, storage, WebAssembly, audio and canvas APIs unless granted; and always eval, the Function constructor, globalThis/window/self, document, require/process, Worker, Reflect, dynamic import, import.meta, <code>with</code>, string timers, imports outside the allow list, and reaching <code>constructor</code>, <code>__proto__</code>, <code>getPrototypeOf</code> and similar. Every computed key is rewritten through a runtime guard, so <code>o["con" + "structor"]</code> throws. Each refusal carries line, column and reason. This is the static layer; the second layer (running the result in a separate realm without network) is still to build.</p>
+<h2>2.12 Desktop host and executables</h2>
+<p>Tauri 2 shell (<code>src-tauri/</code>) showing the UI in a native window. Commands: <code>run_wasm</code>, <code>host_info</code>, and the guest runner <code>guest_start / guest_resume / guest_swap / guest_end</code>: the page lifts and lowers a program; Rust instantiates the import-free module in wasmtime, answers system calls with the same shim as the page (guest.rs, kept in step with linux.ts), hands out guest fuel in slices of 5 million dispatches, and returns <code>needs-code</code> when the program reaches code not lifted yet, so the page lifts more and swaps the module while memory and CPU state carry over. State layout: registers at 0x0 (72 slots), pc 0x300, flags 0x308 (Z S C O K P), fuel 0x320, code 0x328, fault 0x330.</p>
+<p>Executables: <code>bin/forge</code> (Node 22+) runs <code>dist/forge.mjs</code>; <code>npm run cli:standalone</code> builds <code>dist/forge-linux-x64</code>, one file with Node inside, without network access (scripts/sea-inject.mjs writes the blob as an ELF note and flips the fuse); <code>scripts/make-sea.sh</code> does the same on macOS and Windows with postject. <code>npm run desktop:build</code> builds installers: <code>vite build --mode desktop</code> produces a static single-page app (no server, no hosted-preview chrome) that scripts/desktop-dist.mjs copies to src-tauri/frontend.</p>
+<h2>2.13 Pooled model inference (new)</h2>
+<p>Each compute device holds a contiguous slice of layers sized to its memory; the planner gives faster devices more layers but never more than fits. Activations travel between devices over the link (HTTP in the tests); weights never do: each device builds or reads only its slice. If a device drops out mid-answer, the host re-plans over who is left and redoes that token; if what is left cannot hold the model, the request fails with the numbers ("model needs 1.9 MB; the 1 online device has 1.3 MB"). Tested with separate processes: a model too big for either of two devices answers identically to a single machine, fails cleanly when one is unplugged, and recovers when a third joins. The model is a deterministic toy; a real runtime plugs in at <code>runLayers</code>.</p>
+<h2>2.14 Multiplayer, devices, native mode</h2>
+<p>Unchanged from the first handoff and still accurate: device shell levels 0 to 4, one owner identity with device certificates and pairing codes, host-authoritative replication with visibility, detail, budget and deltas, zones and ghosts across the owner's machines, visitors who relay and seed but never decide, native mode in two stages (appliance, then bare-metal Rust with a Linux compatibility layer and driver shim). Replication is now carried by the island node's <code>/island/sync</code>; prediction, zones across machines and local mesh remain planned.</p>
+</section>
+
+<section class="page">
+<h2>2.15 Verifying the handoff</h2>
+<pre>scripts/offline-bundle.sh fetch     # once, on a machine with internet (vendors crates, caches npm)
+scripts/offline-bundle.sh install   # then anywhere, offline: install, test, build the CLI
+npm run test:engine            # 107 tests: engine, x86/ARM vs real-CPU fixtures, glibc, islands, skills, scripts, pooling
+rustc --edition 2021 --test src-tauri/src/guest.rs && ./guest   # the Rust shim, no crates needed
+bin/forge run fixtures/linux/libc-float-x86_64.elf               # a glibc program with floating point
+npm run cli:standalone         # dist/forge-linux-x64, a single file
+npm run desktop:build          # the desktop app installer
+npm run forge:run -- fixtures/linux/workload-aarch64.elf    # an ARM program running here
+sh fixtures/linux/build.sh     # optional: rebuild fixtures (gcc, clang with aarch64, ld.lld; x86-64 host)
+npm run forge:corpus -- 500 7  # optional: fresh random corpus from the hardware oracle
+cd src-tauri &amp;&amp; cargo test     # first Rust build
+npm run dev                    # web UI on :8080 (drop a Linux program on the window)
+cd src-tauri &amp;&amp; cargo tauri dev   # same UI, native window</pre>
+
+<h2 style="font-size:18pt;color:var(--ink)">3. Wants and needs for the next model</h2>
+<p>Work in this order. Each item names the test that proves it is done. Keep every existing test passing.</p>
+<h2>3.1 Ordered work list</h2>
+<table>
+<tr><th style="width:4%">#</th><th style="width:38%">Task</th><th style="width:30%">Done when</th><th>State now</th></tr>
+<tr><td>1</td><td>First native build. Compile src-tauri, fix what the toolchain reports, pin the wasmtime version.</td><td>cargo test passes; the app opens a window showing the world on one x86 and one ARM machine.</td><td class="part">Ready to try: scripts/offline-bundle.sh, icons and frontend build in place. Needs crates.io once.</td></tr>
+<tr><td>2</td><td>Hand-test movement. Third person, first person and bench in the native window and a browser.</td><td>Avatar visible in third person; A/D turn; first person looks and strafes; bench orbits freely.</td><td class="open">Open. Needs a browser with npm installed.</td></tr>
+<tr><td>3</td><td>Production frontend for the shell (static build or Node sidecar).</td><td>cargo tauri build produces an installer that runs offline.</td><td class="open">Open</td></tr>
+<tr><td>4</td><td>Portals in the world.</td><td>Two machines on one network: walk through, see the other island's manifest name and grants.</td><td class="part">Built and tested on one machine (engine, node, UI hook). Needs the two-machine hand test.</td></tr>
+<tr><td>5</td><td>Island content transfer.</td><td>Visitor renders the host's scene; sha256 of the entry matches the manifest.</td><td class="done">Done (tested over HTTP)</td></tr>
+<tr><td>6</td><td>Grow the compat IR: loads and stores, compare and branch, call and return, flags.</td><td>Random-program tests across x86, ARM, WebAssembly agree with the stepper.</td><td class="done">Done, with the real CPU as the oracle</td></tr>
+<tr><td>7</td><td>Skill registry.</td><td>A cloud-written skill is accepted only after its fixture passes, then runs offline.</td><td class="done">Done</td></tr>
+<tr><td>8</td><td>Safe-compile gate for scripts.</td><td>A script with a forbidden call is rejected with the reason.</td><td class="done">Done (static layer)</td></tr>
+<tr><td>9</td><td>Adjacency: two opted-in islands side by side, live.</td><td>Two players see each other's islands live; stopping one host removes its half.</td><td class="open">Open. island-content.ts sync is the building block.</td></tr>
+<tr><td>10</td><td>Native binary route.</td><td>A small Linux program runs inside Forge.</td><td class="done">Done for static x86-64 and ARM64 programs, and static glibc programs on x86-64</td></tr>
+<tr><td>11</td><td>Shell levels 1 and 2 on Android.</td><td>A tester uses Forge as home screen for a week and can switch back in one step.</td><td class="open">Open</td></tr>
+<tr><td>12</td><td>Linked devices over the network.</td><td>Phone drives the PC's world; turn off the PC and the phone keeps it running.</td><td class="open">Open</td></tr>
+<tr><td>13</td><td>Replication on a transport, plus client-side prediction.</td><td>Two visitors, each under budget; walking feels instant at 150 ms added latency.</td><td class="part">Transport, budgets and deltas done and tested. Prediction open.</td></tr>
+<tr><td>14</td><td>Zones on several machines with live authority handoff.</td><td>A border crossing between two machines with no visible hitch.</td><td class="open">Open</td></tr>
+<tr><td>15</td><td>Local mesh.</td><td>Three phones with no internet share one world; a fourth downloads faster from peers.</td><td class="open">Open</td></tr>
+<tr><td>16</td><td>Pooled inference.</td><td>A model too large for any one of two linked machines answers using both; unplugging one re-plans or fails cleanly.</td><td class="part">Mechanics done and tested across processes with a toy model. Real GGUF per-layer runtime open.</td></tr>
+<tr><td>17-19</td><td>Native stage A appliance; Linux compatibility layer in the Rust core; native stage B bare metal.</td><td>As in the first handoff.</td><td class="open">Open. 2.8's shim is a starting point for 18.</td></tr>
+</table>
+<h3>Items N1 to N3 (from the second edition)</h3>
+<ul>
+<li><b>N1. Guest programs in the native host:</b> <span class="part">written and tested in parts.</span> Done when the workload and glibc fixtures pass through wasmtime: <code>cargo test</code> plus one run of <code>npm run desktop:dev</code> dropping a fixture on the window.</li>
+<li><b>N2. glibc static binaries:</b> <span class="done">done for x86-64</span> (printf, malloc, qsort, strings, floating point). ARM64 glibc is next: NEON loads and compares, tpidr_el0, exclusives.</li>
+<li><b>N3. Second layer for scripts:</b> <span class="done">done</span> (worker, message-only API).</li>
+<li><b>N4. Real model slices:</b> per-layer forward for a GGUF model behind <code>SliceLink</code>. Open.</li>
+</ul>
+<h3>Next, in order</h3>
+<ul>
+<li><b>N5. Compile and ship the desktop app</b> on one x86 and one ARM machine (work item 1 plus N1's acceptance test).</li>
+<li><b>N6. ARM64 glibc:</b> extend gen-compat-corpus.ts with NEON, exclusives and tpidr_el0; an ARM64 machine as a second oracle would let the corpus check ARM directly.</li>
+<li><b>N7. Files for guests:</b> a per-island virtual file system behind the shim (open/read/write/close on a capability-scoped tree), so command-line tools can work on files.</li>
+<li><b>N8. Packed SSE float and AVX</b> for compilers' vectorized loops (today those programs stop at a reported gap).</li>
+</ul>
+</section>
+
+<section class="page">
+<h2>3.2 Guardrails the next model must keep</h2>
+<ul>
+<li>Never execute bytes the engine cannot verify. Gaps are reported, not guessed.</li>
+<li>New opcodes enter the decoders only with a test whose expected answer came from real hardware (fixtures/linux or the corpus), not from the decoder's own idea of the semantics.</li>
+<li>The CPU is the oracle. Never read flags the architecture leaves undefined in generated tests (bsf/bsr, multiply ZF/SF, OF after multi-bit shifts); they differ between processors.</li>
+<li>Guest WebAssembly modules import nothing. Everything a guest program can do goes through the shim, and the shim only grants what is listed in 2.8.</li>
+<li>Never widen a grant. Hosts grant a subset of the request; the visitor checks that.</li>
+<li>Never show island content whose hash does not match the host's signed manifest.</li>
+<li>Never let a model write directly into the running engine. Proposals go through a fixture or a schema check; a picker's output is always validated.</li>
+<li>Keep the private key private. Do not log it, send it, or put it in a manifest.</li>
+<li>Keep the movement code single-owner: the pilot owns the camera; nothing else writes it each frame. (This pass added portals and drop-to-ingest without touching the pilot.)</li>
+<li>Do not reintroduce the software overlay as a default. It caused the blur and the crude avatar.</li>
+<li>Do not reverse-engineer closed commercial software. Open-source and the owner's own code only.</li>
+<li>Every device takeover step must have a tested way back to the stock system. Never lock an owner out of their own phone, emergency calling included.</li>
+<li>Only devices the owner certified may join an instance. A removed device must stay removed.</li>
+<li>Authority stays on machines the island owner controls. Visitors relay, seed and render; they never decide what happens.</li>
+</ul>
+<h2>3.3 Open decisions for the owner</h2>
+<ul>
+<li><b>Transport.</b> Plain HTTP works on a home network. Across the internet, hosts behind home routers need WebRTC with a signaling service, a relay, or port forwarding. Session tokens need HTTPS outside a home network.</li>
+<li><b>Discovery.</b> How people find islands: a shared directory, friends' portal lists, or a peer-to-peer index.</li>
+<li><b>Persistence.</b> Whether popular islands may be cached by peers after the owner goes offline.</li>
+<li><b>Models.</b> Which small model routes intent locally, and which cloud model writes skills.</li>
+<li><b>Licensing.</b> Open-source license for Forge itself, and rules for third-party island content and skills.</li>
+<li><b>Lead with AI?</b> Whether pooled inference ships before islands, as the first reason to install.</li>
+<li><b>First native hardware.</b> Which machine family stage B targets first.</li>
+<li><b>Which programs first.</b> Static musl command-line tools are the nearest win; glibc, Windows (PE) and GUI programs are each a large step.</li>
+</ul>
+<h2>3.4 What the next model needs</h2>
+<ul>
+<li>This repository, plus a machine with Rust, Node 22+ and the Tauri system libraries.</li>
+<li>Network access to crates.io and npm.</li>
+<li>For new opcodes: gcc, clang with the aarch64 target, ld.lld, and an x86-64 machine (the hardware oracle). An ARM64 machine would let the corpus check ARM directly too.</li>
+<li>Two devices (ideally one x86 and one ARM) on the same network for portal and pooling tests.</li>
+<li>The owner's answers to the open decisions above, starting with transport.</li>
+</ul>
+<h2>3.5 Known limits, stated plainly</h2>
+<ul>
+<li>Perfect translation of arbitrary programs between x86 and ARM is not solved by anyone. Forge runs what its map covers, refuses the rest safely, and grows the map with hardware-checked tests. Today that map is the integer core of compiled code.</li>
+<li>The x86 flags after shifts and multiplies are approximated (zero and sign are exact; carry and overflow are not modelled). Compilers rarely branch on them; the random corpus avoids them; a program that does could differ.</li>
+<li>Closed, server-backed apps can only be wrapped through their public interfaces.</li>
+<li>Seamless worlds spanning untrusted machines are harder than in one company's data center, because no host can trust another's simulation. Ownership per entity is the starting rule.</li>
+<li>Static analysis of JavaScript can be argued with; the script gate needs its runtime second layer before it is trusted with hostile code.</li>
+<li>Bare-metal boot needs a separate native core and is the last step, not the first. Bare metal makes the system leaner and steadier, not raw computation much faster.</li>
+<li>Each platform decides how far an app can take over. iOS allows the least; Android with an unlocked bootloader and Linux allow the most.</li>
+</ul>
+</section>
+</body></html>

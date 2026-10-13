@@ -1,0 +1,29 @@
+#!/bin/sh
+# Rebuilds the Linux fixtures. Needs gcc, clang (with the aarch64 target), as, ld and ld.lld.
+# The x86-64 binaries run on the build machine to record the expected output.
+set -e
+cd "$(dirname "$0")"
+BASE="-static -nostdlib -ffreestanding -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -mgeneral-regs-only -fno-builtin -s"
+as hello-x86_64.s -o /tmp/hx.o && ld -static -n -s /tmp/hx.o -o hello-x86_64.elf
+clang --target=aarch64-linux-gnu -c hello-aarch64.s -o /tmp/ha.o && ld.lld -static -n -s /tmp/ha.o -o hello-aarch64.elf
+# The same C program from two compilers, two architectures and several optimization levels.
+gcc -O2 $BASE -no-pie workload.c -o workload-x86_64.elf
+gcc -O0 $BASE -no-pie workload.c -o workload-x86_64-gcc-O0.elf
+gcc -Os $BASE -no-pie workload.c -o workload-x86_64-gcc-Os.elf
+gcc -O3 $BASE -no-pie workload.c -o workload-x86_64-gcc-O3.elf
+clang -O1 $BASE -no-pie workload.c -o workload-x86_64-clang-O1.elf
+clang --target=aarch64-linux-gnu -O2 $BASE -fuse-ld=lld workload.c -o workload-aarch64.elf
+clang --target=aarch64-linux-gnu -O0 $BASE -fuse-ld=lld workload.c -o workload-aarch64-clang-O0.elf
+clang --target=aarch64-linux-gnu -O3 $BASE -fuse-ld=lld workload.c -o workload-aarch64-clang-O3.elf
+./hello-x86_64.elf > hello.expected
+set +e
+printf 'abc' | ./workload-x86_64.elf > workload.expected; echo $? > workload.exitcode
+for f in workload-x86_64-*.elf; do printf 'abc' | ./$f | cmp -s - workload.expected || echo "MISMATCH on hardware: $f"; done
+ls -l *.elf
+
+# glibc, linked statically: printf, malloc, qsort, strings, thread-local storage, SSE2, floating point.
+gcc -static -O2 -no-pie -s libc-demo.c -o libc-demo-x86_64.elf
+gcc -static -O2 -no-pie -s libc-float.c -o libc-float-x86_64.elf -lm
+printf 'abc' | ./libc-demo-x86_64.elf > libc-demo.expected 2> libc-demo.stderr
+./libc-float-x86_64.elf > libc-float.expected
+ls -l libc-*.elf

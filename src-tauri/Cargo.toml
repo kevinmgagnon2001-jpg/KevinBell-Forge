@@ -1,0 +1,19 @@
+[package]
+name = "forge"
+version = "0.1.0"
+edition = "2021"
+description = "Forge desktop host: native window around the engine, with an embedded WebAssembly runtime"
+
+[lib]
+name = "forge_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+# Bump to the current major when you first build; the API used here (Config, Engine, Module,
+# Store fuel, Instance, typed funcs) has been stable across recent majors.
+wasmtime = ">=25"
