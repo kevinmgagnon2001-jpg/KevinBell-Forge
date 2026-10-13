@@ -34,7 +34,8 @@
     "offline:install": "sh scripts/offline-bundle.sh install",
     "android:init": "tauri android init",
     "android:dev": "tauri android dev",
-    "android:build": "tauri android build --apk --target aarch64"
+    "android:build": "tauri android build --apk --target aarch64",
+    "tauri": "tauri"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.4",
