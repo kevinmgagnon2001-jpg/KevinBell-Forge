@@ -14,7 +14,8 @@ import { deviceKind, OPEN_DEVICE_EVENT } from "@/engine/device-apps";
 import { scenePalette } from "./palette";
 import { Pilot } from "./pilot";
 import { RoomPicture } from "./picture";
-import { probeHardware, qualityFor, softRenderRequested } from "@/engine/hardware";
+import { probeHardware, qualityFor, sceneryRequested, softRenderRequested, type SceneryLevel } from "@/engine/hardware";
+import { Scenery } from "./Scenery";
 import { faceLook, pilotKeys, pointerClaim, setAimPoint, setGazeLock, shiftLook, useGazeId, useLook } from "./look";
 
 const UP = new Vector3(0, 1, 0);
@@ -305,11 +306,14 @@ function Solid({
   selected,
   tone,
   map,
+  polished = false,
 }: {
   children: ReactNode;
   selected: boolean;
   tone: string;
   map?: Texture | null;
+  /** Floors: polished stone that mirrors the sky. */
+  polished?: boolean;
 }) {
   return (
     <mesh>
@@ -317,8 +321,8 @@ function Solid({
       <meshStandardMaterial
         color={map ? "#ffffff" : tone}
         map={map ?? undefined}
-        roughness={0.62}
-        metalness={0.28}
+        roughness={polished ? 0.2 : 0.62}
+        metalness={polished ? 0.12 : 0.28}
         emissive={selected ? tone : "#12141a"}
         emissiveIntensity={selected ? 0.45 : 0.2}
       />
@@ -508,12 +512,14 @@ function AssetMesh({
   tone,
   map,
   screen,
+  floor,
 }: {
   asset: string;
   selected: boolean;
   tone: string;
   map?: Texture | null;
   screen?: boolean;
+  floor?: boolean;
 }) {
   if (asset === "card") {
     if (!screen) {
@@ -620,7 +626,7 @@ function AssetMesh({
   }
   if (asset === "platform") {
     return (
-      <Solid selected={selected} tone={tone} map={map}>
+      <Solid selected={selected} tone={tone} map={map} polished={floor}>
         <boxGeometry args={[1, 1, 1]} />
       </Solid>
     );
@@ -827,7 +833,7 @@ function Body({ entity, selected }: { entity: Entity; selected: boolean }) {
     <>
       {neural}
       {neural ? null : (
-        <AssetMesh asset={rep.assetId} selected={selected} tone={tone} map={map} screen={entity.customData.role === "terminal"} />
+        <AssetMesh asset={rep.assetId} selected={selected} tone={tone} map={map} screen={entity.customData.role === "terminal"} floor={entity.tags.includes("floor")} />
       )}
     </>
   );
@@ -1155,7 +1161,7 @@ function TextureDeck() {
   );
 }
 
-function Stage() {
+function Stage({ scenery, shadows }: { scenery: SceneryLevel | "off"; shadows: boolean }) {
   const entities = useForge((s) => s.entities);
   const selectedId = useForge((s) => s.selectedId);
   const gazeId = useGazeId();
@@ -1168,16 +1174,26 @@ function Stage() {
 
   return (
     <>
-      <color attach="background" args={[scenePalette.bg]} />
-      <fog attach="fog" args={[scenePalette.fog, 36, 72]} />
-      <hemisphereLight args={[scenePalette.key, scenePalette.fill, 0.7]} />
-      <ambientLight intensity={0.38} />
-      <directionalLight position={[7, 11, 5]} intensity={1.55} color={scenePalette.key} />
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.012, 0]}>
-        <circleGeometry args={[30, 80]} />
-        <meshStandardMaterial color="#1c2128" roughness={1} metalness={0} />
-      </mesh>
-      <gridHelper args={[40, 40, scenePalette.gridMajor, scenePalette.grid]} position={[0, 0, 0]} />
+      {scenery === "off" ? (
+        <>
+          <color attach="background" args={[scenePalette.bg]} />
+          <fog attach="fog" args={[scenePalette.fog, 36, 72]} />
+          <hemisphereLight args={[scenePalette.key, scenePalette.fill, 0.7]} />
+          <ambientLight intensity={0.38} />
+          <directionalLight position={[7, 11, 5]} intensity={1.55} color={scenePalette.key} />
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.012, 0]}>
+            <circleGeometry args={[30, 80]} />
+            <meshStandardMaterial color="#1c2128" roughness={1} metalness={0} />
+          </mesh>
+          <gridHelper args={[40, 40, scenePalette.gridMajor, scenePalette.grid]} position={[0, 0, 0]} />
+        </>
+      ) : (
+        <>
+          <Scenery level={scenery} shadows={shadows} />
+          {/* The building grid, faint over the plaza's 1 m tiles. */}
+          <gridHelper args={[30, 30, "#3d3a35", "#4d4943"]} position={[0, 0.004, 0]} material-transparent material-opacity={0.32} material-depthWrite={false} />
+        </>
+      )}
       <DragSurface drag={drag} setDragging={setDragging} />
       <GazeLock />
       {list.map((entity) => (
@@ -1349,6 +1365,8 @@ function Visor() {
 export function Viewport() {
   const hardware = useMemo(() => probeHardware(), []);
   const quality = useMemo(() => qualityFor(hardware), [hardware]);
+  const scenery = useMemo(() => sceneryRequested() ?? quality.scenery, [quality]);
+  const shadows = quality.shadows && scenery !== "off" && scenery !== "min";
   // The flat software picture is a debug view for machines with no GPU output.
   // It is off by default because it paints over the real renderer.
   const soft = useMemo(() => softRenderRequested(), []);
@@ -1365,12 +1383,13 @@ export function Viewport() {
   return (
     <div className="view">
       <Canvas
-        camera={{ position: [10.4, 6.8, 10.2], fov: 42, near: 0.1, far: 80 }}
+        camera={{ position: [10.4, 6.8, 10.2], fov: 42, near: 0.1, far: scenery === "off" ? 80 : 900 }}
+        shadows={shadows}
         dpr={quality.dpr}
         gl={{ antialias: quality.antialias, alpha: false, powerPreference: quality.powerPreference, failIfMajorPerformanceCaveat: false, preserveDrawingBuffer: soft }}
         style={{ width: "100%", height: "100%", touchAction: "none" }}
       >
-        <Stage />
+        <Stage scenery={scenery} shadows={shadows} />
       </Canvas>
       {soft ? <RoomPicture /> : null}
       <div className="hud">

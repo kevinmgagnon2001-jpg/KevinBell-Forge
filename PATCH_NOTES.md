@@ -638,3 +638,33 @@ your real apps; opening one steps Forge aside, and opening Forge again brings yo
 - After updating, anyone who had turned it on taps "Use Forge as home screen" once more: the old
   alias is gone, so Android forgets the choice.
 - Not checked on a real phone yet; the emulator check runs with the next Android build.
+
+## A world around the lab
+The lab stood in a black void. It now stands on a stone plaza in a meadow, with hills, forest, a lake
+and mountains around it, under a late-afternoon sky.
+- src/engine/terrain.ts: the land as numbers, the same on every device and never saved or shared.
+  The plaza and the meadow out to 30 m stay flat, because bodies still stand on y = 0; hills rise
+  beyond that, mountains past ~100 m, and a lake sits in a basin. Also seeded scattering for trees,
+  rocks and flowers on dry, not-too-steep ground. Tested (src/engine/terrain.test.ts).
+- src/components/forge/Scenery.tsx:
+  - a sky dome with a sun, horizon haze and clouds; fog matches the haze;
+  - an environment map rendered once from that sky, so metal and polished surfaces reflect it;
+  - the sun casts shadows, and every solid body casts and catches them;
+  - 1 m stone tiles lined up with the building grid (the grid is still there, fainter), a curb and
+    twelve lamp posts;
+  - the ground is coloured by height and slope (meadow, dry grass, sand, rock, snow), with a fine
+    grain texture up close;
+  - instanced pines, leafy trees (a few in autumn colours), boulders, grass that moves in the wind,
+    wildflowers, and motes drifting over the plaza;
+  - a lake with moving ripples.
+  Nothing in it is an entity or collides, and the gaze and pointer rays skip it.
+- How much is drawn follows the hardware tier (hardware.ts gains `shadows` and `scenery`):
+  - full: everything, 2048 px shadows;
+  - lite (phones): about 40% of the grass and trees, 1024 px shadows;
+  - min (weak or software GPUs): no grass, flowers, motes or shadows.
+  `?scenery=full|lite|min|off` overrides it; `off` is the old dark lab.
+- The lab deck is a polished slate (#5a616c, was #2c313a) instead of a black slab. Saved labs keep
+  their colour until Reset.
+- Reduced motion turns off the wind, drifting clouds and ripples.
+- Checked in Chromium (software GPU) at 1400x900 and 390x844: third person, bench and helm views;
+  full, lite, min and off; no console errors. Not timed on a real phone yet.

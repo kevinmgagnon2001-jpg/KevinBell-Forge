@@ -83,7 +83,7 @@ export function labWorld(): World {
   const make = (id: number, args: Record<string, string>, x: number, y: number, z: number, sx: number, sy: number, sz: number) =>
     sized(makeSpawned(id, args), x, y, z, sx, sy, sz);
 
-  const deck = make(2, { name: "LabDeck", asset: "platform", color: "#2c313a", tags: "lab,fixture,floor", kinematic: "true", physics: "true" }, 0, 0.08, 0.4, 12, 0.16, 9);
+  const deck = make(2, { name: "LabDeck", asset: "platform", color: "#5a616c", tags: "lab,fixture,floor", kinematic: "true", physics: "true" }, 0, 0.08, 0.4, 12, 0.16, 9);
   const bench = make(3, { name: "Bench", asset: "platform", color: "#1c2128", tags: "lab,fixture,desk", kinematic: "true", physics: "true" }, 0.15, 0.36, 4.15, 2.8, 0.56, 1.15);
   const terminal = make(4, { name: "ForgeTerminal", asset: "card", color: "#10141a", tags: "lab,terminal,fixture" }, 0.15, 1.18, 3.72, 1.25, 0.86, 0.08);
   terminal.customData = { ...terminal.customData, role: "terminal", note: "This screen is the live manifold." };
