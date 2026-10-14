@@ -1,0 +1,11 @@
+worker 0 returned 5005007
+worker 1 returned 20010008
+worker 2 returned 45015009
+worker 3 returned 80020010
+counter: 4000
+once ran 1 time(s)
+main's thread-local value: 7
+thread ids distinct: 1, main is the process: 1
+consumer got 42925 (expected 42925)
+small stack thread: 1 returned 9
+main returns

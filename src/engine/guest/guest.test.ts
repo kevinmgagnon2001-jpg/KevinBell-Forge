@@ -213,7 +213,7 @@ test("threads: glibc pthreads (mutex, condition variable, barrier, once, TLS, jo
 
 test("ARM64 glibc programs and the NEON/FP instruction corpus (built and run on ARM64 hardware) match the CPU on every engine", () => {
   const input = fixture("files-in.txt");
-  for (const name of ["libc-demo", "libc-float", "libc-files", "libc-dirs", "libc-mapio", "libc-links", "neon"]) {
+  for (const name of ["libc-demo", "libc-float", "libc-files", "libc-dirs", "libc-mapio", "libc-links", "libc-threads", "neon"]) {
     const withTree = existsSync(new URL(`../../../fixtures/linux/${name}.arm.tree`, import.meta.url));
     for (const engine of ["tiered", "interpreter", "wasm"] as const) {
       const report = runLinux(fixture(`${name}-aarch64.elf`), { engine, stdin: "abc", files: withTree ? { "in.txt": input } : undefined });
