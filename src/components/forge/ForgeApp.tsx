@@ -8,6 +8,7 @@ import { startPersist, useForge } from "@/engine/store";
 import { DropRunner, PortalWatcher } from "./Bridge";
 import { DevicesCard } from "./Devices";
 import { MechanicsCard } from "./Mechanics";
+import { DeviceScreen } from "./DeviceScreen";
 import { startMechanics } from "@/engine/carry-browser";
 import { resumeLink } from "@/engine/link-browser";
 import type { Entity, ToolSchema } from "@/engine/types";
@@ -886,6 +887,7 @@ function ForgeShell() {
       <SimClock />
       <DropRunner />
       <PortalWatcher />
+      <DeviceScreen />
       <Header onScript={onScript} onDemo={onDemo} scripting={scripting} />
       <SceneSlot />
       <IntentDock />

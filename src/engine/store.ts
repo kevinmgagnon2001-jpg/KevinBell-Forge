@@ -752,7 +752,8 @@ export type SharedSave = {
 
 export function sharedSave(state: ForgeState): SharedSave {
   const world = persistedWorld(state);
-  const entities = Object.fromEntries(Object.entries(world.entities).filter(([, entity]) => !entity.customData?.island));
+  // Visited islands, and this device's own screen (device-apps.ts), stay on this device.
+  const entities = Object.fromEntries(Object.entries(world.entities).filter(([, entity]) => !entity.customData?.island && !entity.tags.includes("device-screen")));
   return {
     forge: "shared-save",
     version: 1,
@@ -771,7 +772,7 @@ export function applySharedSave(value: unknown): boolean {
   const save = value as SharedSave;
   if (!save || save.forge !== "shared-save" || save.version !== 1 || !save.world || !isEntityRecord(save.world.entities)) return false;
   const state = useForge.getState();
-  const visited = Object.fromEntries(Object.entries(state.entities).filter(([, entity]) => entity.customData?.island));
+  const visited = Object.fromEntries(Object.entries(state.entities).filter(([, entity]) => entity.customData?.island || entity.tags.includes("device-screen")));
   const world = ensureHelm(ensureAvatar({
     ...save.world,
     entities: { ...save.world.entities, ...visited },

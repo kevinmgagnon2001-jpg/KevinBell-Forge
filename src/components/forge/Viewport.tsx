@@ -599,6 +599,7 @@ function AssetMesh({
       </group>
     );
   }
+  if (asset === "device-screen") return <DeviceScreenMesh />;
   if (asset === "visitor") {
     return (
       <group position={[0, 0.45, 0]}>
@@ -627,6 +628,29 @@ function AssetMesh({
     <Solid selected={selected} tone={tone} map={map}>
       <boxGeometry args={[1, 1, 1]} />
     </Solid>
+  );
+}
+
+/** The screen of this phone or computer (device-apps.ts): a lit face with a few app tiles, facing +z. */
+function DeviceScreenMesh() {
+  const tiles = ["#4c8df5", "#8fbfa8", "#d4a24a", "#d48a86", "#9fd4d6", "#c4a574"];
+  return (
+    <group>
+      <mesh>
+        <boxGeometry args={[1.06, 1.06, 1]} />
+        <meshStandardMaterial color="#1a1d22" roughness={0.4} metalness={0.5} />
+      </mesh>
+      <mesh position={[0, 0, 0.51]}>
+        <planeGeometry args={[0.94, 0.92]} />
+        <meshStandardMaterial color="#0f1720" emissive="#1d4e89" emissiveIntensity={0.35} roughness={0.2} />
+      </mesh>
+      {tiles.map((color, i) => (
+        <mesh key={color} position={[-0.27 + (i % 3) * 0.27, 0.2 - Math.floor(i / 3) * 0.3, 0.52]}>
+          <planeGeometry args={[0.17, 0.17]} />
+          <meshBasicMaterial color={color} />
+        </mesh>
+      ))}
+    </group>
   );
 }
 
@@ -919,7 +943,7 @@ function EntityNode({
   const q = entity.transform.rotation;
   const fixed = entity.tags.includes("floor") || entity.tags.includes("tetris");
   const yaw = Number(entity.customData.yaw) || 0;
-  const facing = entity.tags.includes("architect") || entity.tags.includes("agent") || entity.tags.includes("presence");
+  const facing = entity.tags.includes("architect") || entity.tags.includes("agent") || entity.tags.includes("presence") || entity.tags.includes("device-screen");
   const half = yaw / 2;
   const quat: [number, number, number, number] = facing ? [0, Math.sin(half), 0, Math.cos(half)] : [q.x, q.y, q.z, q.w];
 
