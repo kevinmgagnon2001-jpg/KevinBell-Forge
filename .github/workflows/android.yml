@@ -40,6 +40,7 @@ jobs:
       emulator_apk: ${{ steps.sign.outputs.emulator_apk }}
       version: ${{ steps.version.outputs.version }}
       permanent: ${{ steps.sign.outputs.permanent }}
+      fingerprint: ${{ steps.sign.outputs.fingerprint }}
     env:
       NDK_VERSION: "27.2.12479018"
       # Modern phones are 64-bit ARM; x86_64 is the emulator the smoke test runs. Add "armv7" for
@@ -139,7 +140,16 @@ jobs:
           fi
           BUILD_TOOLS="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)"
           if [[ -n "$KEYSTORE_B64" && -n "$KEYSTORE_PASSWORD" && -n "$KEY_ALIAS" ]]; then
-            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/forge.jks"
+            if ! echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/forge.jks" 2> /dev/null; then
+              echo "::error::ANDROID_KEYSTORE_BASE64 is not valid base64. It must hold only the keystore file, encoded with 'base64 -w0'. See docs/ANDROID.md."; exit 1
+            fi
+            if ! keytool -list -keystore "$RUNNER_TEMP/forge.jks" -storepass "$KEYSTORE_PASSWORD" > /dev/null 2>&1; then
+              echo "::error::The keystore in ANDROID_KEYSTORE_BASE64 does not open with ANDROID_KEYSTORE_PASSWORD (wrong password, or the secret is not a keystore file). See docs/ANDROID.md."; exit 1
+            fi
+            if ! keytool -list -keystore "$RUNNER_TEMP/forge.jks" -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" > /dev/null 2>&1; then
+              echo "::error::The keystore has no key named '$KEY_ALIAS' (ANDROID_KEY_ALIAS). Its keys: $(keytool -list -keystore "$RUNNER_TEMP/forge.jks" -storepass "$KEYSTORE_PASSWORD" 2> /dev/null | grep -i 'keyentry' | cut -d, -f1 | paste -sd' ')"; exit 1
+            fi
+            KEY_KIND="permanent key from the repository secrets"
             echo "permanent=true" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::No signing key in the repository secrets. This APK is signed with a one-off key, so installing the next version will need this one uninstalled first. See docs/ANDROID.md."
@@ -147,6 +157,7 @@ jobs:
             KEY_ALIAS=forge
             keytool -genkeypair -keystore "$RUNNER_TEMP/forge.jks" -storepass "$KEYSTORE_PASSWORD" -keypass "$KEYSTORE_PASSWORD" \
               -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Forge" > /dev/null 2>&1
+            KEY_KIND="one-off key"
             echo "permanent=false" >> "$GITHUB_OUTPUT"
           fi
           sign() {
@@ -161,6 +172,11 @@ jobs:
           sign "$ARM" "$OUT"
           sign "$X86" "$EMU"
           rm -f "$RUNNER_TEMP/forge.jks"
+          # The fingerprint is public; it lets the owner confirm which key signed this build.
+          FINGERPRINT="$("$BUILD_TOOLS/apksigner" verify --print-certs "$OUT" | grep -m1 'SHA-256 digest' | sed 's/.*: //' | tr a-f A-F | sed 's/../&:/g; s/:$//')"
+          echo "Signing certificate SHA-256: $FINGERPRINT"
+          echo "fingerprint=$FINGERPRINT" >> "$GITHUB_OUTPUT"
+          { echo "### Signing certificate"; echo; echo "SHA-256 \`$FINGERPRINT\` ($KEY_KIND)"; } >> "$GITHUB_STEP_SUMMARY"
           echo "apk=$OUT" >> "$GITHUB_OUTPUT"
           echo "emulator_apk=$EMU" >> "$GITHUB_OUTPUT"
 
@@ -227,3 +243,4 @@ jobs:
           body: |
             **Android:** open this page on your phone, tap `${{ needs.apk.outputs.apk }}` below, and allow installs from your browser when Android asks (once).
             ${{ needs.apk.outputs.permanent == 'true' && 'Installs over the previous version; your data is kept.' || 'Signed with a one-off key: if an older Forge is installed, uninstall it first.' }}
+            Signing certificate SHA-256: `${{ needs.apk.outputs.fingerprint }}`
