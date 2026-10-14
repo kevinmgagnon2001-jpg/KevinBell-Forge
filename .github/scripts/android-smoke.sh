@@ -55,6 +55,14 @@ if ! adb shell pm enable "$PKG/.HomeActivity" > "$OUT/home-setup.txt" 2>&1 \
   cat "$OUT/home-setup.txt"
   echo "::error title=Android smoke test::could not make Forge the home screen on the emulator (a test setup problem, not the app); see home-setup.txt"; exit 1
 fi
+# Switching a component on from the shell also stops the app (Forge's own button does not: it passes
+# DONT_KILL_APP), so open Forge again and take the process to compare from here.
+adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 > /dev/null
+sleep 15
+PID="$(adb shell pidof "$PKG" | tr -d '\r')"
+if [ -z "$PID" ]; then
+  echo "::error title=Android smoke test::Forge did not start again after the home-screen setup; see logcat.txt"; exit 1
+fi
 adb shell input keyevent KEYCODE_HOME
 sleep 3
 adb shell input keyevent KEYCODE_HOME
