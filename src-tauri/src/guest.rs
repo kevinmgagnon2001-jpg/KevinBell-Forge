@@ -95,24 +95,24 @@ impl Arch {
     pub fn syscall_name(self, nr: u64) -> String {
         let name = match self {
             Arch::X86_64 => match nr {
-                0 => "read", 1 => "write", 2 => "open", 3 => "close", 5 => "fstat", 8 => "lseek", 9 => "mmap", 10 => "mprotect",
-                11 => "munmap", 12 => "brk", 13 => "rt_sigaction", 14 => "rt_sigprocmask", 16 => "ioctl", 20 => "writev",
-                21 => "access", 22 => "pipe", 28 => "madvise", 32 => "dup", 33 => "dup2", 39 => "getpid", 60 => "exit",
-                63 => "uname", 72 => "fcntl", 83 => "mkdir", 84 => "rmdir", 87 => "unlink", 89 => "readlink",
+                0 => "read", 1 => "write", 2 => "open", 3 => "close", 5 => "fstat", 7 => "poll", 8 => "lseek", 9 => "mmap", 10 => "mprotect",
+                11 => "munmap", 12 => "brk", 13 => "rt_sigaction", 14 => "rt_sigprocmask", 16 => "ioctl", 17 => "pread64", 18 => "pwrite64", 20 => "writev",
+                21 => "access", 22 => "pipe", 23 => "select", 26 => "msync", 28 => "madvise", 32 => "dup", 33 => "dup2", 39 => "getpid", 60 => "exit",
+                63 => "uname", 72 => "fcntl", 76 => "truncate", 77 => "ftruncate", 82 => "rename", 83 => "mkdir", 84 => "rmdir", 87 => "unlink", 89 => "readlink",
                 102 => "getuid", 104 => "getgid", 107 => "geteuid", 108 => "getegid", 158 => "arch_prctl", 186 => "gettid",
                 201 => "time", 217 => "getdents64", 218 => "set_tid_address", 228 => "clock_gettime", 231 => "exit_group",
-                257 => "openat", 258 => "mkdirat", 262 => "newfstatat", 263 => "unlinkat", 267 => "readlinkat", 269 => "faccessat",
-                273 => "set_robust_list", 292 => "dup3", 293 => "pipe2", 302 => "prlimit64", 318 => "getrandom", 334 => "rseq",
+                257 => "openat", 258 => "mkdirat", 262 => "newfstatat", 263 => "unlinkat", 264 => "renameat", 267 => "readlinkat", 269 => "faccessat", 270 => "pselect6", 271 => "ppoll",
+                273 => "set_robust_list", 292 => "dup3", 293 => "pipe2", 302 => "prlimit64", 316 => "renameat2", 318 => "getrandom", 334 => "rseq",
                 _ => "",
             },
             Arch::Aarch64 => match nr {
-                23 => "dup", 24 => "dup3", 25 => "fcntl", 29 => "ioctl", 34 => "mkdirat", 35 => "unlinkat", 48 => "faccessat",
-                56 => "openat", 57 => "close", 59 => "pipe2", 61 => "getdents64", 62 => "lseek", 63 => "read", 64 => "write", 66 => "writev",
-                78 => "readlinkat", 79 => "newfstatat", 80 => "fstat", 93 => "exit", 94 => "exit_group", 96 => "set_tid_address",
+                23 => "dup", 24 => "dup3", 25 => "fcntl", 29 => "ioctl", 34 => "mkdirat", 35 => "unlinkat", 38 => "renameat", 45 => "truncate", 46 => "ftruncate", 48 => "faccessat",
+                56 => "openat", 57 => "close", 59 => "pipe2", 61 => "getdents64", 62 => "lseek", 63 => "read", 64 => "write", 66 => "writev", 67 => "pread64", 68 => "pwrite64",
+                72 => "pselect6", 73 => "ppoll", 78 => "readlinkat", 79 => "newfstatat", 80 => "fstat", 93 => "exit", 94 => "exit_group", 96 => "set_tid_address",
                 99 => "set_robust_list", 113 => "clock_gettime", 134 => "rt_sigaction", 135 => "rt_sigprocmask", 160 => "uname",
                 172 => "getpid", 174 => "getuid", 175 => "geteuid", 176 => "getgid", 177 => "getegid", 178 => "gettid",
-                214 => "brk", 215 => "munmap", 222 => "mmap", 226 => "mprotect", 233 => "madvise", 261 => "prlimit64",
-                278 => "getrandom", 293 => "rseq",
+                214 => "brk", 215 => "munmap", 222 => "mmap", 226 => "mprotect", 227 => "msync", 233 => "madvise", 261 => "prlimit64",
+                276 => "renameat2", 278 => "getrandom", 293 => "rseq",
                 _ => "",
             },
         };
@@ -161,6 +161,9 @@ fn range(mem: &[u8], addr: u64, len: u64) -> Option<std::ops::Range<usize>> {
 
 const ENOENT: i64 = -2;
 const EBADF: i64 = -9;
+const EACCES: i64 = -13;
+const ENODEV: i64 = -19;
+const EFBIG: i64 = -27;
 const ENOMEM: i64 = -12;
 const EFAULT: i64 = -14;
 const EEXIST: i64 = -17;
@@ -182,7 +185,7 @@ fn page_up(v: u64) -> u64 {
 /// and the open descriptors. Only paths in the tree exist. Same rules as GuestFiles in
 /// src/engine/guest/files.ts (read its header for the model); keep the two in step.
 pub mod files {
-    use super::{EBADF, EEXIST, EINVAL, EISDIR, EMFILE, ENOENT, ENOSPC};
+    use super::{EACCES, EBADF, EEXIST, EFBIG, EINVAL, EISDIR, EMFILE, ENODEV, ENOENT, ENOSPC};
     use std::collections::{BTreeMap, BTreeSet, VecDeque};
     use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -205,6 +208,20 @@ pub mod files {
     pub const O_CLOEXEC: u64 = 0x80000;
     pub const AT_FDCWD: i64 = -100;
     pub const AT_REMOVEDIR: u64 = 0x200;
+    pub const RENAME_NOREPLACE: u64 = 1;
+    pub const RENAME_EXCHANGE: u64 = 2;
+    pub const POLLIN: i32 = 0x1;
+    pub const POLLPRI: i32 = 0x2;
+    pub const POLLOUT: i32 = 0x4;
+    pub const POLLERR: i32 = 0x8;
+    pub const POLLHUP: i32 = 0x10;
+    pub const POLLNVAL: i32 = 0x20;
+    pub const POLLRDNORM: i32 = 0x40;
+    pub const POLLWRNORM: i32 = 0x100;
+    /// What Linux reports for anything that never waits: regular files, directories, the standard streams.
+    const ALWAYS_READY: i32 = POLLIN | POLLOUT | POLLRDNORM | POLLWRNORM;
+    /// Where a directory descriptor points once its directory is gone: never a directory in the tree.
+    const GONE: &str = "/\0gone";
     pub const MAX_TREE_BYTES: usize = 64 * 1024 * 1024;
     /// Most descriptors open at once besides the three standard ones.
     pub const MAX_OPEN: usize = 256;
@@ -240,7 +257,8 @@ pub mod files {
         m.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    type Node = Arc<Mutex<Vec<u8>>>;
+    /// A file's contents, shared by the tree, descriptors and mappings.
+    pub type Node = Arc<Mutex<Vec<u8>>>;
     type PipeRef = Arc<Mutex<VecDeque<u8>>>;
 
     /// An open file description: what dup'd descriptors share.
@@ -338,6 +356,8 @@ pub mod files {
             if !raw.starts_with('/') && dirfd != AT_FDCWD {
                 let slot = self.fds.get(&dirfd).ok_or(EBADF)?;
                 match &*lk(&slot.desc) {
+                    // removed while open: nothing can be found or made in it
+                    Desc::Dir { path, .. } if !self.dirs.contains(path) => return Err(ENOENT),
                     Desc::Dir { path, .. } => stack.extend(path.split('/').filter(|p| !p.is_empty()).map(String::from)),
                     _ => return Err(ENOTDIR),
                 }
@@ -771,6 +791,225 @@ pub mod files {
             Ok((r, w))
         }
 
+        /// ftruncate: only a regular file open for writing can be cut or extended.
+        pub fn ftruncate(&mut self, fd: i64, length: i64) -> i64 {
+            let Some(desc) = self.desc(fd) else { return EBADF };
+            let node = match &*lk(&desc) {
+                Desc::File { node, write: true, .. } if length >= 0 => node.clone(),
+                _ => return EINVAL,
+            };
+            self.resize(&node, length)
+        }
+
+        /// truncate(path): the same without a descriptor.
+        pub fn truncate_at(&mut self, dirfd: i64, raw: &str, length: i64) -> i64 {
+            if length < 0 {
+                return EINVAL;
+            }
+            let path = match self.walk(dirfd, raw) {
+                Ok(p) => p,
+                Err(e) => return e,
+            };
+            match self.tree.get(&path).cloned() {
+                Some(node) => self.resize(&node, length),
+                None => {
+                    if self.dirs.contains(&path) { EISDIR } else { ENOENT }
+                }
+            }
+        }
+
+        fn resize(&mut self, node: &Node, length: i64) -> i64 {
+            if length as u64 > MAX_TREE_BYTES as u64 {
+                return EFBIG;
+            }
+            let mut d = lk(node);
+            let length = length as usize;
+            if length > d.len() && self.total + (length - d.len()) > MAX_TREE_BYTES {
+                return ENOSPC;
+            }
+            // A file that left the tree still counts until it is gone, as it did when written.
+            self.total = self.total + length - d.len();
+            d.resize(length, 0);
+            0
+        }
+
+        /// renameat2 (see files.ts `renameAt`).
+        pub fn rename_at(&mut self, olddirfd: i64, old_raw: &str, newdirfd: i64, new_raw: &str, flags: u64) -> i64 {
+            if flags & !(RENAME_NOREPLACE | RENAME_EXCHANGE) != 0 || (flags & RENAME_NOREPLACE != 0 && flags & RENAME_EXCHANGE != 0) {
+                return EINVAL;
+            }
+            let from = match self.walk(olddirfd, old_raw) {
+                Ok(p) => p,
+                Err(e) => return e,
+            };
+            let to = match self.walk(newdirfd, new_raw) {
+                Ok(p) => p,
+                Err(e) => return e,
+            };
+            // "." and "..", or the root itself, cannot be moved or replaced.
+            let special = |raw: &str| matches!(raw.split('/').filter(|p| !p.is_empty()).last().unwrap_or(""), "" | "." | "..");
+            if special(old_raw) {
+                return EBUSY;
+            }
+            if special(new_raw) {
+                return if flags & RENAME_NOREPLACE != 0 { EEXIST } else { EBUSY };
+            }
+            let from_dir = self.dirs.contains(&from);
+            if !from_dir && !self.tree.contains_key(&from) {
+                return ENOENT;
+            }
+            let to_dir = self.dirs.contains(&to);
+            let to_exists = to_dir || self.tree.contains_key(&to);
+            if !from_dir && (old_raw.ends_with('/') || (new_raw.ends_with('/') && flags & RENAME_EXCHANGE == 0)) {
+                return ENOTDIR;
+            }
+            if flags & RENAME_EXCHANGE != 0 && !to_exists {
+                return ENOENT;
+            }
+            if flags & RENAME_NOREPLACE != 0 && to_exists {
+                return EEXIST;
+            }
+            if from == to {
+                return 0;
+            }
+            let inside = |path: &str, dir: &str| path.len() > dir.len() && path.starts_with(dir) && path.as_bytes()[dir.len()] == b'/';
+            let under = |path: &str, dir: &str| path == dir || inside(path, dir);
+            if from_dir && inside(&to, &from) {
+                return EINVAL;
+            }
+            if flags & RENAME_EXCHANGE != 0 {
+                if to_dir && inside(&from, &to) {
+                    return EINVAL;
+                }
+                self.remap(|p| {
+                    if under(p, &from) {
+                        format!("{to}{}", &p[from.len()..])
+                    } else if under(p, &to) {
+                        format!("{from}{}", &p[to.len()..])
+                    } else {
+                        p.to_string()
+                    }
+                });
+                return 0;
+            }
+            if to_exists {
+                if !from_dir && to_dir {
+                    return EISDIR;
+                }
+                if from_dir && !to_dir {
+                    return ENOTDIR;
+                }
+                if to_dir {
+                    if self.entries(&to).len() > 2 {
+                        return ENOTEMPTY;
+                    }
+                    self.dirs.remove(&to);
+                    for slot in self.fds.values() {
+                        if let Desc::Dir { path, .. } = &mut *lk(&slot.desc) {
+                            if *path == to {
+                                *path = GONE.to_string();
+                            }
+                        }
+                    }
+                } else if let Some(n) = self.tree.remove(&to) {
+                    // Descriptors open on the replaced file keep it; it just leaves the tree.
+                    self.total -= lk(&n).len();
+                }
+            }
+            self.remap(|p| if under(p, &from) { format!("{to}{}", &p[from.len()..]) } else { p.to_string() });
+            0
+        }
+
+        /// Renames every path in the tree, and the directories descriptors point at, through `f`.
+        fn remap(&mut self, f: impl Fn(&str) -> String) {
+            self.tree = std::mem::take(&mut self.tree).into_iter().map(|(k, v)| (f(&k), v)).collect();
+            self.dirs = std::mem::take(&mut self.dirs).into_iter().map(|d| if d == "/" { d } else { f(&d) }).collect();
+            for slot in self.fds.values() {
+                if let Desc::Dir { path, .. } = &mut *lk(&slot.desc) {
+                    if path != "/" && path != GONE {
+                        *path = f(path);
+                    }
+                }
+            }
+        }
+
+        /// The file behind a descriptor, for mmap; `kind` is MAP_SHARED (1), MAP_PRIVATE (2) or
+        /// MAP_SHARED_VALIDATE (3). Errors come in the order Linux checks them.
+        pub fn map_file(&self, fd: i64, kind: u64, prot: u64) -> Result<Node, i64> {
+            let desc = self.desc(fd).ok_or(EBADF)?;
+            if !(1..=3).contains(&kind) {
+                return Err(EINVAL);
+            }
+            let g = lk(&desc);
+            let (readable, writable) = match &*g {
+                Desc::File { read, write, .. } => (*read, *write),
+                Desc::Pipe { write, .. } => (!*write, *write),
+                Desc::Dir { .. } => (true, false),
+                Desc::Stream(s) => (*s == 0, *s != 0),
+            };
+            if kind != 2 && prot & 2 != 0 && !writable {
+                return Err(EACCES);
+            }
+            if !readable {
+                return Err(EACCES);
+            }
+            match &*g {
+                Desc::File { node, .. } => Ok(node.clone()),
+                _ => Err(ENODEV),
+            }
+        }
+
+        /// Readiness for poll and select: a POLL* mask, or -1 for a descriptor that is not open.
+        pub fn poll_mask(&self, fd: i64) -> i32 {
+            let Some(desc) = self.desc(fd) else { return -1 };
+            let (pipe, write) = match &*lk(&desc) {
+                Desc::Pipe { pipe, write } => (pipe.clone(), *write),
+                _ => return ALWAYS_READY,
+            };
+            let size = lk(&pipe).len();
+            if write {
+                (if size < PIPE_BYTES { POLLOUT | POLLWRNORM } else { 0 }) | (if self.pipe_end_open(&pipe, false) { 0 } else { POLLERR })
+            } else {
+                (if size > 0 { POLLIN | POLLRDNORM } else { 0 }) | (if self.pipe_end_open(&pipe, true) { 0 } else { POLLHUP })
+            }
+        }
+
+        /// pread64: read at `offset` without moving the descriptor's position.
+        pub fn pread(&mut self, fd: i64, max: usize, offset: i64) -> Result<Vec<u8>, i64> {
+            let desc = self.desc(fd).ok_or(EBADF)?;
+            let g = lk(&desc);
+            match &*g {
+                Desc::Pipe { write: true, .. } => Err(EBADF),
+                Desc::Pipe { .. } | Desc::Stream(_) => Err(ESPIPE),
+                Desc::Dir { .. } => Err(EISDIR),
+                Desc::File { read: false, .. } => Err(EBADF),
+                Desc::File { .. } if offset < 0 => Err(EINVAL),
+                Desc::File { node, .. } => {
+                    let d = lk(node);
+                    let at = (offset as u64).min(d.len() as u64) as usize;
+                    Ok(d[at..at + max.min(d.len() - at)].to_vec())
+                }
+            }
+        }
+
+        /// pwrite64: write at `offset` without moving the position. As on Linux, O_APPEND still appends.
+        pub fn pwrite(&mut self, fd: i64, data: &[u8], offset: i64) -> i64 {
+            let Some(desc) = self.desc(fd) else { return EBADF };
+            let saved = match &mut *lk(&desc) {
+                Desc::Pipe { write: false, .. } => return EBADF,
+                Desc::Pipe { .. } | Desc::Stream(_) => return ESPIPE,
+                Desc::Dir { .. } | Desc::File { write: false, .. } => return EBADF,
+                Desc::File { .. } if offset < 0 => return EINVAL,
+                Desc::File { .. } if offset as u64 > MAX_TREE_BYTES as u64 => return EFBIG,
+                Desc::File { pos, .. } => std::mem::replace(pos, offset as usize),
+            };
+            let n = self.write(fd, data);
+            if let Desc::File { pos, .. } = &mut *lk(&desc) {
+                *pos = saved;
+            }
+            n
+        }
+
         /// The tree as it stands, path -> contents. Directories appear as "path/" with no contents.
         pub fn snapshot(&self) -> BTreeMap<String, Vec<u8>> {
             let mut out: BTreeMap<String, Vec<u8>> = self.tree.iter().map(|(k, n)| (k.clone(), lk(n).clone())).collect();
@@ -789,6 +1028,20 @@ fn fd(v: u64) -> i64 {
     v as u32 as i32 as i64
 }
 
+/// A MAP_SHARED view of a file (see `SharedMap` in linux.ts): around every system call the bytes
+/// the program stored (they differ from `shadow`) go to the file, and the file comes back into the view.
+struct SharedMap {
+    addr: usize,
+    len: usize,
+    node: files::Node,
+    off: usize,
+    shadow: Vec<u8>,
+    visible: usize,
+}
+
+const POLLIN_SET: i32 = files::POLLIN | files::POLLRDNORM | files::POLLHUP | files::POLLERR;
+const POLLOUT_SET: i32 = files::POLLOUT | files::POLLWRNORM | files::POLLERR;
+
 pub struct Shim {
     pub arch: Arch,
     pub counts: BTreeMap<String, u32>,
@@ -798,6 +1051,7 @@ pub struct Shim {
     brk: u64,
     mmap_top: u64,
     seed: u64,
+    shared: Vec<SharedMap>,
     pub files: files::GuestFiles,
 }
 
@@ -821,6 +1075,7 @@ impl Shim {
             brk: brk_base,
             mmap_top,
             seed,
+            shared: Vec::new(),
             files: files::GuestFiles::new(tree, stdin),
         }
     }
@@ -906,6 +1161,220 @@ impl Shim {
         }
     }
 
+    /// Program stores into shared mappings reach their files (only bytes inside the file; Linux drops the rest too).
+    fn store_shared(&mut self, mem: &[u8]) {
+        for m in &mut self.shared {
+            let mut d = m.node.lock().unwrap_or_else(|e| e.into_inner());
+            let end = m.len.min(d.len().saturating_sub(m.off));
+            let now = &mem[m.addr..m.addr + end];
+            for (i, &b) in now.iter().enumerate() {
+                // only the bytes this view changed: another view may own the rest
+                if b != m.shadow[i] {
+                    d[m.off + i] = b;
+                    m.shadow[i] = b;
+                }
+            }
+        }
+    }
+
+    /// Every shared mapping shows its file as it is now. A cut file reads as zeros past its new end.
+    fn load_shared(&mut self, mem: &mut [u8]) {
+        for m in &mut self.shared {
+            let d = m.node.lock().unwrap_or_else(|e| e.into_inner());
+            let visible = m.len.min(d.len().saturating_sub(m.off));
+            mem[m.addr..m.addr + visible].copy_from_slice(&d[m.off..m.off + visible]);
+            m.shadow[..visible].copy_from_slice(&d[m.off..m.off + visible]);
+            if visible < m.visible {
+                let cut = m.len.min(m.visible.max(page_up(visible as u64) as usize));
+                mem[m.addr + visible..m.addr + cut].fill(0);
+                m.shadow[visible..cut].fill(0);
+            }
+            m.visible = visible;
+        }
+    }
+
+    /// Forget shared mappings in [addr, end), keeping the parts outside it.
+    fn unmap_shared(&mut self, addr: usize, end: usize) {
+        let mut kept = Vec::new();
+        for m in self.shared.drain(..) {
+            let (lo, hi) = (m.addr, m.addr + m.len);
+            if hi <= addr || lo >= end {
+                kept.push(m);
+                continue;
+            }
+            let piece = |from: usize, to: usize| SharedMap {
+                addr: from,
+                len: to - from,
+                node: m.node.clone(),
+                off: m.off + (from - lo),
+                shadow: m.shadow[from - lo..to - lo].to_vec(),
+                visible: (to - from).min(m.visible.saturating_sub(from - lo)),
+            };
+            if lo < addr {
+                kept.push(piece(lo, addr));
+            }
+            if hi > end {
+                kept.push(piece(end, hi));
+            }
+        }
+        self.shared = kept;
+    }
+
+    /// mmap: anonymous memory, or a private or shared view of a file.
+    fn mmap(&mut self, mem: &mut [u8], a: &[u64]) -> i64 {
+        let (addr, length, prot, flags, fdv, offset) = (a[0], a[1], a[2], a[3] & 0xffff_ffff, a[4], a[5]);
+        let anonymous = flags & 0x20 != 0;
+        if offset & 0xfff != 0 {
+            return EINVAL;
+        }
+        if !anonymous && self.files.poll_mask(fd(fdv)) < 0 {
+            return EBADF;
+        }
+        if length == 0 {
+            return EINVAL;
+        }
+        let node = if anonymous {
+            if flags & 3 == 0 {
+                return EINVAL;
+            }
+            None
+        } else {
+            match self.files.map_file(fd(fdv), flags & 3, prot & 0xff) {
+                Ok(n) => Some(n),
+                Err(e) => return e,
+            }
+        };
+        let size = page_up(length);
+        if size == 0 || size > mem.len() as u64 {
+            return ENOMEM;
+        }
+        let at = if flags & 0x10 != 0 {
+            // MAP_FIXED: exactly there, replacing whatever was mapped
+            if addr & 0xfff != 0 {
+                return EINVAL;
+            }
+            if addr == 0 || addr.checked_add(size).is_none_or(|e| e > mem.len() as u64) {
+                return ENOMEM;
+            }
+            addr
+        } else {
+            let next = self.mmap_top.wrapping_sub(size) & !0xfff;
+            if size > self.mmap_top || next < page_up(self.brk) {
+                return ENOMEM;
+            }
+            self.mmap_top = next;
+            next
+        };
+        let (lo, len) = (at as usize, size as usize);
+        self.unmap_shared(lo, lo + len);
+        mem[lo..lo + len].fill(0);
+        if let Some(node) = node {
+            let off = offset as usize;
+            let visible = {
+                let d = node.lock().unwrap_or_else(|e| e.into_inner());
+                let visible = len.min(d.len().saturating_sub(off));
+                mem[lo..lo + visible].copy_from_slice(&d[off..off + visible]);
+                visible
+            };
+            if flags & 3 != 2 {
+                self.shared.push(SharedMap { addr: lo, len, node, off, shadow: mem[lo..lo + len].to_vec(), visible });
+            }
+        }
+        at as i64
+    }
+
+    /// A struct timespec (or timeval) argument: Ok when absent or in range.
+    fn timespec(mem: &[u8], addr: u64, usec: bool) -> Result<(), i64> {
+        if addr == 0 {
+            return Ok(());
+        }
+        let r = range(mem, addr, 16).ok_or(EFAULT)?;
+        let (sec, frac) = (rd64(mem, r.start) as i64, rd64(mem, r.start + 8) as i64);
+        if sec < 0 || frac < 0 || frac >= if usec { 1_000_000 } else { 1_000_000_000 } { Err(EINVAL) } else { Ok(()) }
+    }
+
+    /// poll and ppoll: the readiness right now, whatever the timeout (nothing here becomes ready by waiting).
+    fn poll(&self, mem: &mut [u8], fds: u64, nfds: u64) -> i64 {
+        if nfds > files::FD_LIMIT as u64 {
+            return EINVAL;
+        }
+        if nfds == 0 {
+            return 0;
+        }
+        let Some(r) = range(mem, fds, nfds * 8) else { return EFAULT };
+        let mut ready = 0;
+        for i in 0..nfds as usize {
+            let at = r.start + i * 8;
+            let which = i32::from_le_bytes(mem[at..at + 4].try_into().unwrap());
+            let events = u16::from_le_bytes(mem[at + 4..at + 6].try_into().unwrap()) as i32;
+            let mut revents = 0;
+            if which >= 0 {
+                let mask = self.files.poll_mask(which as i64);
+                revents = if mask < 0 { files::POLLNVAL } else { mask & (events | files::POLLERR | files::POLLHUP) };
+            }
+            mem[at + 6..at + 8].copy_from_slice(&(revents as u16).to_le_bytes());
+            if revents != 0 {
+                ready += 1;
+            }
+        }
+        ready
+    }
+
+    /// select and pselect6: the three descriptor sets, rewritten to the ready ones.
+    fn select(&self, mem: &mut [u8], nfds: u64, sets: [u64; 3]) -> i64 {
+        let n = nfds as u32 as i32;
+        if n < 0 {
+            return EINVAL;
+        }
+        let count = (n as i64).min(files::FD_LIMIT) as usize;
+        let bytes = count.div_ceil(64) * 8;
+        let mut ins: [Option<Vec<u8>>; 3] = [None, None, None];
+        for k in 0..3 {
+            if sets[k] != 0 {
+                let Some(r) = range(mem, sets[k], bytes as u64) else { return EFAULT };
+                ins[k] = Some(mem[r].to_vec());
+            }
+        }
+        let bit = |set: &Option<Vec<u8>>, i: usize| set.as_ref().is_some_and(|s| (s[i >> 3] >> (i & 7)) & 1 != 0);
+        let mut outs = [vec![0u8; bytes], vec![0u8; bytes], vec![0u8; bytes]];
+        let want = [POLLIN_SET, POLLOUT_SET, files::POLLPRI];
+        let mut ready = 0;
+        for i in 0..count {
+            if !(0..3).any(|k| bit(&ins[k], i)) {
+                continue;
+            }
+            let mask = self.files.poll_mask(i as i64);
+            if mask < 0 {
+                return EBADF;
+            }
+            for k in 0..3 {
+                if bit(&ins[k], i) && mask & want[k] != 0 {
+                    outs[k][i >> 3] |= 1 << (i & 7);
+                    ready += 1;
+                }
+            }
+        }
+        for k in 0..3 {
+            if ins[k].is_some() && bytes > 0 {
+                let Some(r) = range(mem, sets[k], bytes as u64) else { return EFAULT };
+                mem[r].copy_from_slice(&outs[k]);
+            }
+        }
+        ready
+    }
+
+    fn rename(&mut self, mem: &[u8], olddir: i64, old_at: u64, newdir: i64, new_at: u64, flags: u64) -> i64 {
+        let from = match Self::path_arg(mem, old_at) {
+            Ok(p) => p,
+            Err(e) => return e,
+        };
+        let to = match Self::path_arg(mem, new_at) {
+            Ok(p) => p,
+            Err(e) => return e,
+        };
+        if flags >> 32 != 0 { EINVAL } else { self.files.rename_at(olddir, &from, newdir, &to, flags) }
+    }
+
     /// Answer the system call the guest is making.
     pub fn handle(&mut self, mem: &mut [u8]) -> Flow {
         let nr = reg(mem, self.arch.nr_reg());
@@ -913,6 +1382,7 @@ impl Shim {
         let a: Vec<u64> = regs.iter().map(|&r| reg(mem, r)).collect();
         let name = self.arch.syscall_name(nr);
         *self.counts.entry(name.clone()).or_insert(0) += 1;
+        self.store_shared(mem);
         let ret: i64 = match name.as_str() {
             "write" => {
                 let len = a[2].min(0x7fff_ffff);
@@ -965,21 +1435,46 @@ impl Shim {
                     self.brk as i64
                 }
             }
-            "mmap" => {
-                if a[3] & 0x20 == 0 {
-                    ENOSYS // only anonymous memory; there are no files
+            "mmap" => self.mmap(mem, &a),
+            "munmap" => {
+                if a[0] & 0xfff != 0 || a[1] == 0 {
+                    EINVAL
                 } else {
-                    let size = page_up(a[1]);
-                    let next = self.mmap_top.wrapping_sub(size) & !0xfff;
-                    if size == 0 || next < page_up(self.brk) || next > self.mmap_top {
-                        ENOMEM
-                    } else {
-                        self.mmap_top = next;
-                        mem[next as usize..(next + size) as usize].fill(0);
-                        next as i64
-                    }
+                    let end = a[0].saturating_add(page_up(a[1])).min(usize::MAX as u64);
+                    self.unmap_shared(a[0] as usize, end as usize);
+                    0
                 }
             }
+            // Stores already reached the file at this system call; only the arguments are checked.
+            "msync" => if a[0] & 0xfff != 0 || a[2] & !7 != 0 || a[2] & 5 == 5 { EINVAL } else { 0 },
+            "pread64" => {
+                let got = self.files.pread(fd(a[0]), a[2].min(0x7fff_ffff) as usize, a[3] as i64);
+                Self::give(mem, a[1], got)
+            }
+            "pwrite64" => match range(mem, a[1], a[2].min(0x7fff_ffff)) {
+                Some(r) => {
+                    let data = mem[r].to_vec();
+                    self.files.pwrite(fd(a[0]), &data, a[3] as i64)
+                }
+                None => EFAULT,
+            },
+            "rename" => self.rename(mem, files::AT_FDCWD, a[0], files::AT_FDCWD, a[1], 0),
+            "renameat" => self.rename(mem, fd(a[0]), a[1], fd(a[2]), a[3], 0),
+            "renameat2" => self.rename(mem, fd(a[0]), a[1], fd(a[2]), a[3], a[4]),
+            "ftruncate" => self.files.ftruncate(fd(a[0]), a[1] as i64),
+            "truncate" => match Self::path_arg(mem, a[0]) {
+                Ok(p) => self.files.truncate_at(files::AT_FDCWD, &p, a[1] as i64),
+                Err(e) => e,
+            },
+            "poll" => self.poll(mem, a[0], a[1]),
+            "ppoll" => match Self::timespec(mem, a[2], false) {
+                Ok(()) => self.poll(mem, a[0], a[1]),
+                Err(e) => e,
+            },
+            "select" | "pselect6" => match Self::timespec(mem, a[4], name == "select") {
+                Ok(()) => self.select(mem, a[0], [a[1], a[2], a[3]]),
+                Err(e) => e,
+            },
             "arch_prctl" => {
                 if a[0] == 0x1002 {
                     set_reg(mem, layout::TP, a[1]);
@@ -988,7 +1483,7 @@ impl Shim {
                     EINVAL
                 }
             }
-            "munmap" | "mprotect" | "madvise" | "rt_sigaction" | "rt_sigprocmask" | "set_robust_list" => 0,
+            "mprotect" | "madvise" | "rt_sigaction" | "rt_sigprocmask" | "set_robust_list" => 0,
             "close" => self.files.close(fd(a[0])),
             "openat" | "open" => {
                 let (dirfd, at, flags) = if name == "open" { (files::AT_FDCWD, a[0], a[1]) } else { (fd(a[0]), a[1], a[2]) };
@@ -1116,6 +1611,7 @@ impl Shim {
                 ENOSYS
             }
         };
+        self.load_shared(mem);
         set_reg(mem, self.arch.ret_reg(), ret as u64);
         Flow::Continue
     }
@@ -1272,7 +1768,7 @@ mod tests {
         assert_eq!(call(&mut shim, &mut mem, 12, &[0x24000]), 0x24000);
         let m = call(&mut shim, &mut mem, 9, &[0, 0x2000, 3, 0x22]);
         assert_eq!(m, 0x7e000);
-        assert_eq!(call(&mut shim, &mut mem, 9, &[0, 0x2000, 3, 0x02]), ENOSYS, "file-backed mmap is refused");
+        assert_eq!(call(&mut shim, &mut mem, 9, &[0, 0x2000, 3, 0x02, 0, 0]), ENODEV, "stdin has no file to map");
         assert_eq!(call(&mut shim, &mut mem, 158, &[0x1002, 0x55000]), 0);
         assert_eq!(reg(&mem, layout::TP), 0x55000);
         assert_eq!(call(&mut shim, &mut mem, 999, &[]), ENOSYS);
@@ -1418,6 +1914,74 @@ mod tests {
             assert_eq!(snap.keys().collect::<Vec<_>>(), vec!["/d/", "/d/f.txt"]);
             assert_eq!(snap["/d/f.txt"], b"ping");
             assert!(shim.unsupported.is_empty());
+        }
+    }
+
+    #[test]
+    fn mapped_files_renames_and_readiness_on_both_architectures() {
+        // The numbers fixtures/linux/mapio.c uses on each architecture.
+        for (arch, openat, mmap, munmap, renameat2, ppoll, pselect6, pipe2, write) in
+            [(Arch::X86_64, 257, 9, 11, 316, 271, 270, 293, 1), (Arch::Aarch64, 56, 222, 215, 276, 73, 72, 59, 64)]
+        {
+            let tree = BTreeMap::from([("data.bin".to_string(), b"0123456789".to_vec()), ("dir/x".to_string(), b"x".to_vec())]);
+            let mut shim = Shim::new(arch, 0x40000, 0x80000, vec![], tree);
+            let mut mem = vec![0u8; MEM];
+            mem[0x2000..0x2009].copy_from_slice(b"data.bin\0");
+            mem[0x2100..0x2104].copy_from_slice(b"dir\0");
+            mem[0x2200..0x2206].copy_from_slice(b"moved\0");
+            let call = |shim: &mut Shim, mem: &mut Vec<u8>, nr: u64, args: &[u64]| {
+                set_reg(mem, arch.nr_reg(), nr);
+                for (i, v) in args.iter().enumerate() {
+                    set_reg(mem, arch.arg_regs()[i], *v);
+                }
+                shim.handle(mem);
+                reg(mem, arch.ret_reg()) as i64
+            };
+            let cwd = -100i64 as u64;
+            let f = call(&mut shim, &mut mem, openat, &[cwd, 0x2000, files::O_RDWR, 0]) as u64;
+            assert_eq!(f, 3);
+            // Two shared views and a private one: the shared ones and the file agree at every call.
+            let one = call(&mut shim, &mut mem, mmap, &[0, 4096, 3, 1, f, 0]) as usize;
+            let two = call(&mut shim, &mut mem, mmap, &[0, 4096, 3, 1, f, 0]) as usize;
+            let private = call(&mut shim, &mut mem, mmap, &[0, 4096, 3, 2, f, 0]) as usize;
+            mem[one] = b'A';
+            mem[two + 1] = b'B';
+            call(&mut shim, &mut mem, 999, &[]);
+            assert_eq!(&mem[one..one + 4], b"AB23");
+            assert_eq!(&mem[two..two + 4], b"AB23");
+            assert_eq!(&mem[private..private + 4], b"0123", "a private copy does not follow");
+            assert_eq!(call(&mut shim, &mut mem, munmap, &[two as u64, 4096]), 0);
+            mem[two + 2] = b'C'; // no longer mapped: the file never sees it
+            mem[one + 3] = b'D';
+            call(&mut shim, &mut mem, 999, &[]);
+            assert_eq!(shim.files.snapshot()["/data.bin"], b"AB2D456789");
+            assert_eq!(call(&mut shim, &mut mem, mmap, &[0, 4096, 3, 0, f, 0]), EINVAL, "neither shared nor private");
+            assert_eq!(call(&mut shim, &mut mem, mmap, &[0, 4096, 3, 1, f, 1]), EINVAL, "offset not page aligned");
+            assert_eq!(call(&mut shim, &mut mem, mmap, &[0, 4096, 1, 2, 77, 0]), EBADF);
+            // Renames move whole directories.
+            assert_eq!(call(&mut shim, &mut mem, renameat2, &[cwd, 0x2100, cwd, 0x2200, 0]), 0);
+            assert_eq!(call(&mut shim, &mut mem, renameat2, &[cwd, 0x2200, cwd, 0x2000, 0]), -20, "a directory over a file");
+            assert_eq!(call(&mut shim, &mut mem, renameat2, &[cwd, 0x2200, cwd, 0x2000, 3]), EINVAL, "both flags");
+            let keys: Vec<String> = shim.files.snapshot().into_keys().collect();
+            assert_eq!(keys, vec!["/data.bin", "/moved/", "/moved/x"]);
+            // Readiness: an empty pipe's read end waits, its write end does not; a closed descriptor is POLLNVAL.
+            assert_eq!(call(&mut shim, &mut mem, pipe2, &[0x4000, 0]), 0);
+            let (r, w) = (rd64(&mem, 0x4000) & 0xffff_ffff, rd64(&mem, 0x4000) >> 32);
+            for (i, (fdn, ev)) in [(r as i32, 1i16), (w as i32, 4), (99, 1)].iter().enumerate() {
+                mem[0x5000 + i * 8..0x5004 + i * 8].copy_from_slice(&fdn.to_le_bytes());
+                mem[0x5004 + i * 8..0x5006 + i * 8].copy_from_slice(&ev.to_le_bytes());
+            }
+            assert_eq!(call(&mut shim, &mut mem, ppoll, &[0x5000, 3, 0, 0, 8]), 2);
+            let revents: Vec<u16> = (0..3).map(|i| u16::from_le_bytes([mem[0x5006 + i * 8], mem[0x5007 + i * 8]])).collect();
+            assert_eq!(revents, vec![0, 4, 0x20]);
+            mem[0x2300..0x2304].copy_from_slice(b"ping");
+            call(&mut shim, &mut mem, write, &[w, 0x2300, 4]);
+            wr64(&mut mem, 0x6000, 1 << r);
+            assert_eq!(call(&mut shim, &mut mem, pselect6, &[r + 1, 0x6000, 0, 0, 0, 0]), 1);
+            assert_eq!(rd64(&mem, 0x6000), 1 << r);
+            wr64(&mut mem, 0x6000, 1 << 50);
+            assert_eq!(call(&mut shim, &mut mem, pselect6, &[51, 0x6000, 0, 0, 0, 0]), EBADF);
+            assert!(shim.unsupported.iter().all(|n| n == "#999"));
         }
     }
 }

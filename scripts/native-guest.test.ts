@@ -116,6 +116,19 @@ test("directories, dup, fcntl and pipes: both architectures and glibc, through w
   }
 });
 
+test("mapped files, renames, truncation and poll/select: both architectures and glibc, through wasmtime, tree left behind included", { skip }, async () => {
+  const input = fixture("files-in.txt");
+  for (const [build, name] of [["mapio-x86_64.elf", "mapio"], ["mapio-aarch64.elf", "mapio"], ["libc-mapio-x86_64.elf", "libc-mapio"]]) {
+    const report = await runLinuxHosted(fixture(build), { files: { "in.txt": input } });
+    assert.equal(report.ok, true, `${build}: ${report.detail}`);
+    assert.equal(report.stdout, text(`${name}.expected`), build);
+    assert.equal(report.exitCode, Number(text(`${name}.exitcode`).trim()));
+    assert.deepEqual(report.unsupportedSyscalls, [], build);
+    const tree = Object.fromEntries(Object.entries(report.files).map(([k, v]) => [k, new TextDecoder().decode(v)]));
+    assert.deepEqual(tree, parseRecordedTree(text(`${name}.tree`)), build);
+  }
+});
+
 test("ARM64 glibc programs and the NEON/FP corpus, through wasmtime", { skip }, async () => {
   const input = fixture("files-in.txt");
   for (const name of ["libc-demo", "libc-float", "libc-files", "libc-dirs", "neon"]) {
