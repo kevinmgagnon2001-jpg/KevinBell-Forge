@@ -630,6 +630,79 @@ function AssetMesh({
   );
 }
 
+/**
+ * A body moving with a carried mechanic (mechanic.ts) shows as what it is: a car, a plane or a hover disc.
+ * Drawn at true size (the entity's own scale is undone), facing +z like every forge body.
+ */
+function VehicleMesh({ look, tone, scale }: { look: string; tone: string; scale: Vec3 }) {
+  const inv: Vector3Tuple = [1 / (scale.x || 1), 1 / (scale.y || 1), 1 / (scale.z || 1)];
+  const paint = <meshStandardMaterial color={tone} roughness={0.42} metalness={0.35} />;
+  const dark = <meshStandardMaterial color="#1c2026" roughness={0.6} metalness={0.2} />;
+  if (look === "car") {
+    return (
+      <group scale={inv}>
+        <mesh position={[0, 0.32, 0]}>
+          <boxGeometry args={[1.1, 0.42, 2.2]} />
+          {paint}
+        </mesh>
+        <mesh position={[0, 0.66, -0.15]}>
+          <boxGeometry args={[0.9, 0.34, 1.1]} />
+          <meshStandardMaterial color="#b7d7e8" roughness={0.15} metalness={0.1} transparent opacity={0.8} />
+        </mesh>
+        {[
+          [-0.58, 0.72],
+          [0.58, 0.72],
+          [-0.58, -0.72],
+          [0.58, -0.72],
+        ].map(([x, z]) => (
+          <mesh key={`${x}${z}`} position={[x, 0.2, z]} rotation={[0, 0, Math.PI / 2]}>
+            <cylinderGeometry args={[0.2, 0.2, 0.16, 14]} />
+            {dark}
+          </mesh>
+        ))}
+      </group>
+    );
+  }
+  if (look === "plane") {
+    return (
+      <group scale={inv}>
+        <mesh position={[0, 0.4, 0]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.18, 0.12, 2.4, 12]} />
+          {paint}
+        </mesh>
+        <mesh position={[0, 0.4, 1.25]} rotation={[Math.PI / 2, 0, 0]}>
+          <coneGeometry args={[0.18, 0.3, 12]} />
+          {dark}
+        </mesh>
+        <mesh position={[0, 0.4, 0.15]}>
+          <boxGeometry args={[2.8, 0.05, 0.5]} />
+          {paint}
+        </mesh>
+        <mesh position={[0, 0.42, -1.05]}>
+          <boxGeometry args={[1, 0.04, 0.3]} />
+          {paint}
+        </mesh>
+        <mesh position={[0, 0.65, -1.05]}>
+          <boxGeometry args={[0.04, 0.42, 0.3]} />
+          {paint}
+        </mesh>
+      </group>
+    );
+  }
+  return (
+    <group scale={inv}>
+      <mesh position={[0, 0.35, 0]}>
+        <cylinderGeometry args={[0.7, 0.8, 0.18, 28]} />
+        {paint}
+      </mesh>
+      <mesh position={[0, 0.22, 0]}>
+        <torusGeometry args={[0.72, 0.04, 8, 32]} />
+        <meshBasicMaterial color="#7ee0c8" />
+      </mesh>
+    </group>
+  );
+}
+
 function AvatarMesh({ tone }: { tone: string }) {
   const helm = useForge((s) => Object.values(s.entities).find((entity) => entity.tags.includes("helm")) ?? null);
   const select = useForge((s) => s.select);
@@ -704,6 +777,8 @@ function Body({ entity, selected }: { entity: Entity; selected: boolean }) {
       />
     ) : null;
   if (entity.customData.method === "nanite") return <ClusterCut />;
+  const look = entity.customData.look;
+  if (look === "car" || look === "plane" || look === "hover") return <VehicleMesh look={look} tone={tone} scale={entity.transform.scale} />;
   if (rep.kind === "hybrid") {
     return (
       <>
@@ -844,7 +919,7 @@ function EntityNode({
   const q = entity.transform.rotation;
   const fixed = entity.tags.includes("floor") || entity.tags.includes("tetris");
   const yaw = Number(entity.customData.yaw) || 0;
-  const facing = entity.tags.includes("architect") || entity.tags.includes("agent");
+  const facing = entity.tags.includes("architect") || entity.tags.includes("agent") || entity.tags.includes("presence");
   const half = yaw / 2;
   const quat: [number, number, number, number] = facing ? [0, Math.sin(half), 0, Math.cos(half)] : [q.x, q.y, q.z, q.w];
 

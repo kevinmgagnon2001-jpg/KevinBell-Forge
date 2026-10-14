@@ -15,7 +15,8 @@ import { canonical, normalizeAddress, sha256, type Capability, type IslandManife
 import { diff, selectForViewer, type Delta, type Known, type RepEntity, type Viewer } from "./replication.ts";
 import type { Entity, Vec3, World } from "./types.ts";
 import type { Tier } from "./hardware.ts";
-import { HostMover, type Blocker, type MoveInput, type MoveState } from "./prediction.ts";
+import { HostMover, step, type Blocker, type MoveInput, type MoveRule, type MoveState } from "./prediction.ts";
+import { checkMechanic, DEFAULT_RULES, mechanicRule, STATE_SLOTS, type IslandRules, type MechanicPackage } from "./mechanic.ts";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -133,7 +134,7 @@ export function portalAt(world: World, position: Vec3, reach = 1.1): { id: numbe
  * number (they stepped off and back on) makes the host start walking them again from `position` and
  * `yaw`.
  */
-export type View = { position: Vec3; forward: Vec3; fovDeg?: number; range?: number; tier?: Tier; budget?: number; yaw?: number; walk?: number };
+export type View = { position: Vec3; forward: Vec3; fovDeg?: number; range?: number; tier?: Tier; budget?: number; yaw?: number; walk?: number; slots?: number[] };
 export type SyncReply = {
   tick: number;
   enter: Entity[];
@@ -142,7 +143,7 @@ export type SyncReply = {
   bytes: number;
   dropped: number;
   /** When the visitor sent inputs: the last one the host applied and where that left the visitor. */
-  you?: { ack: number; state: MoveState };
+  you?: { ack: number; state: MoveState; walk?: number };
 };
 
 /** Solid things a walker cannot pass: entities tagged "wall" or "solid", as boxes on the ground plane. */
@@ -162,11 +163,17 @@ export function validInputs(value: unknown): value is MoveInput[] {
   return value.every(
     (i) =>
       i && typeof i === "object" && Number.isInteger(i.seq) && i.seq > 0 &&
-      ["forward", "strafe", "turn", "dt"].every((k) => typeof i[k] === "number" && Number.isFinite(i[k])),
+      ["forward", "strafe", "turn", "dt"].every((k) => typeof i[k] === "number" && Number.isFinite(i[k])) &&
+      ["steer", "lift", "action"].every((k) => i[k] === undefined || (typeof i[k] === "number" && Number.isFinite(i[k]))),
   );
 }
 
-type Session = { visitorId: string; grant: Capability[]; expires: number; known: Known; view: View | null; mover: HostMover | null; walk: number | undefined };
+/** A mechanic this island runs for a visitor (theirs, carried; or the island's own). */
+type Running = { pkg: MechanicPackage; rule: MoveRule };
+
+export type CarryReply = { ok: true; name: string; author: string; rules: IslandRules } | { error: string; status: number };
+
+type Session = { visitorId: string; grant: Capability[]; expires: number; known: Known; view: View | null; mover: HostMover | null; walk: number | undefined; carried: Running | null };
 
 function randomToken(): string {
   const raw = globalThis.crypto.getRandomValues(new Uint8Array(18));
@@ -181,7 +188,7 @@ const proxyOf = (e: Entity): Entity => ({
   physics: null,
   tags: [...e.tags, "proxy"],
   // A proxy keeps its colour and, for a presence marker, who it is.
-  customData: Object.fromEntries(Object.entries(e.customData).filter(([k]) => k === "color" || k === "visitor")),
+  customData: Object.fromEntries(Object.entries(e.customData).filter(([k]) => k === "color" || k === "visitor" || k === "look" || k === "yaw" || k === "mechanic" || k === "by")),
 });
 
 /**
@@ -190,22 +197,72 @@ const proxyOf = (e: Entity): Entity => ({
  */
 export class IslandHost {
   world: World;
+  /** Limits every mover on this island obeys, whoever wrote it. */
+  rules: IslandRules;
+  /** How visitors who carry nothing move here: walking, unless the owner gave the island a mechanic. */
+  own: Running | null = null;
+  /** Told when a visitor brings a mechanic this island has not seen (so its owner can keep it). */
+  onCarried: ((pkg: MechanicPackage) => void) | null = null;
+  private seen = new Set<string>();
   private sessions = new Map<string, Session>();
   private versions = new Map<number, number>();
   private stamp = new Map<number, string>();
   private ttlMs: number;
 
-  constructor(world: World, ttlMs = 10 * 60 * 1000) {
+  constructor(world: World, ttlMs = 10 * 60 * 1000, rules: IslandRules = DEFAULT_RULES) {
     this.world = world;
     this.ttlMs = ttlMs;
+    this.rules = rules;
     this.refreshVersions();
   }
 
   open(visitorId: string, grant: Capability[], now = Date.now()): string {
     for (const [token, s] of this.sessions) if (s.expires < now) this.close(token);
     const token = randomToken();
-    this.sessions.set(token, { visitorId, grant, expires: now + this.ttlMs, known: new Map(), view: null, mover: null, walk: undefined });
+    this.sessions.set(token, { visitorId, grant, expires: now + this.ttlMs, known: new Map(), view: null, mover: null, walk: undefined, carried: null });
     return token;
+  }
+
+  /** Make a mechanic this island's own: visitors who carry none move with it. Checked like any other. */
+  async adopt(value: unknown): Promise<{ ok: true; name: string } | { ok: false; reason: string }> {
+    const checked = await checkMechanic(value);
+    if (!checked.ok) return checked;
+    const pkg = value as MechanicPackage;
+    this.own = { pkg, rule: mechanicRule(checked.runtime, this.rules) };
+    return { ok: true, name: pkg.name };
+  }
+
+  /**
+   * A visitor brings its own mechanic (needs "carry"). It is checked here (signature, module, every
+   * fixture) and then moves only that visitor, under this island's rules, until the visit ends.
+   */
+  async carry(token: string, value: unknown): Promise<CarryReply> {
+    const s = this.session(token);
+    if (!s) return { error: "no session (handshake again)", status: 401 };
+    if (!s.grant.includes("carry")) return { error: "carry was not granted", status: 403 };
+    if (value === null) {
+      s.carried = null;
+      s.mover = null;
+      return { ok: true, name: this.own?.pkg.name ?? "Walk", author: this.own?.pkg.author.name ?? "", rules: this.rules };
+    }
+    const checked = await checkMechanic(value);
+    if (!checked.ok) return { error: `mechanic refused: ${checked.reason}`, status: 422 };
+    const pkg = value as MechanicPackage;
+    s.carried = { pkg, rule: mechanicRule(checked.runtime, this.rules) };
+    s.mover = null;
+    if (!this.seen.has(pkg.hash)) {
+      this.seen.add(pkg.hash);
+      this.onCarried?.(pkg);
+    }
+    return { ok: true, name: pkg.name, author: pkg.author.name, rules: this.rules };
+  }
+
+  /** The mechanics in use here right now: the island's own and every one a visitor carried in. Anyone visiting may keep a copy. */
+  mechanics(): MechanicPackage[] {
+    const out = new Map<string, MechanicPackage>();
+    if (this.own) out.set(this.own.pkg.hash, this.own.pkg);
+    for (const s of this.sessions.values()) if (s.carried) out.set(s.carried.pkg.hash, s.carried.pkg);
+    return [...out.values()];
   }
 
   session(token: string | null | undefined, now = Date.now()): Session | null {
@@ -276,10 +333,14 @@ export class IslandHost {
       if (!s.grant.includes("input")) return { error: "input was not granted", status: 403 };
       if (!validInputs(inputs)) return { error: "inputs are malformed", status: 400 };
       if (!s.mover || view.walk !== s.walk) {
-        s.mover = new HostMover({ position: view.position, yaw: Number.isFinite(view.yaw) ? (view.yaw as number) : 0 });
+        const running = s.carried ?? this.own;
+        // A visitor arriving in a car keeps its speed: its mechanic's numbers come along (position and
+        // heading are the host's to set; the island's rules still bound everything that follows).
+        const slots = running && Array.isArray(view.slots) && view.slots.length === STATE_SLOTS && view.slots.every(finite) ? view.slots : undefined;
+        s.mover = new HostMover({ position: view.position, yaw: Number.isFinite(view.yaw) ? (view.yaw as number) : 0, ...(slots ? { slots } : {}) }, running?.rule ?? step);
         s.walk = view.walk;
       }
-      you = s.mover.apply(inputs, blockersOf(this.world));
+      you = { ...s.mover.apply(inputs, blockersOf(this.world)), ...(Number.isInteger(s.walk) ? { walk: s.walk } : {}) };
       view = { ...view, position: you.state.position };
     }
     s.view = view;
@@ -293,7 +354,12 @@ export class IslandHost {
         representation: { kind: "mesh", assetId: "visitor" },
         physics: null,
         tags: ["visitor", "presence"],
-        customData: { visitor: s.visitorId, color: "#5cc8ff" },
+        customData: {
+          visitor: s.visitorId,
+          color: "#5cc8ff",
+          yaw: String(Math.round((s.mover?.state.yaw ?? view.yaw ?? 0) * 1000) / 1000),
+          ...((s.carried ?? this.own) ? { look: (s.carried ?? this.own)!.pkg.look, mechanic: (s.carried ?? this.own)!.pkg.name, by: (s.carried ?? this.own)!.pkg.author.name } : {}),
+        },
       };
       this.world = { ...this.world, entities: { ...this.world.entities, [id]: marker } };
       this.refreshVersions();

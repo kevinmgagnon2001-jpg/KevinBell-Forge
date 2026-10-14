@@ -16,6 +16,7 @@ import { LiveVisit, liveVisits } from "@/engine/live-visit";
 import { enterIsland, syncIsland } from "@/engine/portal-client";
 import { useForge } from "@/engine/store";
 import { visitorIdentity } from "@/engine/visitor";
+import { startCarrying, stopCarrying } from "@/engine/carry-browser";
 
 const say = (tone: "engine" | "warn", title: string, body: string) => useForge.getState().note([{ tone, title, body: body.slice(0, 1200) }]);
 
@@ -122,6 +123,7 @@ function keepLive(link: LiveVisit, name: string, alive: { current: boolean }) {
   const round = async () => {
     if (!alive.current) {
       liveVisits.delete(link);
+      stopCarrying(link);
       return;
     }
     const avatar = Object.values(useForge.getState().entities).find((e) => e.tags.includes("architect"));
@@ -136,6 +138,7 @@ function keepLive(link: LiveVisit, name: string, alive: { current: boolean }) {
       const now = useForge.getState();
       if (result.status === "gone") {
         liveVisits.delete(link);
+        stopCarrying(link);
         now.adopt(result.apply(now), [{ tone: "warn", title: "Portal", body: `${name} left: ${result.reason}. Its half of the world is gone.` }]);
         return;
       }
@@ -169,7 +172,12 @@ export function PortalWatcher() {
       void (async () => {
         try {
           const me = await visitorIdentity();
-          const visit = await enterIsland(me.signed, me.identity, hit.address, ["render", "input"], { secure: window.location.protocol === "https:" });
+          const secure = window.location.protocol === "https:";
+          // With a mechanic of your own, ask to bring it. An island too old to know "carry" refuses the
+          // whole hello, so ask again without it.
+          const carrying = !!useForge.getState().moverHash;
+          let visit = await enterIsland(me.signed, me.identity, hit.address, carrying ? ["render", "input", "carry"] : ["render", "input"], { secure });
+          if (carrying && visit.status === "refused" && /malformed/.test(visit.reason)) visit = await enterIsland(me.signed, me.identity, hit.address, ["render", "input"], { secure });
           if (visit.status !== "inside") {
             say("warn", "Portal", `${hit.address} is ${visit.status}: ${visit.reason}`);
             return;
@@ -191,6 +199,7 @@ export function PortalWatcher() {
             },
           ]);
           const link = new LiveVisit(visit.host.manifest.id, offset, (view, inputs) => syncIsland(visit.base, visit.session, view, 4000, inputs));
+          await startCarrying(link, { base: visit.base, session: visit.session, name: visit.host.manifest.name, grant: visit.grant });
           keepLive(link, visit.host.manifest.name, alive);
         } catch (error) {
           say("warn", "Portal", String(error));

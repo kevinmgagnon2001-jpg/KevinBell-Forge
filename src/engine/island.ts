@@ -12,7 +12,8 @@
  * (HTTP, WebSocket, WebRTC, a native host). Uses WebCrypto; Ed25519 needs a current browser or Node 20+.
  */
 
-export const CAPABILITIES = ["render", "input", "audio", "storage", "portal", "fetch", "compute"] as const;
+/** carry: the visitor may bring its own mechanics (mechanic.ts) for its own avatar, for this visit only. */
+export const CAPABILITIES = ["render", "input", "audio", "storage", "portal", "fetch", "compute", "carry"] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 
 export type Address = { host: string; port: number | null; slug: string };

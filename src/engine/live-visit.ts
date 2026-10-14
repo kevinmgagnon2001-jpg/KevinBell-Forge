@@ -9,7 +9,7 @@
  * half of the world is removed.
  */
 import { validEntity, type SyncReply, type View } from "./island-content.ts";
-import { Interpolator, Predictor, type MoveInput, type MoveState } from "./prediction.ts";
+import { Interpolator, Predictor, type MoveInput, type MoveRule, type MoveState } from "./prediction.ts";
 import type { Entity, Vec3, World } from "./types.ts";
 
 /** Seconds on a steady clock (the visitor's; snapshots are timed when they arrive). */
@@ -95,6 +95,8 @@ export class LiveVisit {
   private walks = 0;
   /** Other visitors' markers, played back a little in the past so they move smoothly (host id -> track). */
   private tracks = new Map<number, Interpolator>();
+  /** How this visitor moves here: null is the host's own way (walking); otherwise the mechanic it carried. */
+  rule: MoveRule | null = null;
   /** The island's footprint in local coordinates (x and z), from its entities; null until known. */
   bounds: { min: Vec3; max: Vec3 } | null = null;
 
@@ -107,10 +109,23 @@ export class LiveVisit {
 
   /** Start walking on the host with prediction, from a point in local coordinates. */
   walk(at: MoveState): Predictor {
-    this.start = { position: this.toHost(at.position), yaw: at.yaw };
-    this.predictor = new Predictor(this.start);
+    this.start = { position: this.toHost(at.position), yaw: at.yaw, ...(at.slots ? { slots: [...at.slots] } : {}) };
+    this.predictor = new Predictor(this.start, this.rule ? { rule: this.rule } : {});
     this.walks += 1;
     return this.predictor;
+  }
+
+  /**
+   * Move with a different rule from now on (a mechanic the host accepted, or null for the host's own).
+   * A walk in progress starts again from where it is, with the same numbers, so nothing jumps.
+   */
+  useRule(rule: MoveRule | null) {
+    this.rule = rule;
+    if (!this.predictor) return;
+    const here = this.predictor.predicted;
+    this.start = { position: { ...here.position }, yaw: here.yaw, ...(here.slots ? { slots: [...here.slots] } : {}) };
+    this.predictor = new Predictor(this.start, rule ? { rule } : {});
+    this.walks += 1;
   }
 
   /** Stop predicting (the visitor stepped off the island). */
@@ -156,7 +171,7 @@ export class LiveVisit {
   async round(view: View): Promise<RoundResult> {
     // Until the host has walked us once, tell it where the walk started rather than where we are now.
     const hostView: View = this.start
-      ? { ...view, position: this.start.position, yaw: this.start.yaw, walk: this.walks }
+      ? { ...view, position: this.start.position, yaw: this.start.yaw, walk: this.walks, ...(this.start.slots ? { slots: this.start.slots } : {}) }
       : { ...view, position: this.toHost(view.position), ...(this.predictor ? { walk: this.walks } : {}) };
     const reply = await this.sync(hostView, this.predictor ? this.predictor.unacked() : undefined);
     if ("error" in reply) {
@@ -176,7 +191,8 @@ export class LiveVisit {
       track.push(t, this.toLocal(e.transform.position));
     }
     for (const id of reply.leave) this.tracks.delete(id);
-    if (reply.you && this.predictor) {
+    // A reply about an earlier walk (sent before a new mechanic took over) is not about this one.
+    if (reply.you && this.predictor && (reply.you.walk === undefined || reply.you.walk === this.walks)) {
       this.predictor.reconcile(reply.you.ack, reply.you.state);
       this.start = null;
     }

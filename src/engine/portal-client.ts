@@ -14,6 +14,7 @@ import {
 } from "./island.ts";
 import { verifyEntry, type IslandEntry, type SyncReply, type View } from "./island-content.ts";
 import type { MoveInput } from "./prediction.ts";
+import type { IslandRules, MechanicPackage } from "./mechanic.ts";
 
 export type PortalResult =
   | { status: "open"; host: SignedManifest; grant: Capability[]; session: string | null }
@@ -128,5 +129,35 @@ export async function syncIsland(base: string, session: string, view: View, time
     return body;
   } catch {
     return { error: "host is unreachable" };
+  }
+}
+
+export type CarryResult = { ok: true; name: string; author: string; rules: IslandRules } | { ok: false; reason: string };
+
+/** Bring a mechanic onto the island for this visit (null: go back to the island's own way of moving). */
+export async function carryMechanic(base: string, session: string, mechanic: MechanicPackage | null, timeoutMs = 6000): Promise<CarryResult> {
+  try {
+    const res = await fetchWithin(
+      `${base}/island/carry`,
+      { method: "POST", headers: { "content-type": "application/json", authorization: `Forge ${session}` }, body: JSON.stringify({ mechanic }) },
+      timeoutMs,
+    );
+    const body = (await res.json()) as { ok?: boolean; name?: string; author?: string; rules?: IslandRules; reason?: string };
+    if (!res.ok || !body.ok || !body.rules) return { ok: false, reason: body.reason ?? `host answered ${res.status}` };
+    return { ok: true, name: body.name ?? "", author: body.author ?? "", rules: body.rules };
+  } catch {
+    return { ok: false, reason: "host is unreachable" };
+  }
+}
+
+/** The mechanics in use on the island right now (its own and what visitors carried in). */
+export async function islandMechanics(base: string, session: string, timeoutMs = 6000): Promise<MechanicPackage[]> {
+  try {
+    const res = await fetchWithin(`${base}/island/mechanics`, { headers: { authorization: `Forge ${session}` } }, timeoutMs);
+    if (!res.ok) return [];
+    const body = (await res.json()) as { mechanics?: MechanicPackage[] };
+    return Array.isArray(body.mechanics) ? body.mechanics : [];
+  } catch {
+    return [];
   }
 }

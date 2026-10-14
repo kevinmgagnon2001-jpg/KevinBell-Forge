@@ -473,3 +473,91 @@ Tests: `npm run test:engine` (147 pass), `npm run test:native`, and in CI the so
   exactly what the CPU prints.
 - Not done: transcendental x87 instructions (fsin, fcos, fptan, fpatan, f2xm1, fyl2x...; glibc's long
   double libm uses some), fsave/frstor, fbld/fbstp, x87 exception flags (everything acts masked).
+
+## Linked devices: pairing and save sync (one Forge across devices, first part)
+- src/engine/link-home.ts: the home for one person's devices, independent of any transport. It holds the
+  owner key, pairs devices (both screens show a six-digit code; the owner allows the device on the home),
+  issues their certificates (device-link.ts) and keeps one versioned save. Every later request is signed
+  by the device key and checked: certificate, removal list, signature over method, path, time and body,
+  a two-minute clock window, no replays. A write must name the version it was based on; a stale one gets
+  409 and the newer save instead of overwriting it. Devices wait for changes with a long poll. Every save
+  reply is signed with the owner key, so a device can tell its home from an impostor at the same address.
+- The "lead" is the device being used. Only the lead writes; the others follow. Touching a device (tap,
+  key, wheel) makes it the lead; it first drops anything it drifted into while following and starts from
+  the home's save.
+- pairingCode() takes the owner key as an optional third input, so a swapped owner key also changes the
+  code. Codes without it are unchanged.
+- src/engine/link-client.ts: pairWithHome, awaitApproval (checks the certificate), LinkSession (signed
+  requests, checked replies) and LinkSync (the follow/lead loop, retries with backoff while the home is away).
+- scripts/link-node.ts and `forge link`: runs the home in Node on a PC, prints the addresses to enter on
+  devices, and asks in the terminal about each pairing request. Kept in .forge/link-home.json (mode 600).
+- App: a Devices panel (pair, the code, who is in use, the device list, remove, unlink) and
+  src/engine/link-browser.ts (device key and link details in localStorage). store.ts: sharedSave() and
+  applySharedSave(). Shared: the world, its clock, the log and whether the simulation runs. Not shared:
+  model choice and other per-device settings, the selection, and islands visited through a portal.
+- Tests (src/engine/link.test.ts, over real HTTP): pairing allowed and refused, swapped keys change the
+  code, unsigned, unknown, replayed, tampered, out-of-time and removed requests refused, stale writes,
+  impostor replies, long polls, a PC-to-phone-and-back session, and a home restart. Also checked by hand
+  in Chromium: two separate browser profiles (1400x900 and 390x844) paired through the UI with matching
+  codes, followed each other's changes both ways and stayed linked after a reload; refused and
+  unreachable homes show their reason; `forge link` in a real terminal paired a device with `y`.
+
+## Still not done
+- The home runs only as `forge link` (Node). Running it inside the desktop or Android app is next.
+- Traffic is plain HTTP on the local network: signed and checked, but not encrypted.
+- Not tried between two physical devices yet.
+- The hosted web version (https) cannot reach a home on http; use the Android or desktop app. Whether
+  the macOS and Linux desktop windows allow it is untested (Android does: cleartext is on).
+- Whole-save sync only: two devices saving in the same moment keep the first and tell the other.
+- No live control from one device while another renders, and the simulation does not move to the
+  strongest device (pickHost is not used yet).
+
+## Carried mechanics: your own way of moving, on any island
+- src/engine/mechanic.ts: a mechanic is a WebAssembly module over 16 state numbers (x, y, z, yaw, pitch,
+  speed, vx, vy, vz and seven of its own) and 8 inputs (forward, strafe, turn, steer, lift, dt, action).
+  checkMover() reads every instruction before the module is ever instantiated. It allows only
+  arithmetic, locals, memory loads and stores, and forward branches. It refuses loops, calls, imports,
+  memory.grow, mutable globals, global.set, tables, start functions and bulk memory. One fixed page of
+  memory, reset before every step. So any step finishes after at most as many instructions as the module
+  has: no timeout needed.
+- Recipes (named lines of arithmetic with sin, cos, sqrt, min, max, clamp, if, ...) compile to such
+  modules. sin and cos are inlined with range reduction (error below 1e-12). Built in: Walk (matches
+  prediction.ts step), Car, Plane.
+- Packages are signed by their author (island.ts identities). Each carries 12 fixtures from a fixed test
+  drive, and checkMechanic() reruns them bit for bit. A tampered name, module, author or fixture is refused.
+- stepUnderRules(): the island's speed limit, floor, ceiling and walls apply to every mover. Walls are
+  checked in pieces of 0.15 m, so fast movers cannot jump over a thin wall (found by the test).
+- prediction.ts: MoveRule. HostMover and Predictor take any rule, inputs gain steer/lift/action, and the
+  state can carry a mechanic's slots.
+- island.ts: new capability "carry". island-content.ts: IslandHost.carry(), adopt() (the island's own
+  mechanic) and mechanics(). Presence markers carry look, mechanic name, author and yaw. Sync replies
+  carry the walk number, so a reply about an earlier walk is ignored. island-node.ts:
+  - POST /island/carry and GET /island/mechanics;
+  - --mechanic file and --max-speed;
+  - carry allowed by default;
+  - visitors' mechanics saved under <dir>/mechanics/.
+- App: Mechanics panel (choose Walk/Car/Plane or your own, carrying status, "In use where you are" with
+  Keep, "Make your own" recipe editor). The pilot moves you with your mechanic at home and on islands
+  that took it. Car, plane and hover models in the viewport, for you and other visitors. Your mechanics
+  and choice are part of the shared save across linked devices.
+- Tests: mechanic.test.ts (checker against hand-made hostile modules, built-ins, Walk equal to walking,
+  sin/cos accuracy, car and plane behaviour including A = left, recipe errors, package tampering, island
+  rules) and carry.test.ts over real HTTP:
+  - a car driven on another island with zero host corrections;
+  - a plane arriving at 30 m/s keeps its speed;
+  - a speed limit announced and held;
+  - carrying refused without the grant, and a tampered package refused;
+  - an island saving a visitor's mechanic and adopting it.
+- Checked by hand in Chromium:
+  - Car chosen in the panel: A turns left, D right.
+  - A car driven through a portal onto a Node island, where the host ran it (its marker dropped from view
+    height to the car's) with zero corrections, parked at the island's centre.
+  - A second visitor saw the car and its author.
+  - Her plane was kept, credited, and switched to mid-visit.
+  - A recipe built in the editor, bouncing as written.
+  - 390 px wide without overflow.
+
+## Still not done
+- Mechanics move only their owner's avatar; acting on an island's world needs wider permissions.
+- Custom 3D models do not travel with a mechanic yet (built-in car, plane and hover looks only).
+- Not tried between two physical machines.

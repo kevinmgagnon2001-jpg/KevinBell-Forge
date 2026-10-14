@@ -43,11 +43,11 @@ const enc = new TextEncoder();
 const subtle = () => globalThis.crypto.subtle;
 const isRole = (value: unknown): value is Role => typeof value === "string" && (ROLES as readonly string[]).includes(value);
 
-async function signText(key: CryptoKey, text: string): Promise<string> {
+export async function signText(key: CryptoKey, text: string): Promise<string> {
   return b64url(new Uint8Array(await subtle().sign({ name: "Ed25519" }, key, enc.encode(text) as BufferSource)));
 }
 
-async function verifyText(publicKey: string, text: string, signature: string): Promise<boolean> {
+export async function verifyText(publicKey: string, text: string, signature: string): Promise<boolean> {
   const raw = fromB64url(publicKey);
   const sig = fromB64url(signature);
   if (!raw || raw.length !== 32 || !sig) return false;
@@ -65,9 +65,12 @@ export function pairingNonce(): string {
   return b64url(globalThis.crypto.getRandomValues(new Uint8Array(16)));
 }
 
-/** Six digits both screens show. Same nonce and same device key give the same code. */
-export async function pairingCode(nonce: string, deviceKey: string): Promise<string> {
-  const digest = fromB64url(await sha256(enc.encode(`pair|${nonce}|${deviceKey}`)));
+/**
+ * Six digits both screens show. Same nonce and same keys give the same code. With the owner key in
+ * the code as well, a swap on either side (the new device's key or the owner's) shows up as a mismatch.
+ */
+export async function pairingCode(nonce: string, deviceKey: string, ownerKey?: string): Promise<string> {
+  const digest = fromB64url(await sha256(enc.encode(`pair|${nonce}|${deviceKey}${ownerKey ? `|${ownerKey}` : ""}`)));
   if (!digest) throw new Error("hash failed");
   const n = ((digest[0] << 24) | (digest[1] << 16) | (digest[2] << 8) | digest[3]) >>> 0;
   return String(n % 1_000_000).padStart(6, "0");
