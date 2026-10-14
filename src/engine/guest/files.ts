@@ -25,6 +25,20 @@ export const O_DIRECTORY = 0x10000;
 export const O_CLOEXEC = 0x80000;
 export const AT_FDCWD = -100;
 export const AT_REMOVEDIR = 0x200;
+export const RENAME_NOREPLACE = 1;
+export const RENAME_EXCHANGE = 2;
+export const POLLIN = 0x1;
+export const POLLPRI = 0x2;
+export const POLLOUT = 0x4;
+export const POLLERR = 0x8;
+export const POLLHUP = 0x10;
+export const POLLNVAL = 0x20;
+export const POLLRDNORM = 0x40;
+export const POLLWRNORM = 0x100;
+/** What Linux reports for anything that never waits: regular files, directories, the standard streams. */
+const ALWAYS_READY = POLLIN | POLLOUT | POLLRDNORM | POLLWRNORM;
+/** Where a directory descriptor points once its directory is gone: never a directory in the tree. */
+const GONE = "/\0gone";
 
 const ENOENT = -2n;
 const EBADF = -9n;
@@ -35,6 +49,9 @@ const ENOTDIR = -20n;
 const EISDIR = -21n;
 const EINVAL = -22n;
 const EMFILE = -24n;
+const ENODEV = -19n;
+const EACCES = -13n;
+const EFBIG = -27n;
 const ENOSPC = -28n;
 const ESPIPE = -29n;
 const EPIPE = -32n;
@@ -87,9 +104,11 @@ export class ByteSink {
   }
 }
 
-class Node {
+/** A file's contents. Descriptors, mappings and the tree share one; `version` changes with every write through a descriptor. */
+export class FileNode {
   buf: Uint8Array;
   size: number;
+  version = 0;
   constructor(data: Uint8Array) {
     this.buf = data.slice();
     this.size = data.length;
@@ -109,6 +128,12 @@ class Node {
       this.size = end;
     }
   }
+  /** Cut or extend to `size` bytes; anything past the old end reads as zeros. */
+  resize(size: number) {
+    if (size > this.size) this.grow(size);
+    else this.size = size;
+    this.version += 1;
+  }
 }
 
 class Pipe {
@@ -118,7 +143,7 @@ class Pipe {
 
 /** An open file description: what dup'd descriptors share. */
 type Desc =
-  | { kind: "file"; node: Node; pos: number; read: boolean; write: boolean; append: boolean }
+  | { kind: "file"; node: FileNode; pos: number; read: boolean; write: boolean; append: boolean }
   | { kind: "dir"; path: string; pos: number }
   | { kind: "pipe"; pipe: Pipe; write: boolean }
   | { kind: "stream"; stream: 0 | 1 | 2 };
@@ -128,7 +153,7 @@ type Slot = { desc: Desc; cloexec: boolean };
 export type Stat = { kind: "file" | "dir" | "fifo"; size: number };
 
 export class GuestFiles {
-  private tree = new Map<string, Node>();
+  private tree = new Map<string, FileNode>();
   /** Every directory, root included: the ones the host's files sit in and the ones the program made. */
   private dirs = new Set<string>(["/"]);
   private fds = new Map<number, Slot>();
@@ -150,7 +175,7 @@ export class GuestFiles {
         continue;
       }
       if (this.dirs.has(key)) continue;
-      const node = new Node(typeof data === "string" ? enc.encode(data) : data);
+      const node = new FileNode(typeof data === "string" ? enc.encode(data) : data);
       this.addDir(parentOf(key));
       this.total += node.size - (this.tree.get(key)?.size ?? 0);
       this.tree.set(key, node);
@@ -182,6 +207,7 @@ export class GuestFiles {
       if (!slot) return EBADF;
       if (slot.desc.kind !== "dir") return ENOTDIR;
       base = slot.desc.path;
+      if (!this.dirs.has(base)) return ENOENT; // removed while open: nothing can be found or made in it
     }
     const parts = raw.split("/").filter((p) => p && p !== ".");
     const stack = base === "/" ? [] : base.slice(1).split("/");
@@ -242,13 +268,13 @@ export class GuestFiles {
       if (!(flags & O_CREAT)) return ENOENT;
       if (this.tree.size + this.dirs.size >= MAX_FILES) return ENOSPC;
       if (this.lowestFreeFd() < 0) return EMFILE;
-      node = new Node(new Uint8Array());
+      node = new FileNode(new Uint8Array());
       this.tree.set(path, node);
     }
     const fd = this.install({ kind: "file", node, pos: 0, read: acc !== O_WRONLY, write, append: Boolean(flags & O_APPEND) }, cloexec);
     if (fd >= 0n && flags & O_TRUNC && write) {
       this.total -= node.size;
-      node.size = 0;
+      node.resize(0);
     }
     return fd;
   }
@@ -324,10 +350,38 @@ export class GuestFiles {
         desc.node.grow(end);
         this.total += added;
         desc.node.buf.set(data, desc.pos);
+        desc.node.version += 1;
         desc.pos = end;
         return BigInt(data.length);
       }
     }
+  }
+
+  /** pread64: read at `offset` without moving the descriptor's position. */
+  pread(fd: number, max: number, offset: bigint): Uint8Array | bigint {
+    const desc = this.fds.get(fd)?.desc;
+    if (!desc) return EBADF;
+    if (desc.kind === "pipe" || desc.kind === "stream") return desc.kind === "pipe" && desc.write ? EBADF : ESPIPE;
+    if (desc.kind === "dir") return EISDIR;
+    if (!desc.read) return EBADF;
+    if (offset < 0n) return EINVAL;
+    const at = Number(offset > BigInt(desc.node.size) ? BigInt(desc.node.size) : offset);
+    return desc.node.buf.slice(at, at + Math.max(0, Math.min(max, desc.node.size - at)));
+  }
+
+  /** pwrite64: write at `offset` without moving the position. As on Linux, O_APPEND still appends. */
+  pwrite(fd: number, data: Uint8Array, offset: bigint): bigint {
+    const desc = this.fds.get(fd)?.desc;
+    if (!desc) return EBADF;
+    if (desc.kind === "pipe" || desc.kind === "stream") return desc.kind === "pipe" && !desc.write ? EBADF : ESPIPE;
+    if (desc.kind === "dir" || !desc.write) return EBADF;
+    if (offset < 0n) return EINVAL;
+    if (offset > BigInt(MAX_TREE_BYTES)) return EFBIG;
+    const pos = desc.pos;
+    desc.pos = Number(offset);
+    const n = this.write(fd, data);
+    desc.pos = pos;
+    return n;
   }
 
   lseek(fd: number, offset: bigint, whence: number): bigint {
@@ -521,6 +575,116 @@ export class GuestFiles {
     const r = Number(this.install({ kind: "pipe", pipe, write: false }, cloexec));
     const w = Number(this.install({ kind: "pipe", pipe, write: true }, cloexec));
     return [r, w];
+  }
+
+  /** ftruncate: only a regular file open for writing can be cut or extended. */
+  ftruncate(fd: number, length: bigint): bigint {
+    const desc = this.fds.get(fd)?.desc;
+    if (!desc) return EBADF;
+    if (desc.kind !== "file" || !desc.write || length < 0n) return EINVAL;
+    return this.resize(desc.node, length);
+  }
+
+  /** truncate(path): the same without a descriptor. */
+  truncateAt(dirfd: number, raw: string, length: bigint): bigint {
+    if (length < 0n) return EINVAL;
+    const path = this.walk(dirfd, raw);
+    if (typeof path !== "string") return path;
+    const node = this.tree.get(path);
+    if (!node) return this.dirs.has(path) ? EISDIR : ENOENT;
+    return this.resize(node, length);
+  }
+
+  private resize(node: FileNode, length: bigint): bigint {
+    if (length > BigInt(MAX_TREE_BYTES)) return EFBIG;
+    const added = Number(length) - node.size;
+    if (this.total + added > MAX_TREE_BYTES) return ENOSPC;
+    // A file that left the tree still counts until it is gone, as it did when written.
+    this.total += added;
+    node.resize(Number(length));
+    return 0n;
+  }
+
+  /**
+   * renameat2. Flags: RENAME_NOREPLACE, RENAME_EXCHANGE. Moves a file or a whole directory; open
+   * descriptors follow what they name, and a file replaced while open keeps its contents for them.
+   */
+  renameAt(olddirfd: number, oldRaw: string, newdirfd: number, newRaw: string, flags: number): bigint {
+    if (flags & ~(RENAME_NOREPLACE | RENAME_EXCHANGE)) return EINVAL;
+    if (flags & RENAME_NOREPLACE && flags & RENAME_EXCHANGE) return EINVAL;
+    const from = this.walk(olddirfd, oldRaw);
+    if (typeof from !== "string") return from;
+    const to = this.walk(newdirfd, newRaw);
+    if (typeof to !== "string") return to;
+    const last = (raw: string) => raw.split("/").filter(Boolean).pop() ?? "";
+    // "." and "..", or the root itself, cannot be moved or replaced.
+    const special = (raw: string) => ["", ".", ".."].includes(last(raw));
+    if (special(oldRaw)) return EBUSY;
+    if (special(newRaw)) return flags & RENAME_NOREPLACE ? EEXIST : EBUSY;
+    const fromDir = this.dirs.has(from);
+    if (!fromDir && !this.tree.has(from)) return ENOENT;
+    const toDir = this.dirs.has(to);
+    const toExists = toDir || this.tree.has(to);
+    if (!fromDir && (oldRaw.endsWith("/") || (newRaw.endsWith("/") && !(flags & RENAME_EXCHANGE)))) return ENOTDIR;
+    if (flags & RENAME_EXCHANGE && !toExists) return ENOENT;
+    if (flags & RENAME_NOREPLACE && toExists) return EEXIST;
+    if (from === to) return 0n;
+    const inside = (path: string, dir: string) => path.startsWith(dir + "/");
+    if (fromDir && inside(to, from)) return EINVAL;
+    if (flags & RENAME_EXCHANGE) {
+      if (toDir && inside(from, to)) return EINVAL;
+      this.remap((p) => (p === from || inside(p, from) ? to + p.slice(from.length) : p === to || inside(p, to) ? from + p.slice(to.length) : p));
+      return 0n;
+    }
+    if (toExists) {
+      if (!fromDir && toDir) return EISDIR;
+      if (fromDir && !toDir) return ENOTDIR;
+      if (toDir) {
+        if (this.entries(to).length > 2) return ENOTEMPTY;
+        this.dirs.delete(to);
+        for (const { desc } of this.fds.values()) if (desc.kind === "dir" && desc.path === to) desc.path = GONE;
+      } else {
+        // Descriptors open on the replaced file keep it; it just leaves the tree.
+        this.total -= this.tree.get(to)!.size;
+        this.tree.delete(to);
+      }
+    }
+    this.remap((p) => (p === from || inside(p, from) ? to + p.slice(from.length) : p));
+    return 0n;
+  }
+
+  /** Renames every path in the tree, and the directories descriptors point at, through `f`. */
+  private remap(f: (path: string) => string) {
+    const tree = [...this.tree].map(([k, v]) => [f(k), v] as const);
+    this.tree = new Map(tree);
+    this.dirs = new Set([...this.dirs].map((d) => (d === "/" ? d : f(d))));
+    for (const { desc } of this.fds.values()) if (desc.kind === "dir" && desc.path !== "/" && desc.path !== GONE) desc.path = f(desc.path);
+  }
+
+  /**
+   * The file behind a descriptor, for mmap. `type` is MAP_SHARED (1), MAP_PRIVATE (2) or
+   * MAP_SHARED_VALIDATE (3); errors come in the order Linux checks them.
+   */
+  mapFile(fd: number, type: number, prot: number): FileNode | bigint {
+    const desc = this.fds.get(fd)?.desc;
+    if (!desc) return EBADF;
+    if (type !== 1 && type !== 2 && type !== 3) return EINVAL;
+    const readable = desc.kind === "file" ? desc.read : desc.kind === "pipe" ? !desc.write : desc.kind !== "stream" || desc.stream === 0;
+    const writable = desc.kind === "file" ? desc.write : desc.kind === "pipe" ? desc.write : desc.kind === "stream" && desc.stream !== 0;
+    if (type !== 2 && prot & 2 && !writable) return EACCES;
+    if (!readable) return EACCES;
+    if (desc.kind !== "file") return ENODEV;
+    return desc.node;
+  }
+
+  /** Readiness for poll and select: a POLL* mask, or -1 for a descriptor that is not open. */
+  pollMask(fd: number): number {
+    const desc = this.fds.get(fd)?.desc;
+    if (!desc) return -1;
+    if (desc.kind !== "pipe") return ALWAYS_READY;
+    const p = desc.pipe;
+    if (desc.write) return (p.size < PIPE_BYTES ? POLLOUT | POLLWRNORM : 0) | (this.pipeEndOpen(p, false) ? 0 : POLLERR);
+    return (p.size ? POLLIN | POLLRDNORM : 0) | (this.pipeEndOpen(p, true) ? 0 : POLLHUP);
   }
 
   /** The tree as it stands, path -> contents, sorted by path. Directories appear as "path/" with no contents. */

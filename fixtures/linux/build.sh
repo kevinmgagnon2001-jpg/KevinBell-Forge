@@ -60,3 +60,14 @@ for prog in dirs libc-dirs; do
   cp "$d/stdout" $prog.expected; cp "$d/exitcode" $prog.exitcode; dump_tree "$d" > $prog.tree; rm -rf "$d"
 done
 ls -l dirs-*.elf libc-dirs-*.elf
+
+# Mapped files, renames and readiness (N7, third part): file-backed mmap, msync, ftruncate,
+# rename/renameat2, ppoll/pselect6. The same raw-syscall program on both architectures and a glibc one.
+gcc -O2 $BASE -no-pie mapio.c -o mapio-x86_64.elf
+clang --target=aarch64-linux-gnu -O2 $BASE -fuse-ld=lld mapio.c -o mapio-aarch64.elf
+gcc -static -O2 -no-pie -s libc-mapio.c -o libc-mapio-x86_64.elf
+for prog in mapio libc-mapio; do
+  d="$(run_in_tree $prog-x86_64.elf)"
+  cp "$d/stdout" $prog.expected; cp "$d/exitcode" $prog.exitcode; dump_tree "$d" > $prog.tree; rm -rf "$d"
+done
+ls -l mapio-*.elf libc-mapio-*.elf

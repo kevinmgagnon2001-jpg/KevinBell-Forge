@@ -17,7 +17,7 @@ import { GuestState, Interpreter, type Engine } from "./machine.ts";
 import { STOP_NAME, Stop, TP, type Gap, type GuestArch, type StopCode } from "./ir.ts";
 import { inText, lift, newProgram, type Program } from "./lift.ts";
 import { instantiate, lowerProgram } from "./wasm.ts";
-import { AT_FDCWD, GuestFiles, O_DIRECTORY, type ByteSink, type Stat } from "./files.ts";
+import { AT_FDCWD, FD_LIMIT, GuestFiles, O_DIRECTORY, POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, POLLPRI, POLLRDNORM, POLLWRNORM, type ByteSink, type FileNode, type Stat } from "./files.ts";
 
 export type LinuxOptions = {
   /** "tiered" (default): interpreter first, WebAssembly once the program runs long. "wasm": WebAssembly from the start. */
@@ -66,6 +66,7 @@ const ENOMEM = -12n;
 const ENOTTY = -25n;
 const EFAULT = -14n;
 const ENOENT = -2n;
+const EBADF = -9n;
 const ENAMETOOLONG = -36n;
 
 export const ABI: Record<GuestArch, { nr: number; args: number[]; ret: number; sp: number; names: Record<number, string> }> = {
@@ -74,14 +75,14 @@ export const ABI: Record<GuestArch, { nr: number; args: number[]; ret: number; s
     args: [7, 6, 2, 10, 8, 9],
     ret: 0,
     sp: 4,
-    names: { 0: "read", 1: "write", 2: "open", 3: "close", 5: "fstat", 8: "lseek", 9: "mmap", 10: "mprotect", 11: "munmap", 12: "brk", 13: "rt_sigaction", 14: "rt_sigprocmask", 16: "ioctl", 20: "writev", 21: "access", 22: "pipe", 28: "madvise", 32: "dup", 33: "dup2", 39: "getpid", 60: "exit", 63: "uname", 72: "fcntl", 83: "mkdir", 84: "rmdir", 87: "unlink", 89: "readlink", 102: "getuid", 104: "getgid", 107: "geteuid", 108: "getegid", 158: "arch_prctl", 186: "gettid", 201: "time", 217: "getdents64", 218: "set_tid_address", 228: "clock_gettime", 231: "exit_group", 257: "openat", 258: "mkdirat", 262: "newfstatat", 263: "unlinkat", 267: "readlinkat", 269: "faccessat", 273: "set_robust_list", 292: "dup3", 293: "pipe2", 302: "prlimit64", 318: "getrandom", 334: "rseq" },
+    names: { 0: "read", 1: "write", 2: "open", 3: "close", 5: "fstat", 7: "poll", 8: "lseek", 9: "mmap", 10: "mprotect", 11: "munmap", 12: "brk", 13: "rt_sigaction", 14: "rt_sigprocmask", 16: "ioctl", 17: "pread64", 18: "pwrite64", 20: "writev", 21: "access", 22: "pipe", 23: "select", 26: "msync", 28: "madvise", 32: "dup", 33: "dup2", 39: "getpid", 60: "exit", 63: "uname", 72: "fcntl", 76: "truncate", 77: "ftruncate", 82: "rename", 83: "mkdir", 84: "rmdir", 87: "unlink", 89: "readlink", 102: "getuid", 104: "getgid", 107: "geteuid", 108: "getegid", 158: "arch_prctl", 186: "gettid", 201: "time", 217: "getdents64", 218: "set_tid_address", 228: "clock_gettime", 231: "exit_group", 257: "openat", 258: "mkdirat", 262: "newfstatat", 263: "unlinkat", 264: "renameat", 267: "readlinkat", 269: "faccessat", 270: "pselect6", 271: "ppoll", 273: "set_robust_list", 292: "dup3", 293: "pipe2", 302: "prlimit64", 316: "renameat2", 318: "getrandom", 334: "rseq" },
   },
   aarch64: {
     nr: 8,
     args: [0, 1, 2, 3, 4, 5],
     ret: 0,
     sp: 31,
-    names: { 23: "dup", 24: "dup3", 25: "fcntl", 29: "ioctl", 34: "mkdirat", 35: "unlinkat", 48: "faccessat", 56: "openat", 57: "close", 59: "pipe2", 61: "getdents64", 62: "lseek", 63: "read", 64: "write", 66: "writev", 78: "readlinkat", 79: "newfstatat", 80: "fstat", 93: "exit", 94: "exit_group", 96: "set_tid_address", 99: "set_robust_list", 113: "clock_gettime", 134: "rt_sigaction", 135: "rt_sigprocmask", 160: "uname", 172: "getpid", 174: "getuid", 175: "geteuid", 176: "getgid", 177: "getegid", 178: "gettid", 214: "brk", 215: "munmap", 222: "mmap", 226: "mprotect", 233: "madvise", 261: "prlimit64", 278: "getrandom", 293: "rseq" },
+    names: { 23: "dup", 24: "dup3", 25: "fcntl", 29: "ioctl", 34: "mkdirat", 35: "unlinkat", 38: "renameat", 45: "truncate", 46: "ftruncate", 48: "faccessat", 56: "openat", 57: "close", 59: "pipe2", 61: "getdents64", 62: "lseek", 63: "read", 64: "write", 66: "writev", 67: "pread64", 68: "pwrite64", 72: "pselect6", 73: "ppoll", 78: "readlinkat", 79: "newfstatat", 80: "fstat", 93: "exit", 94: "exit_group", 96: "set_tid_address", 99: "set_robust_list", 113: "clock_gettime", 134: "rt_sigaction", 135: "rt_sigprocmask", 160: "uname", 172: "getpid", 174: "getuid", 175: "geteuid", 176: "getgid", 177: "getegid", 178: "gettid", 214: "brk", 215: "munmap", 222: "mmap", 226: "mprotect", 227: "msync", 233: "madvise", 261: "prlimit64", 276: "renameat2", 278: "getrandom", 293: "rseq" },
   },
 };
 
@@ -232,6 +233,18 @@ export function sparseChunks(memory: Uint8Array, gap = 64): { addr: number; byte
   return out;
 }
 
+/**
+ * A MAP_SHARED view of a file. Guest memory is one flat array, so the page cache is imitated: around
+ * every system call, bytes the program stored since the last one (it differs from `shadow`, what was
+ * loaded) go to the file, and the file's current contents come back into every view of it. With one
+ * thread nothing can look in between, so read() sees stores, the mapping sees write(), and two views
+ * of one file agree at every system call (not between two stores with no call in between).
+ */
+type SharedMap = { addr: number; len: number; node: FileNode; off: number; shadow: Uint8Array; version: number; visible: number };
+
+const POLLIN_SET = POLLIN | POLLRDNORM | POLLHUP | POLLERR;
+const POLLOUT_SET = POLLOUT | POLLWRNORM | POLLERR;
+
 /** A descriptor argument: the low 32 bits, signed, as the kernel reads an int. */
 const fd = (v: bigint) => Number(BigInt.asIntN(32, v));
 
@@ -247,6 +260,7 @@ export class LinuxShim {
   private brkBase: bigint;
   private brk: bigint;
   private mmapTop: bigint;
+  private shared: SharedMap[] = [];
   readonly files: GuestFiles;
 
   constructor(arch: GuestArch, brkBase: bigint, mmapTop: bigint, stdin?: Uint8Array | string, files?: FileTree) {
@@ -305,6 +319,14 @@ export class LinuxShim {
     return path === "" ? ENOENT : path;
   }
 
+  private rename(state: GuestState, olddir: number, oldAt: bigint, newdir: number, newAt: bigint, flags: bigint): bigint {
+    const from = this.pathArg(state, oldAt);
+    if (typeof from !== "string") return from;
+    const to = this.pathArg(state, newAt);
+    if (typeof to !== "string") return to;
+    return flags >> 32n ? EINVAL : this.files.renameAt(olddir, from, newdir, to, Number(flags));
+  }
+
   /** O_DIRECTORY is 0x4000 on AArch64 (where 0x10000 is O_DIRECT); GuestFiles takes the x86-64 bits. */
   private openFlags(flags: bigint): number {
     let f = Number(flags & 0xffffffffn);
@@ -320,16 +342,197 @@ export class LinuxShim {
   handle(state: GuestState): "exit" | "continue" {
     const abi = ABI[this.arch];
     const nr = Number(state.reg(abi.nr));
-    const [a0, a1, a2, a3] = abi.args.map((r) => state.reg(r));
+    const [a0, a1, a2, a3, a4, a5] = abi.args.map((r) => state.reg(r));
     const name = abi.names[nr] ?? `#${nr}`;
     this.counts[name] = (this.counts[name] ?? 0) + 1;
-    const out = this.call(state, name, a0, a1, a2, a3);
+    this.storeShared(state.mem);
+    const out = this.call(state, name, a0, a1, a2, a3, a4, a5);
     if (out === "exit") return "exit";
+    this.loadShared(state.mem);
     state.setReg(abi.ret, out);
     return "continue";
   }
 
-  private call(state: GuestState, name: string, a0: bigint, a1: bigint, a2: bigint, a3: bigint): bigint | "exit" {
+  /** Program stores into shared mappings reach their files (only bytes inside the file; Linux drops the rest too). */
+  private storeShared(mem: Uint8Array) {
+    for (const m of this.shared) {
+      const end = Math.min(m.len, m.node.size - m.off);
+      let changed = false;
+      // Skip unchanged words four bytes at a time; the byte loop below handles the rest.
+      const aligned = (mem.byteOffset + m.addr) % 4 === 0 && m.shadow.byteOffset % 4 === 0;
+      const words = aligned && end > 0 ? end >> 2 : 0;
+      const now = new Uint32Array(mem.buffer, mem.byteOffset + m.addr, words);
+      const was = new Uint32Array(m.shadow.buffer, m.shadow.byteOffset, words);
+      for (let w = 0; w < words; w += 1) {
+        if (now[w] === was[w]) continue;
+        for (let i = w * 4; i < w * 4 + 4; i += 1) {
+          const b = mem[m.addr + i];
+          if (b === m.shadow[i]) continue; // only the bytes this view changed: another view may own the rest
+          m.node.buf[m.off + i] = b;
+          m.shadow[i] = b;
+        }
+        changed = true;
+      }
+      for (let i = words * 4; i < end; i += 1) {
+        const b = mem[m.addr + i];
+        if (b !== m.shadow[i]) {
+          m.node.buf[m.off + i] = b;
+          m.shadow[i] = b;
+          changed = true;
+        }
+      }
+      if (changed) m.node.version += 1; // every view of this file reloads after the call
+    }
+  }
+
+  /** Every shared mapping shows its file as it is now. A cut file reads as zeros past its new end. */
+  private loadShared(mem: Uint8Array) {
+    for (const m of this.shared) {
+      if (m.version === m.node.version) continue;
+      const visible = Math.max(0, Math.min(m.len, m.node.size - m.off));
+      const fresh = m.node.buf.subarray(m.off, m.off + visible);
+      mem.set(fresh, m.addr);
+      m.shadow.set(fresh);
+      if (visible < m.visible) {
+        const cut = Math.min(m.len, Math.max(m.visible, Number(pageUp(BigInt(visible)))));
+        mem.fill(0, m.addr + visible, m.addr + cut);
+        m.shadow.fill(0, visible, cut);
+      }
+      m.visible = visible;
+      m.version = m.node.version;
+    }
+  }
+
+  /** Forget shared mappings in [addr, end), keeping the parts outside it. */
+  private unmapShared(addr: number, end: number) {
+    const kept: SharedMap[] = [];
+    for (const m of this.shared) {
+      const lo = m.addr;
+      const hi = m.addr + m.len;
+      if (hi <= addr || lo >= end) {
+        kept.push(m);
+        continue;
+      }
+      const piece = (from: number, to: number): SharedMap => ({
+        ...m,
+        addr: from,
+        len: to - from,
+        off: m.off + (from - lo),
+        shadow: m.shadow.slice(from - lo, to - lo),
+        visible: Math.max(0, Math.min(to - from, m.visible - (from - lo))),
+      });
+      if (lo < addr) kept.push(piece(lo, addr));
+      if (hi > end) kept.push(piece(end, hi));
+    }
+    this.shared = kept;
+  }
+
+  /** mmap: anonymous memory, or a private or shared view of a file. */
+  private mmap(state: GuestState, addr: bigint, length: bigint, prot: bigint, flags: bigint, fdArg: bigint, offset: bigint): bigint {
+    const f = Number(flags & 0xffffffffn);
+    const anonymous = (f & 0x20) !== 0;
+    if (offset & 0xfffn) return EINVAL;
+    let node: FileNode | null = null;
+    if (!anonymous) {
+      if (!this.files.has(fd(fdArg))) return EBADF;
+    }
+    if (length === 0n) return EINVAL;
+    if (!anonymous) {
+      const got = this.files.mapFile(fd(fdArg), f & 3, Number(prot & 0xffn));
+      if (typeof got === "bigint") return got;
+      node = got;
+    } else if ((f & 3) === 0) return EINVAL;
+    const size = pageUp(length);
+    let at: bigint;
+    if (f & 0x10) {
+      // MAP_FIXED: exactly there, replacing whatever was mapped
+      if (addr & 0xfffn) return EINVAL;
+      if (addr + size > BigInt(state.size) || addr === 0n) return ENOMEM;
+      at = addr;
+    } else {
+      at = (this.mmapTop - size) & ~0xfffn;
+      if (size > this.mmapTop || at < pageUp(this.brk)) return ENOMEM;
+      this.mmapTop = at;
+    }
+    const lo = Number(at);
+    const len = Number(size);
+    this.unmapShared(lo, lo + len);
+    state.mem.fill(0, lo, lo + len);
+    if (node) {
+      const off = Number(offset);
+      const visible = Math.max(0, Math.min(len, node.size - off));
+      state.mem.set(node.buf.subarray(off, off + visible), lo);
+      if ((f & 3) !== 2) {
+        this.shared.push({ addr: lo, len, node, off, shadow: state.mem.slice(lo, lo + len), version: node.version, visible });
+      }
+    }
+    return at;
+  }
+
+  /** A struct timespec argument: absent (null), or an errno when it is out of range. */
+  private timespec(state: GuestState, addr: bigint, usec = false): bigint | null {
+    if (addr === 0n) return null;
+    const raw = state.read(addr, 16);
+    if (!raw) return EFAULT;
+    const v = new DataView(raw.buffer, raw.byteOffset, 16);
+    const sec = v.getBigInt64(0, true);
+    const frac = v.getBigInt64(8, true);
+    return sec < 0n || frac < 0n || frac >= (usec ? 1_000_000n : 1_000_000_000n) ? EINVAL : 0n;
+  }
+
+  /**
+   * poll and ppoll. Nothing here ever becomes ready by waiting (one thread, a fixed clock), so the
+   * answer is the readiness right now, whatever the timeout.
+   */
+  private poll(state: GuestState, fds: bigint, nfds: bigint): bigint {
+    if (nfds > BigInt(FD_LIMIT)) return EINVAL;
+    const n = Number(nfds);
+    const raw = state.read(fds, n * 8);
+    if (!raw) return EFAULT;
+    const v = new DataView(raw.buffer, raw.byteOffset, n * 8);
+    let ready = 0;
+    for (let i = 0; i < n; i += 1) {
+      const which = v.getInt32(i * 8, true);
+      const events = v.getUint16(i * 8 + 4, true);
+      let revents = 0;
+      if (which >= 0) {
+        const mask = this.files.pollMask(which);
+        revents = mask < 0 ? POLLNVAL : mask & (events | POLLERR | POLLHUP);
+      }
+      v.setUint16(i * 8 + 6, revents, true);
+      if (revents) ready += 1;
+    }
+    return n && !state.write(fds, raw) ? EFAULT : BigInt(ready);
+  }
+
+  /** select and pselect6: the three descriptor sets, rewritten to the ready ones. */
+  private select(state: GuestState, nfds: bigint, sets: bigint[]): bigint {
+    const n = Number(BigInt.asIntN(32, nfds));
+    if (n < 0) return EINVAL;
+    const count = Math.min(n, FD_LIMIT);
+    const bytes = Math.ceil(count / 64) * 8;
+    const ins = sets.map((addr) => (addr === 0n ? null : state.read(addr, bytes)?.slice() ?? EFAULT));
+    for (const set of ins) if (set === EFAULT) return EFAULT;
+    const bit = (set: Uint8Array | null | bigint, i: number) => set instanceof Uint8Array && (set[i >> 3] >> (i & 7)) & 1;
+    const outs = sets.map(() => new Uint8Array(bytes));
+    const want = [POLLIN_SET, POLLOUT_SET, POLLPRI];
+    let ready = 0;
+    for (let i = 0; i < count; i += 1) {
+      if (!ins.some((set) => bit(set, i))) continue;
+      const mask = this.files.pollMask(i);
+      if (mask < 0) return EBADF;
+      ins.forEach((set, k) => {
+        if (bit(set, i) && mask & want[k]) {
+          outs[k][i >> 3] |= 1 << (i & 7);
+          ready += 1;
+        }
+      });
+    }
+    for (let k = 0; k < 3; k += 1) if (ins[k] && bytes && !state.write(sets[k], outs[k])) return EFAULT;
+    return BigInt(ready);
+  }
+
+  private call(state: GuestState, name: string, a0: bigint, a1: bigint, a2: bigint, a3: bigint, a4: bigint, a5: bigint): bigint | "exit" {
     switch (name) {
       case "write": {
         const len = Number(a2 > 0x7fffffffn ? 0x7fffffffn : a2);
@@ -356,6 +559,15 @@ export class LinuxShim {
         if (typeof got === "bigint") return got;
         return got.length && !state.write(a1, got) ? EFAULT : BigInt(got.length);
       }
+      case "pread64": {
+        const got = this.files.pread(fd(a0), Number(a2 > 0x7fffffffn ? 0x7fffffffn : a2), BigInt.asIntN(64, a3));
+        if (typeof got === "bigint") return got;
+        return got.length && !state.write(a1, got) ? EFAULT : BigInt(got.length);
+      }
+      case "pwrite64": {
+        const data = state.read(a1, Number(a2 > 0x7fffffffn ? 0x7fffffffn : a2));
+        return data ? this.files.pwrite(fd(a0), data.slice(), BigInt.asIntN(64, a3)) : EFAULT;
+      }
       case "exit":
       case "exit_group":
         this.exitCode = Number(a0 & 0xffn);
@@ -365,15 +577,16 @@ export class LinuxShim {
         if (a0 > this.brk) state.mem.fill(0, Number(this.brk), Number(a0));
         this.brk = a0;
         return this.brk;
-      case "mmap": {
-        if ((Number(a3) & 0x20) === 0) return ENOSYS; // only anonymous memory; there are no files
-        const size = pageUp(a1);
-        const next = (this.mmapTop - size) & ~0xfffn;
-        if (size === 0n || next < pageUp(this.brk)) return ENOMEM;
-        this.mmapTop = next;
-        state.mem.fill(0, Number(next), Number(next + size));
-        return next;
-      }
+      case "mmap":
+        return this.mmap(state, a0, a1, a2, a3, a4, a5);
+      case "munmap":
+        if (a0 & 0xfffn || a1 === 0n) return EINVAL;
+        this.unmapShared(Number(a0), Number(a0 + pageUp(a1)));
+        return 0n;
+      case "msync":
+        // Stores already reached the file at this system call; only the arguments are checked.
+        if (a0 & 0xfffn || a2 & ~7n || (a2 & 5n) === 5n) return EINVAL;
+        return 0n;
       case "arch_prctl":
         if (a0 === 0x1002n) {
           // ARCH_SET_FS: the thread pointer for thread-local storage
@@ -381,7 +594,6 @@ export class LinuxShim {
           return 0n;
         }
         return EINVAL;
-      case "munmap":
       case "mprotect":
       case "madvise":
       case "rt_sigaction":
@@ -426,6 +638,32 @@ export class LinuxShim {
       case "mkdirat": {
         const path = this.pathArg(state, name === "mkdir" ? a0 : a1);
         return typeof path === "string" ? this.files.mkdirAt(name === "mkdir" ? AT_FDCWD : fd(a0), path) : path;
+      }
+      case "rename":
+        return this.rename(state, AT_FDCWD, a0, AT_FDCWD, a1, 0n);
+      case "renameat":
+        return this.rename(state, fd(a0), a1, fd(a2), a3, 0n);
+      case "renameat2":
+        return this.rename(state, fd(a0), a1, fd(a2), a3, a4);
+      case "ftruncate":
+        return this.files.ftruncate(fd(a0), BigInt.asIntN(64, a1));
+      case "truncate": {
+        const path = this.pathArg(state, a0);
+        return typeof path === "string" ? this.files.truncateAt(AT_FDCWD, path, BigInt.asIntN(64, a1)) : path;
+      }
+      case "poll":
+        return this.poll(state, a0, a1);
+      case "ppoll": {
+        const t = this.timespec(state, a2);
+        return t !== null && t < 0n ? t : this.poll(state, a0, a1);
+      }
+      case "select": {
+        const t = this.timespec(state, a4, true);
+        return t !== null && t < 0n ? t : this.select(state, a0, [a1, a2, a3]);
+      }
+      case "pselect6": {
+        const t = this.timespec(state, a4);
+        return t !== null && t < 0n ? t : this.select(state, a0, [a1, a2, a3]);
       }
       case "getdents64": {
         const got = this.files.getdents(fd(a0), Number(a2 > 0x7fffffffn ? 0x7fffffffn : a2));
