@@ -215,6 +215,17 @@ test("threads: glibc pthreads (spinning, condition variable, barrier, once, TLS,
   }
 });
 
+test("SSE2 integer instructions match the x86-64 CPU on every engine, and zlib runs as on the CPU", () => {
+  for (const engine of ["tiered", "interpreter", "wasm"] as const) {
+    const report = runLinux(fixture("sse2-x86_64.elf"), { engine });
+    assert.equal(report.ok, true, `${engine}: ${report.detail}`);
+    assert.equal(report.stdout, text("sse2.expected"), engine);
+  }
+  const zlib = runLinux(fixture("zlib-demo-x86_64.elf"), { memBytes: 64 * 1024 * 1024 });
+  assert.equal(zlib.ok, true, zlib.detail);
+  assert.equal(zlib.stdout, text("zlib-demo.expected"));
+});
+
 test("ARM64 glibc programs and the NEON/FP instruction corpus (built and run on ARM64 hardware) match the CPU on every engine", () => {
   const input = fixture("files-in.txt");
   for (const name of ["libc-demo", "libc-float", "libc-files", "libc-dirs", "libc-mapio", "libc-links", "libc-threads", "libc-spin", "neon"]) {

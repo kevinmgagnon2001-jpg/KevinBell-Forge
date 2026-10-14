@@ -37,6 +37,8 @@ export type Op =
   | { k: "csel"; d: number; c: Cond; a: Src; b: Src; w: W }
   | { k: "ccmp"; c: Cond; a: Src; b: Src; w: W; neg: boolean; nzcv: number }
   | { k: "setnzcv"; nzcv: number }
+  /** x86 popf: CF, PF, ZF, SF and OF from bits 0, 2, 6, 7 and 11 of s. */
+  | { k: "setflags"; s: Src }
   | { k: "br"; c: Cond; t: bigint }
   | { k: "cbz"; s: Src; w: W; nz: boolean; t: bigint }
   | { k: "tbz"; s: Src; bit: number; nz: boolean; t: bigint }
@@ -100,7 +102,19 @@ export type VecOp =
   | "shl8" | "shr8" | "sar8" | "shl16" | "shr16" | "sar16" | "shl32" | "shr32" | "sar32" | "shl64" | "shr64" | "sar64"
   /** One operand (b is ignored): population count of each byte, and lanes widened from the low or high half. */
   | "popcnt8"
-  | "zxl8" | "zxh8" | "sxl8" | "sxh8" | "zxl16" | "zxh16" | "sxl16" | "sxh16" | "zxl32" | "zxh32" | "sxl32" | "sxh32";
+  | "zxl8" | "zxh8" | "sxl8" | "sxh8" | "zxl16" | "zxh16" | "sxl16" | "sxh16" | "zxl32" | "zxh32" | "sxl32" | "sxh32"
+  /** Narrow a then b to half-width lanes with signed (ss) or unsigned (us) saturation (x86 pack*, wasm narrow). */
+  | "packss16" | "packus16" | "packss32" | "packus32"
+  /** Saturating add and subtract, signed (s) and unsigned (u). */
+  | "qadds8" | "qaddu8" | "qadds16" | "qaddu16" | "qsubs8" | "qsubu8" | "qsubs16" | "qsubu16"
+  /** Rounding average (x + y + 1) >> 1, unsigned. */
+  | "avgu8" | "avgu16"
+  /** High 16 bits of 16 x 16 products; pmaddwd (pairs of signed products summed to 32 bits); pmuludq (low 32 x low 32 of each 64-bit lane). */
+  | "mulhs16" | "mulhu16" | "madd16" | "muludq"
+  /** psadbw: for each 64-bit half, the sum of absolute byte differences. */
+  | "sad8"
+  /** Shifts by the count in b's low 64 bits: logical shifts by the width or more give 0, arithmetic ones fill with the sign. */
+  | "shlv16" | "shlv32" | "shlv64" | "shrv16" | "shrv32" | "shrv64" | "sarv16" | "sarv32";
 
 /** Vector ops that read only a. */
 export const VEC_UNARY = new Set<VecOp>(["popcnt8", "zxl8", "zxh8", "sxl8", "sxh8", "zxl16", "zxh16", "sxl16", "sxh16", "zxl32", "zxh32", "sxl32", "sxh32"]);
@@ -131,6 +145,103 @@ const fromBytes = (b: Uint8Array): [bigint, bigint] => {
 };
 
 /** Reference semantics of a vector op on (lo, hi) pairs. Mirrors the wasm SIMD lowering. */
+/** Lanes of `size` bytes, read as unsigned or signed numbers. */
+function lanesOf(bytes: Uint8Array, size: number, signed: boolean): number[] {
+  const v = new DataView(bytes.buffer, bytes.byteOffset, 16);
+  const out: number[] = [];
+  for (let i = 0; i < 16 / size; i += 1) {
+    if (size === 1) out.push(signed ? v.getInt8(i) : v.getUint8(i));
+    else if (size === 2) out.push(signed ? v.getInt16(i * 2, true) : v.getUint16(i * 2, true));
+    else out.push(signed ? v.getInt32(i * 4, true) : v.getUint32(i * 4, true));
+  }
+  return out;
+}
+
+function bytesOf(lanes: number[], size: number): Uint8Array {
+  const out = new Uint8Array(16);
+  const v = new DataView(out.buffer);
+  lanes.forEach((x, i) => {
+    if (size === 1) v.setUint8(i, x & 0xff);
+    else if (size === 2) v.setUint16(i * 2, x & 0xffff, true);
+    else v.setUint32(i * 4, x >>> 0, true);
+  });
+  return out;
+}
+
+/** The ops added for SSE2 integer code (work item N8); null for the others. */
+function vecSpecial(op: VecOp, A: Uint8Array, B: Uint8Array): Uint8Array | null {
+  const sat = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
+  const pack = /^pack(ss|us)(16|32)$/.exec(op);
+  if (pack) {
+    const from = Number(pack[2]) / 8;
+    const [lo, hi] = pack[1] === "ss" ? (from === 2 ? [-128, 127] : [-32768, 32767]) : from === 2 ? [0, 255] : [0, 65535];
+    return bytesOf([...lanesOf(A, from, true), ...lanesOf(B, from, true)].map((x) => sat(x, lo, hi)), from / 2);
+  }
+  const q = /^q(add|sub)([su])(8|16)$/.exec(op);
+  if (q) {
+    const size = Number(q[3]) / 8;
+    const signed = q[2] === "s";
+    const bits = size * 8;
+    const [lo, hi] = signed ? [-(2 ** (bits - 1)), 2 ** (bits - 1) - 1] : [0, 2 ** bits - 1];
+    const x = lanesOf(A, size, signed);
+    const y = lanesOf(B, size, signed);
+    return bytesOf(x.map((v, i) => sat(q[1] === "add" ? v + y[i] : v - y[i], lo, hi)), size);
+  }
+  if (op === "avgu8" || op === "avgu16") {
+    const size = op === "avgu8" ? 1 : 2;
+    const y = lanesOf(B, size, false);
+    return bytesOf(lanesOf(A, size, false).map((v, i) => (v + y[i] + 1) >> 1), size);
+  }
+  if (op === "mulhs16" || op === "mulhu16") {
+    const signed = op === "mulhs16";
+    const y = lanesOf(B, 2, signed);
+    return bytesOf(lanesOf(A, 2, signed).map((v, i) => Math.floor((v * y[i]) / 65536)), 2);
+  }
+  if (op === "madd16") {
+    const x = lanesOf(A, 2, true);
+    const y = lanesOf(B, 2, true);
+    return bytesOf([0, 1, 2, 3].map((i) => (x[2 * i] * y[2 * i] + x[2 * i + 1] * y[2 * i + 1]) | 0), 4);
+  }
+  const av = new DataView(A.buffer, A.byteOffset, 16);
+  const bv = new DataView(B.buffer, B.byteOffset, 16);
+  if (op === "muludq") {
+    const out = new Uint8Array(16);
+    const ov = new DataView(out.buffer);
+    for (const at of [0, 8]) ov.setBigUint64(at, BigInt(av.getUint32(at, true)) * BigInt(bv.getUint32(at, true)), true);
+    return out;
+  }
+  if (op === "sad8") {
+    const out = new Uint8Array(16);
+    const ov = new DataView(out.buffer);
+    for (const at of [0, 8]) {
+      let sum = 0;
+      for (let k = 0; k < 8; k += 1) sum += Math.abs(A[at + k] - B[at + k]);
+      ov.setBigUint64(at, BigInt(sum), true);
+    }
+    return out;
+  }
+  const shift = /^(shl|shr|sar)v(16|32|64)$/.exec(op);
+  if (shift) {
+    const width = Number(shift[2]);
+    const count = bv.getBigUint64(0, true);
+    const n = BigInt(width);
+    const out = new Uint8Array(16);
+    const ov = new DataView(out.buffer);
+    const size = width / 8;
+    for (let i = 0; i < 16 / size; i += 1) {
+      let x = 0n;
+      for (let k = size - 1; k >= 0; k -= 1) x = (x << 8n) | BigInt(A[i * size + k]);
+      let r: bigint;
+      if (shift[1] === "sar") r = BigInt.asUintN(width, BigInt.asIntN(width, x) >> (count >= n ? n - 1n : count));
+      else if (count >= n) r = 0n;
+      else r = shift[1] === "shl" ? BigInt.asUintN(width, x << count) : x >> count;
+      for (let k = 0; k < size; k += 1) ov.setUint8(i * size + k, Number((r >> BigInt(8 * k)) & 0xffn));
+    }
+    return out;
+  }
+  return null;
+}
+
 export function vecValue(op: VecOp, a: [bigint, bigint], b: [bigint, bigint], immv: number): [bigint, bigint] {
   if (op === "and") return [a[0] & b[0], a[1] & b[1]];
   if (op === "or") return [a[0] | b[0], a[1] | b[1]];
@@ -156,6 +267,8 @@ export function vecValue(op: VecOp, a: [bigint, bigint], b: [bigint, bigint], im
     }
     return fromBytes(R);
   }
+  const special = vecSpecial(op, A, B);
+  if (special) return fromBytes(special);
   const widen = /^([zs])x([lh])(8|16|32)$/.exec(op);
   if (widen) {
     const from = Number(widen[3]) / 8;
@@ -434,6 +547,7 @@ export function describeOp(op: Op): string {
     case "set": return `set.${op.c} r${op.d}`;
     case "csel": return `csel.${op.c} r${op.d}, ${s(op.a)}, ${s(op.b)}`;
     case "ccmp": return `ccmp.${op.c} ${s(op.a)}, ${s(op.b)}, #${op.nzcv}`;
+    case "setflags": return `setflags ${s(op.s)}`;
     case "setnzcv": return `nzcv #${op.nzcv}`;
     case "br": return `b.${op.c} 0x${op.t.toString(16)}`;
     case "cbz": return `${op.nz ? "cbnz" : "cbz"} ${s(op.s)}, 0x${op.t.toString(16)}`;

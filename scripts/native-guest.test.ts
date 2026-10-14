@@ -129,6 +129,12 @@ test("mapped files, renames, truncation, poll/select and links: both architectur
   }
 });
 
+test("SSE2 integer instructions through wasmtime", { skip }, async () => {
+  const report = await runLinuxHosted(fixture("sse2-x86_64.elf"), {});
+  assert.equal(report.ok, true, report.detail);
+  assert.equal(report.stdout, text("sse2.expected"));
+});
+
 test("threads: glibc pthreads through wasmtime", { skip }, async () => {
   const report = await runLinuxHosted(fixture("libc-threads-x86_64.elf"), {});
   assert.equal(report.ok, true, report.detail);

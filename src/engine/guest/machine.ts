@@ -244,6 +244,12 @@ export class Interpreter implements Engine {
           case "setnzcv":
             flags = nzcvFlags(op.nzcv, flags.p);
             break;
+          case "setflags": {
+            const v = this.val(op.s);
+            const bit = (n: number) => Number((v >> BigInt(n)) & 1n);
+            flags = { c: bit(0), p: bit(2), z: bit(6), s: bit(7), o: bit(11), k: 0 };
+            break;
+          }
           case "br":
             if (evalCond(op.c, flags)) {
               nextPc = op.t;

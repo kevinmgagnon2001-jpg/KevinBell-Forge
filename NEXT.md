@@ -28,7 +28,8 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
 3. Work items 9 and 13 run on one machine (live-visit.ts, prediction.ts, pilot.tsx). Next: try them across two
    machines with real latency (item 4).
 4. Portal test between two real machines (item 4): needs the owner's devices on one network.
-5. N8 (packed SSE float, AVX) and ARM ld2/ld3/ld4 when a real program needs them.
+5. N8: x87 (sqlite needs it), then speed for big programs (relifts rebuild the whole module), packed SSE
+   float. SSE2 integer is done. ARM ld2/ld3/ld4 when a real program needs them.
 
 ## How to work here
 

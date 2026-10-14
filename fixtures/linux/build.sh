@@ -88,3 +88,10 @@ gcc -static -O2 -no-pie -s -pthread libc-threads.c -o libc-threads-x86_64.elf
 ls -l libc-threads-*.elf
 gcc -static -O2 -no-pie -s -pthread libc-spin.c -o libc-spin-x86_64.elf
 ./libc-spin-x86_64.elf > libc-spin.expected; echo $? > libc-spin.exitcode
+
+# SSE2 integer (N8): every packed-integer form over special and random inputs, and zlib as a real
+# program that uses them (needs libz.a).
+gcc -static -O1 -no-pie -s sse2.c -o sse2-x86_64.elf
+./sse2-x86_64.elf > sse2.expected; echo $? > sse2.exitcode
+gcc -static -O2 -no-pie -s zlib-demo.c -o zlib-demo-x86_64.elf -lz
+./zlib-demo-x86_64.elf > zlib-demo.expected

@@ -161,7 +161,8 @@ export function prepareLinux(bytes: Uint8Array, options: LinuxOptions = {}): Pre
   const program: Program = newProgram(elf.arch, text);
   const image = memory.slice();
   const fetch = (addr: bigint) => (addr >= 0n && addr < BigInt(memBytes) ? image[Number(addr)] : undefined);
-  lift(program, fetch, [elf.entry, ...codePointers(memory, elf.segments, text, elf.arch)]);
+  // The entry's own code first (the walk takes roots from the end), then whatever code pointers reach.
+  lift(program, fetch, [...codePointers(memory, elf.segments, text, elf.arch), elf.entry]);
   if (elf.arch === "x86_64") lift(program, fetch, jumpTableTargets(program, memory, elf.segments, text));
   return { ok: true, arch: elf.arch, entry: elf.entry, memBytes, memory, program, fetch, brkBase: pageUp(top), mmapTop: stackTop - STACK_BYTES };
 }
@@ -993,7 +994,7 @@ export type Relift = { ok: true } | { ok: false; stop: StopCode; detail: string 
 export function relift(program: Program, fetch: (addr: bigint) => number | undefined, pc: bigint, attempts: number): Relift {
   const gap = program.gaps.get(pc);
   if (gap) return { ok: false, stop: Stop.gap, detail: `stopped at 0x${pc.toString(16)}: ${gap.reason} (bytes ${gap.bytes}). Not executed.` };
-  if (!inText(program, pc) || attempts > 256) return { ok: false, stop: Stop.unmapped, detail: `jumped to 0x${pc.toString(16)}, outside the program's code` };
+  if (!inText(program, pc) || attempts > 20_000) return { ok: false, stop: Stop.unmapped, detail: `jumped to 0x${pc.toString(16)}, outside the program's code` };
   const { added } = lift(program, fetch, [pc]);
   if (!added && !program.insns.has(pc)) {
     const g = program.gaps.get(pc);

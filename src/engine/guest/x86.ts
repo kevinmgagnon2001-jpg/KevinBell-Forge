@@ -282,6 +282,27 @@ export function decodeX86(fetch: Fetch, pc: bigint): Decoded {
     }
     if (op >= 0x50 && op <= 0x57) { text = "push"; push(reg((op & 7) | rexB)); return finish(); }
     if (op >= 0x58 && op <= 0x5f) { text = "pop"; pop((op & 7) | rexB); return finish(); }
+    if (op === 0x9c) {
+      // pushfq: CF PF ZF SF OF from the flags, bit 1 and IF set (DF is always clear here; AF is not kept)
+      text = "pushfq";
+      ops.push({ k: "mov", d: T0, s: imm(0x202), w: 64 });
+      for (const [c, bit] of [["b", 0], ["p", 2], ["eq", 6], ["s", 7], ["o", 11]] as const) {
+        ops.push({ k: "set", d: T1, c, w: 64 });
+        ops.push({ k: "alu", op: "shl", d: T1, a: reg(T1), b: imm(bit), w: 64, f: "none" });
+        ops.push({ k: "alu", op: "or", d: T0, a: reg(T0), b: reg(T1), w: 64, f: "none" });
+      }
+      push(reg(T0));
+      return finish();
+    }
+    if (op === 0x9d) {
+      // popfq: the arithmetic flags come back; DF, IF and the rest are not modelled
+      text = "popfq";
+      ops.push({ k: "load", d: T1, ea: { base: RSP, index: null, scale: 1, disp: 0n }, size: 8, signed: false, w: 64 });
+      ops.push({ k: "alu", op: "add", d: RSP, a: reg(RSP), b: imm(8), w: 64, f: "none" });
+      ops.push({ k: "setflags", s: reg(T1) });
+      return finish();
+    }
+    if (op === 0xfc) { text = "cld"; return finish(); } // the direction flag is always clear here
     if (op === 0x63) {
       text = "movsxd";
       const m = modrm();
@@ -696,6 +717,11 @@ export function decodeX86(fetch: Fetch, pc: bigint): Decoded {
           0x64: "gt8", 0x65: "gt16", 0x66: "gt32", 0x74: "eq8", 0x75: "eq16", 0x76: "eq32",
           0xd4: "add64", 0xfc: "add8", 0xfd: "add16", 0xfe: "add32", 0xf8: "sub8", 0xf9: "sub16", 0xfa: "sub32", 0xfb: "sub64",
           0xda: "minu8", 0xde: "maxu8", 0xea: "mins16", 0xee: "maxs16",
+          // the rest of SSE2 integer (N8)
+          0x63: "packss16", 0x67: "packus16", 0x6b: "packss32",
+          0xd8: "qsubu8", 0xd9: "qsubu16", 0xdc: "qaddu8", 0xdd: "qaddu16", 0xe8: "qsubs8", 0xe9: "qsubs16", 0xec: "qadds8", 0xed: "qadds16",
+          0xe0: "avgu8", 0xe3: "avgu16", 0xd5: "mul16", 0xe5: "mulhs16", 0xe4: "mulhu16", 0xf4: "muludq", 0xf5: "madd16", 0xf6: "sad8",
+          0xd1: "shrv16", 0xd2: "shrv32", 0xd3: "shrv64", 0xe1: "sarv16", 0xe2: "sarv32", 0xf1: "shlv16", 0xf2: "shlv32", 0xf3: "shlv64",
         };
         const sseDone = (name: string): Decoded => {
           text = name;
@@ -874,6 +900,28 @@ export function decodeX86(fetch: Fetch, pc: bigint): Decoded {
             ops.push({ k: "mov", d: X(m.rm) + 1, s: imm(0), w: 64 });
           }
           return sseDone("movq");
+        }
+        if (op2 === 0xc5 && p66) {
+          // pextrw r32, xmm, imm8: one word, zero-extended
+          const m = modrm();
+          if (m.ea) throw new Gapped("pextrw needs a register");
+          const k = byte() & 7;
+          ops.push({ k: "alu", op: "shr", d: m.reg, a: reg(X(m.rm) + (k >> 2)), b: imm((k & 3) * 16), w: 64, f: "none" });
+          ops.push({ k: "alu", op: "and", d: m.reg, a: reg(m.reg), b: imm(0xffff), w: 64, f: "none" });
+          return sseDone("pextrw");
+        }
+        if (op2 === 0xc4 && p66) {
+          // pinsrw xmm, r32/m16, imm8: one word replaced
+          const m = modrm();
+          const v = m.ea ? (ops.push({ k: "load", d: T0, ea: m.ea, size: 2, signed: false, w: 64 }), T0) : m.rm;
+          const k = byte() & 7;
+          const half = X(m.reg) + (k >> 2);
+          const sh = BigInt((k & 3) * 16);
+          ops.push({ k: "alu", op: "and", d: T0, a: reg(v), b: imm(0xffff), w: 64, f: "none" });
+          ops.push({ k: "alu", op: "shl", d: T0, a: reg(T0), b: imm(sh), w: 64, f: "none" });
+          ops.push({ k: "alu", op: "and", d: half, a: reg(half), b: imm(~(0xffffn << sh) & 0xffffffffffffffffn), w: 64, f: "none" });
+          ops.push({ k: "alu", op: "or", d: half, a: reg(half), b: reg(T0), w: 64, f: "none" });
+          return sseDone("pinsrw");
         }
         if (op2 === 0xd7 && p66) {
           const m = modrm();

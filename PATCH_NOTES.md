@@ -421,3 +421,26 @@ Tests: `npm run test:engine` (139 pass; src/engine/live-visit.test.ts), plus a b
   (prediction.ts Interpolator, 150 ms behind, no extrapolation from snapshots under 30 ms apart) and the
   pilot moves them every frame; merging a sync leaves their position to the track.
 
+## Real libraries: SSE2 integer, pushf/popf, big programs (work item N8, first part)
+Tests: `npm run test:engine` (143 pass; new: x86-simd.test.ts, the sse2 and zlib fixtures), `npm run test:native`.
+
+Real static programs found the gaps: zlib (pinsrw), OpenSSL (packuswb, pushfq) and sqlite (x87).
+- The rest of SSE2 integer: packsswb/packssdw/packuswb, saturating add/sub (signed and unsigned, 8 and 16
+  bit), pavgb/pavgw, pmullw/pmulhw/pmulhuw, pmuludq, pmaddwd, psadbw, shifts by an xmm count
+  (psll/psrl/psra w/d/q; counts at or past the lane width zero or sign-fill, as on the CPU), pextrw,
+  pinsrw. New vector IR ops with reference semantics (ir.ts vecValue) and WebAssembly lowering (mostly
+  single wasm SIMD instructions: narrow, add_sat, avgr, dot; psadbw and the high multiplies as short
+  sequences). x86-simd.test.ts drives each lowering directly against the reference over special and
+  random lanes (it catches a seeded bug); fixtures/linux/sse2.c (3,840 results) matches the CPU on every
+  engine and through wasmtime.
+- pushfq/popfq (a new setflags op: CF, PF, ZF, SF, OF), cld.
+- Lifting is a budget now, not a limit: the up-front walk adds at most 250,000 instructions and the rest
+  is lifted when first reached (up to 3,000,000 per program). A static OpenSSL (5.8 MB) and sqlite load.
+- zlib-demo.c (zlib 1.3: compress, uncompress, crc32, adler32 over 200 KB) matches the CPU. A static
+  OpenSSL program (SHA-1/256/512, AES-256-CBC, AES-128-GCM, ChaCha20) matches it too, in 55 s.
+
+## Still not done
+- x87 floating point (sqlite formats numbers with long double): next.
+- Big programs are slow: every relift rebuilds the whole WebAssembly module.
+- Packed SSE floating point (addps, mulpd, cvtdq2ps...), SSE3 and later: cpuid says SSE2 only, so
+  libraries do not pick those paths.

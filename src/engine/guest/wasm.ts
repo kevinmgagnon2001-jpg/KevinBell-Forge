@@ -983,6 +983,12 @@ function lowerOp(e: Emitter, op: Op, insn: Insn, memBytes: number) {
     case "setnzcv":
       setNzcv(e, op.nzcv);
       return;
+    case "setflags":
+      for (const [bit, local] of [[0, CF], [2, PF], [6, ZF], [7, SF], [11, OF]] as const) {
+        src(e, op.s); e.i64(BigInt(bit)); e.emit(0x88); e.i64(1n); e.emit(0x83); e.emit(0xa7); e.set(local); // (s >> bit) & 1
+      }
+      e.i32(0); e.set(KF);
+      return;
     case "br":
       cond(e, op.c);
       e.open("if", "br");
@@ -1050,7 +1056,50 @@ function lowerOp(e: Emitter, op: Op, insn: Insn, memBytes: number) {
         shl8: 0x6b, shr8: 0x6d, sar8: 0x6c, shl16: 0x8b, shr16: 0x8d, sar16: 0x8c, shl32: 0xab, shr32: 0xad, sar32: 0xac, shl64: 0xcb, shr64: 0xcd, sar64: 0xcc,
         popcnt8: 0x62,
         zxl8: 0x89, zxh8: 0x8a, sxl8: 0x87, sxh8: 0x88, zxl16: 0xa9, zxh16: 0xaa, sxl16: 0xa7, sxh16: 0xa8, zxl32: 0xc9, zxh32: 0xca, sxl32: 0xc7, sxh32: 0xc8,
+        // SSE2 integer (N8): wasm has these exactly
+        packss16: 0x65, packus16: 0x66, packss32: 0x85, packus32: 0x86,
+        qadds8: 0x6f, qaddu8: 0x70, qsubs8: 0x72, qsubu8: 0x73, qadds16: 0x8f, qaddu16: 0x90, qsubs16: 0x92, qsubu16: 0x93,
+        avgu8: 0x7b, avgu16: 0x9b, madd16: 0xba,
       };
+      const V1 = V0 + 1;
+      const shuffle = (lanes: number[]) => { simd(e, 0x0d); e.emit(...lanes); };
+      const zero = () => { simd(e, 0x0c); e.emit(...new Array(16).fill(0)); };
+      if (op.op === "mulhs16" || op.op === "mulhu16") {
+        // the high halves of the 32-bit products, low four lanes then high four
+        const u = op.op === "mulhu16";
+        pack(op.a); pack(op.b); simd(e, u ? 0xbe : 0xbc); e.set(V0);
+        pack(op.a); pack(op.b); simd(e, u ? 0xbf : 0xbd); e.set(V1);
+        e.get(V0); e.get(V1);
+        shuffle([2, 3, 6, 7, 10, 11, 14, 15, 18, 19, 22, 23, 26, 27, 30, 31]);
+      } else if (op.op === "muludq") {
+        // 32-bit lanes 0 and 2 side by side, then i64x2.extmul_low_i32x4_u
+        const lanes02 = [0, 1, 2, 3, 8, 9, 10, 11, 0, 1, 2, 3, 8, 9, 10, 11];
+        pack(op.a); pack(op.a); shuffle(lanes02);
+        pack(op.b); pack(op.b); shuffle(lanes02);
+        simd(e, 0xde);
+      } else if (op.op === "sad8") {
+        // |a - b| per byte, summed pairwise up to 32 bits, then the two 32-bit sums of each half added
+        pack(op.a); e.set(V0); pack(op.b); e.set(V1);
+        e.get(V0); e.get(V1); simd(e, 0x79);
+        e.get(V0); e.get(V1); simd(e, 0x77);
+        simd(e, 0x71);
+        simd(e, 0x7d); simd(e, 0x7f);
+        e.tee(V0); zero(); shuffle([0, 1, 2, 3, 16, 17, 18, 19, 8, 9, 10, 11, 16, 17, 18, 19]);
+        e.get(V0); zero(); shuffle([4, 5, 6, 7, 16, 17, 18, 19, 12, 13, 14, 15, 16, 17, 18, 19]);
+        simd(e, 0xae);
+      } else if (/^(shl|shr|sar)v/.test(op.op)) {
+        // wasm takes the count modulo the width; x86 saturates it
+        const width = Number(/\d+$/.exec(op.op)![0]);
+        const sub = VEC[op.op.replace("v", "") as VecOp]!;
+        const top = BigInt(width - 1);
+        pack(op.a);
+        e.i64(top); e.get(lo(op.b)); e.get(lo(op.b)); e.i64(top); e.emit(0x56); e.emit(0x1b); e.emit(0xa7); // count > width - 1 ? width - 1 : count
+        simd(e, sub);
+        if (!op.op.startsWith("sar")) {
+          e.get(lo(op.b)); e.i64(top); e.emit(0x56); // one more bit when the count reached the width: all zero
+          simd(e, sub);
+        }
+      } else {
       pack(op.a);
       if (VEC_UNARY.has(op.op)) {
         simd(e, VEC[op.op]!);
@@ -1064,6 +1113,7 @@ function lowerOp(e: Emitter, op: Op, insn: Insn, memBytes: number) {
       } else {
         pack(op.b);
         simd(e, VEC[op.op]!);
+      }
       }
       e.tee(V0);
       simd(e, 0x1d); e.emit(0); e.set(lo(op.d));
