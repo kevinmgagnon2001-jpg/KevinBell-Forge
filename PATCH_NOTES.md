@@ -325,4 +325,23 @@ Tests: `npm run test:engine` (127 pass), `rustc --edition 2021 --test src-tauri/
   the first store). Two shared views of one file agree at every system call, not between two stores with
   no call in between.
 - A shared mapping costs a compare of its whole length at every system call.
-- Symbolic links, threads and processes.
+- Threads and processes.
+
+## Symbolic and hard links for guests (N7, fourth part)
+Tests: `npm run test:engine` (128 pass), Rust guest tests (10 pass), `npm run test:native` (7 pass).
+
+- symlink/symlinkat, readlink/readlinkat, stat/lstat (and newfstatat with AT_SYMLINK_NOFOLLOW), link/linkat
+  (AT_SYMLINK_FOLLOW), getcwd ("/": the working directory is the tree's root).
+- Path walks follow links the way Linux does: relative targets from the link's own directory, absolute ones
+  from the tree's root, ".." after a link to a directory goes to that directory's parent, ELOOP after 40
+  links, a trailing "/" follows the last link and makes a file an error (ENOTDIR). O_NOFOLLOW gives ELOOP on
+  a link; O_CREAT through a dangling link creates its target; O_CREAT|O_EXCL on a link gives EEXIST.
+- unlink, rmdir and rename act on the link itself; getdents64 reports DT_LNK; st_nlink counts hard links,
+  and a file's bytes stop counting toward the tree's limit once its last name is gone. rename between two
+  names of one file does nothing, as on Linux.
+- A tree (from the host, or in the report) holds a link as "path@" whose contents are the target. Recorded
+  trees list one as "l /path target".
+- Same rules in TypeScript and Rust. Fixtures recorded on the real CPU: links.c (raw system calls, both
+  architectures) and libc-links.c (glibc: a "current" release link swapped with rename, realpath, readdir
+  types, hard links). The ARM64 oracle builds libc-links too.
+

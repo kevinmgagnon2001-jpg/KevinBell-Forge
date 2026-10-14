@@ -95,18 +95,18 @@ impl Arch {
     pub fn syscall_name(self, nr: u64) -> String {
         let name = match self {
             Arch::X86_64 => match nr {
-                0 => "read", 1 => "write", 2 => "open", 3 => "close", 5 => "fstat", 7 => "poll", 8 => "lseek", 9 => "mmap", 10 => "mprotect",
+                0 => "read", 1 => "write", 2 => "open", 3 => "close", 4 => "stat", 5 => "fstat", 6 => "lstat", 7 => "poll", 8 => "lseek", 9 => "mmap", 10 => "mprotect",
                 11 => "munmap", 12 => "brk", 13 => "rt_sigaction", 14 => "rt_sigprocmask", 16 => "ioctl", 17 => "pread64", 18 => "pwrite64", 20 => "writev",
                 21 => "access", 22 => "pipe", 23 => "select", 26 => "msync", 28 => "madvise", 32 => "dup", 33 => "dup2", 39 => "getpid", 60 => "exit",
-                63 => "uname", 72 => "fcntl", 76 => "truncate", 77 => "ftruncate", 82 => "rename", 83 => "mkdir", 84 => "rmdir", 87 => "unlink", 89 => "readlink",
+                63 => "uname", 72 => "fcntl", 76 => "truncate", 77 => "ftruncate", 79 => "getcwd", 82 => "rename", 83 => "mkdir", 84 => "rmdir", 86 => "link", 87 => "unlink", 88 => "symlink", 89 => "readlink",
                 102 => "getuid", 104 => "getgid", 107 => "geteuid", 108 => "getegid", 158 => "arch_prctl", 186 => "gettid",
                 201 => "time", 217 => "getdents64", 218 => "set_tid_address", 228 => "clock_gettime", 231 => "exit_group",
-                257 => "openat", 258 => "mkdirat", 262 => "newfstatat", 263 => "unlinkat", 264 => "renameat", 267 => "readlinkat", 269 => "faccessat", 270 => "pselect6", 271 => "ppoll",
+                257 => "openat", 258 => "mkdirat", 262 => "newfstatat", 263 => "unlinkat", 264 => "renameat", 265 => "linkat", 266 => "symlinkat", 267 => "readlinkat", 269 => "faccessat", 270 => "pselect6", 271 => "ppoll",
                 273 => "set_robust_list", 292 => "dup3", 293 => "pipe2", 302 => "prlimit64", 316 => "renameat2", 318 => "getrandom", 334 => "rseq",
                 _ => "",
             },
             Arch::Aarch64 => match nr {
-                23 => "dup", 24 => "dup3", 25 => "fcntl", 29 => "ioctl", 34 => "mkdirat", 35 => "unlinkat", 38 => "renameat", 45 => "truncate", 46 => "ftruncate", 48 => "faccessat",
+                17 => "getcwd", 23 => "dup", 24 => "dup3", 25 => "fcntl", 29 => "ioctl", 34 => "mkdirat", 35 => "unlinkat", 36 => "symlinkat", 37 => "linkat", 38 => "renameat", 45 => "truncate", 46 => "ftruncate", 48 => "faccessat",
                 56 => "openat", 57 => "close", 59 => "pipe2", 61 => "getdents64", 62 => "lseek", 63 => "read", 64 => "write", 66 => "writev", 67 => "pread64", 68 => "pwrite64",
                 72 => "pselect6", 73 => "ppoll", 78 => "readlinkat", 79 => "newfstatat", 80 => "fstat", 93 => "exit", 94 => "exit_group", 96 => "set_tid_address",
                 99 => "set_robust_list", 113 => "clock_gettime", 134 => "rt_sigaction", 135 => "rt_sigprocmask", 160 => "uname",
@@ -195,6 +195,8 @@ pub mod files {
     const ESPIPE: i64 = -29;
     const EPIPE: i64 = -32;
     const ENOTEMPTY: i64 = -39;
+    const ELOOP: i64 = -40;
+    const EPERM: i64 = -1;
 
     pub const O_ACCMODE: u64 = 3;
     pub const O_WRONLY: u64 = 1;
@@ -208,6 +210,11 @@ pub mod files {
     pub const O_CLOEXEC: u64 = 0x80000;
     pub const AT_FDCWD: i64 = -100;
     pub const AT_REMOVEDIR: u64 = 0x200;
+    pub const AT_SYMLINK_FOLLOW: u64 = 0x400;
+    /// The x86-64 value. The shim translates AArch64's (0x8000) to this.
+    pub const O_NOFOLLOW: u64 = 0x20000;
+    /// Links followed in one path walk before ELOOP, as on Linux.
+    const MAX_LINK_HOPS: usize = 40;
     pub const RENAME_NOREPLACE: u64 = 1;
     pub const RENAME_EXCHANGE: u64 = 2;
     pub const POLLIN: i32 = 0x1;
@@ -260,6 +267,8 @@ pub mod files {
     /// A file's contents, shared by the tree, descriptors and mappings.
     pub type Node = Arc<Mutex<Vec<u8>>>;
     type PipeRef = Arc<Mutex<VecDeque<u8>>>;
+    /// A symbolic link's target. Hard links to the link share the Arc.
+    type LinkRef = Arc<String>;
 
     /// An open file description: what dup'd descriptors share.
     enum Desc {
@@ -279,18 +288,22 @@ pub mod files {
         File,
         Dir,
         Fifo,
+        Link,
     }
 
     #[derive(Debug, PartialEq, Eq)]
     pub struct Stat {
         pub kind: Kind,
         pub size: usize,
+        pub nlink: usize,
     }
 
     pub struct GuestFiles {
         tree: BTreeMap<String, Node>,
         /// Every directory, root included.
         dirs: BTreeSet<String>,
+        /// Symbolic links: path -> target.
+        links: BTreeMap<String, LinkRef>,
         fds: BTreeMap<i64, Slot>,
         total: usize,
         stdin: Vec<u8>,
@@ -300,11 +313,12 @@ pub mod files {
     }
 
     impl GuestFiles {
-        /// Paths ending in "/" are empty directories.
+        /// Paths ending in "/" are empty directories; paths ending in "@" are symbolic links whose contents are the target.
         pub fn new(files: BTreeMap<String, Vec<u8>>, stdin: Vec<u8>) -> GuestFiles {
             let mut out = GuestFiles {
                 tree: BTreeMap::new(),
                 dirs: BTreeSet::from(["/".to_string()]),
+                links: BTreeMap::new(),
                 fds: BTreeMap::new(),
                 total: 0,
                 stdin,
@@ -315,6 +329,15 @@ pub mod files {
             for (path, data) in files {
                 let key = normalize(&path);
                 if key == "/" {
+                    continue;
+                }
+                if path.ends_with('@') && key.len() > 2 {
+                    let at = key[..key.len() - 1].to_string();
+                    let target = String::from_utf8_lossy(&data).into_owned();
+                    if !target.is_empty() && !out.tree.contains_key(&at) && !out.dirs.contains(&at) {
+                        out.add_dir(&parent(&at));
+                        out.links.insert(at, Arc::new(target));
+                    }
                     continue;
                 }
                 if path.ends_with('/') {
@@ -350,8 +373,8 @@ pub mod files {
             }
         }
 
-        /// Resolves a path the way Linux walks one (see files.ts `walk`).
-        fn walk(&self, dirfd: i64, raw: &str) -> Result<String, i64> {
+        /// Resolves a path the way Linux walks one, following symbolic links (see files.ts `walk`).
+        fn walk(&self, dirfd: i64, raw: &str, follow: bool) -> Result<String, i64> {
             let mut stack: Vec<String> = Vec::new();
             if !raw.starts_with('/') && dirfd != AT_FDCWD {
                 let slot = self.fds.get(&dirfd).ok_or(EBADF)?;
@@ -362,25 +385,71 @@ pub mod files {
                     _ => return Err(ENOTDIR),
                 }
             }
-            let parts: Vec<&str> = raw.split('/').filter(|p| !p.is_empty() && *p != ".").collect();
-            for (i, part) in parts.iter().enumerate() {
-                if *part == ".." {
+            let slash = raw.ends_with('/');
+            let mut queue: VecDeque<String> = raw.split('/').filter(|p| !p.is_empty() && *p != ".").map(String::from).collect();
+            let mut hops = 0;
+            while let Some(part) = queue.pop_front() {
+                let last = queue.is_empty();
+                if part == ".." {
                     stack.pop();
-                } else {
-                    stack.push(part.to_string());
-                }
-                if i + 1 == parts.len() {
-                    break;
+                } else if part != "." {
+                    stack.push(part);
                 }
                 let at = format!("/{}", stack.join("/"));
-                if self.tree.contains_key(&at) {
+                let link = self.links.get(&at);
+                if let Some(link) = link {
+                    if !last || follow || slash {
+                        hops += 1;
+                        if hops > MAX_LINK_HOPS {
+                            return Err(ELOOP);
+                        }
+                        stack.pop();
+                        if link.starts_with('/') {
+                            stack.clear();
+                        }
+                        for p in link.split('/').filter(|p| !p.is_empty() && *p != ".").rev() {
+                            queue.push_front(p.to_string());
+                        }
+                        continue;
+                    }
+                }
+                if last {
+                    break;
+                }
+                if self.tree.contains_key(&at) || link.is_some() {
                     return Err(ENOTDIR);
                 }
                 if !self.dirs.contains(&at) {
                     return Err(ENOENT);
                 }
             }
-            Ok(format!("/{}", stack.join("/")))
+            let out = format!("/{}", stack.join("/"));
+            if slash && self.tree.contains_key(&out) {
+                return Err(ENOTDIR); // "file/" names nothing
+            }
+            Ok(out)
+        }
+
+        /// Is anything (file, directory or link) at this path?
+        fn exists(&self, path: &str) -> bool {
+            self.tree.contains_key(path) || self.dirs.contains(path) || self.links.contains_key(path)
+        }
+
+        fn count(&self) -> usize {
+            self.tree.len() + self.dirs.len() + self.links.len()
+        }
+
+        fn file_links(&self, node: &Node) -> usize {
+            self.tree.values().filter(|n| Arc::ptr_eq(n, node)).count()
+        }
+
+        /// Drop one name of a file; its bytes stop counting once no name is left.
+        fn drop_name(&mut self, path: &str) {
+            if let Some(n) = self.tree.remove(path) {
+                if self.file_links(&n) == 0 {
+                    self.total -= lk(&n).len();
+                }
+            }
         }
 
         fn lowest_free(&self, min: i64) -> Option<i64> {
@@ -414,10 +483,15 @@ pub mod files {
         }
 
         pub fn open_at(&mut self, dirfd: i64, raw: &str, flags: u64) -> i64 {
-            let path = match self.walk(dirfd, raw) {
+            // O_CREAT|O_EXCL never follows a link in the last place: the name itself must be new.
+            let exclusive = flags & O_CREAT != 0 && flags & O_EXCL != 0;
+            let path = match self.walk(dirfd, raw, flags & O_NOFOLLOW == 0 && !exclusive) {
                 Ok(p) => p,
                 Err(e) => return e,
             };
+            if self.links.contains_key(&path) {
+                return if exclusive { EEXIST } else { ELOOP };
+            }
             let acc = flags & O_ACCMODE;
             if acc == O_ACCMODE {
                 return EINVAL;
@@ -448,7 +522,7 @@ pub mod files {
                     if flags & O_CREAT == 0 {
                         return ENOENT;
                     }
-                    if self.tree.len() + self.dirs.len() >= MAX_FILES {
+                    if self.count() >= MAX_FILES {
                         return ENOSPC;
                     }
                     if self.lowest_free(0).is_none() {
@@ -593,33 +667,38 @@ pub mod files {
             let g = lk(&desc);
             match &*g {
                 Desc::Stream(_) => Err(ENOENT),
-                Desc::Dir { .. } => Ok(Stat { kind: Kind::Dir, size: 4096 }),
-                Desc::Pipe { .. } => Ok(Stat { kind: Kind::Fifo, size: 0 }),
-                Desc::File { node, .. } => Ok(Stat { kind: Kind::File, size: lk(node).len() }),
+                Desc::Dir { .. } => Ok(Stat { kind: Kind::Dir, size: 4096, nlink: 1 }),
+                Desc::Pipe { .. } => Ok(Stat { kind: Kind::Fifo, size: 0, nlink: 1 }),
+                Desc::File { node, .. } => Ok(Stat { kind: Kind::File, size: lk(node).len(), nlink: self.file_links(node) }),
             }
         }
 
         pub fn stat_path(&self, raw: &str) -> Result<Stat, i64> {
-            self.stat_at(AT_FDCWD, raw)
+            self.stat_at(AT_FDCWD, raw, true)
         }
 
-        pub fn stat_at(&self, dirfd: i64, raw: &str) -> Result<Stat, i64> {
-            let path = self.walk(dirfd, raw)?;
-            if let Some(n) = self.tree.get(&path) {
-                return Ok(Stat { kind: Kind::File, size: lk(n).len() });
+        /// stat, or lstat with follow = false.
+        pub fn stat_at(&self, dirfd: i64, raw: &str, follow: bool) -> Result<Stat, i64> {
+            let path = self.walk(dirfd, raw, follow)?;
+            if let Some(l) = self.links.get(&path) {
+                let nlink = self.links.values().filter(|x| Arc::ptr_eq(x, l)).count();
+                return Ok(Stat { kind: Kind::Link, size: l.len(), nlink });
             }
-            if self.dirs.contains(&path) { Ok(Stat { kind: Kind::Dir, size: 4096 }) } else { Err(ENOENT) }
+            if let Some(n) = self.tree.get(&path) {
+                return Ok(Stat { kind: Kind::File, size: lk(n).len(), nlink: self.file_links(n) });
+            }
+            if self.dirs.contains(&path) { Ok(Stat { kind: Kind::Dir, size: 4096, nlink: 1 }) } else { Err(ENOENT) }
         }
 
         pub fn mkdir_at(&mut self, dirfd: i64, raw: &str) -> i64 {
-            let path = match self.walk(dirfd, raw) {
+            let path = match self.walk(dirfd, raw, false) {
                 Ok(p) => p,
                 Err(e) => return e,
             };
-            if self.dirs.contains(&path) || self.tree.contains_key(&path) {
+            if self.exists(&path) {
                 return EEXIST;
             }
-            if self.tree.len() + self.dirs.len() >= MAX_FILES {
+            if self.count() >= MAX_FILES {
                 return ENOSPC;
             }
             self.dirs.insert(path);
@@ -630,52 +709,62 @@ pub mod files {
             self.unlink_at(AT_FDCWD, raw, 0)
         }
 
-        /// unlink, or rmdir with AT_REMOVEDIR.
+        /// unlink, or rmdir with AT_REMOVEDIR. Both act on a link itself, never on what it points at.
         pub fn unlink_at(&mut self, dirfd: i64, raw: &str, flags: u64) -> i64 {
-            let path = match self.walk(dirfd, raw) {
+            let trimmed = raw.trim_end_matches('/');
+            let slash = !trimmed.is_empty() && trimmed.len() < raw.len();
+            let path = match self.walk(dirfd, if slash { trimmed } else { raw }, false) {
                 Ok(p) => p,
                 Err(e) => return e,
             };
+            let is_file = self.tree.contains_key(&path);
+            let is_link = self.links.contains_key(&path);
             if flags & AT_REMOVEDIR != 0 {
                 if path == "/" {
                     return EBUSY;
                 }
-                if self.tree.contains_key(&path) {
+                if is_file || is_link {
                     return ENOTDIR;
                 }
                 if !self.dirs.contains(&path) {
                     return ENOENT;
                 }
-                let prefix = format!("{path}/");
-                if self.tree.keys().chain(self.dirs.iter()).any(|k| k.starts_with(&prefix)) {
+                if self.entries(&path).len() > 2 {
                     return ENOTEMPTY;
                 }
                 self.dirs.remove(&path);
                 return 0;
             }
-            match self.tree.remove(&path) {
-                // Descriptors already open keep the contents, as on Linux.
-                Some(n) => {
-                    self.total -= lk(&n).len();
-                    0
-                }
-                None => {
-                    if self.dirs.contains(&path) { EISDIR } else { ENOENT }
-                }
+            if !self.exists(&path) {
+                return ENOENT;
             }
+            if slash {
+                return if self.dirs.contains(&path) { EISDIR } else { ENOTDIR };
+            }
+            if is_link {
+                self.links.remove(&path);
+                return 0;
+            }
+            if !is_file {
+                return EISDIR;
+            }
+            // Descriptors already open keep the contents, as on Linux.
+            self.drop_name(&path);
+            0
         }
 
-        /// ".", "..", then the directory's entries by name: (name, is a directory).
-        fn entries(&self, path: &str) -> Vec<(String, bool)> {
+        /// ".", "..", then the directory's entries by name, with their getdents64 types (DT_DIR 4, DT_REG 8, DT_LNK 10).
+        fn entries(&self, path: &str) -> Vec<(String, u8)> {
             if !self.dirs.contains(path) {
                 return Vec::new(); // removed while open: Linux lists nothing
             }
             let prefix = if path == "/" { "/".to_string() } else { format!("{path}/") };
             let direct = |k: &String| k.len() > prefix.len() && k.starts_with(&prefix) && !k[prefix.len()..].contains('/');
-            let mut out: Vec<(String, bool)> = self.tree.keys().filter(|k| direct(k)).map(|k| (k[prefix.len()..].to_string(), false)).collect();
-            out.extend(self.dirs.iter().filter(|k| direct(k)).map(|k| (k[prefix.len()..].to_string(), true)));
+            let mut out: Vec<(String, u8)> = self.tree.keys().filter(|k| direct(k)).map(|k| (k[prefix.len()..].to_string(), 8)).collect();
+            out.extend(self.dirs.iter().filter(|k| direct(k)).map(|k| (k[prefix.len()..].to_string(), 4)));
+            out.extend(self.links.keys().filter(|k| direct(k)).map(|k| (k[prefix.len()..].to_string(), 10)));
             out.sort();
-            let mut all = vec![(".".to_string(), true), ("..".to_string(), true)];
+            let mut all = vec![(".".to_string(), 4), ("..".to_string(), 4)];
             all.extend(out);
             all
         }
@@ -688,7 +777,7 @@ pub mod files {
             let list = self.entries(path);
             let mut out = Vec::new();
             while *pos < list.len() {
-                let (name, dir) = &list[*pos];
+                let (name, kind) = &list[*pos];
                 let reclen = (19 + name.len() + 1 + 7) & !7;
                 if out.len() + reclen > max {
                     if out.is_empty() {
@@ -700,7 +789,7 @@ pub mod files {
                 rec[0..8].copy_from_slice(&(*pos as u64 + 1000).to_le_bytes()); // d_ino: stable per position, never 0
                 rec[8..16].copy_from_slice(&(*pos as i64 + 1).to_le_bytes()); // d_off: where the next call resumes
                 rec[16..18].copy_from_slice(&(reclen as u16).to_le_bytes());
-                rec[18] = if *dir { 4 } else { 8 }; // DT_DIR, DT_REG
+                rec[18] = *kind;
                 rec[19..19 + name.len()].copy_from_slice(name.as_bytes());
                 out.extend(rec);
                 *pos += 1;
@@ -806,7 +895,7 @@ pub mod files {
             if length < 0 {
                 return EINVAL;
             }
-            let path = match self.walk(dirfd, raw) {
+            let path = match self.walk(dirfd, raw, true) {
                 Ok(p) => p,
                 Err(e) => return e,
             };
@@ -838,11 +927,11 @@ pub mod files {
             if flags & !(RENAME_NOREPLACE | RENAME_EXCHANGE) != 0 || (flags & RENAME_NOREPLACE != 0 && flags & RENAME_EXCHANGE != 0) {
                 return EINVAL;
             }
-            let from = match self.walk(olddirfd, old_raw) {
+            let from = match self.walk(olddirfd, old_raw, false) {
                 Ok(p) => p,
                 Err(e) => return e,
             };
-            let to = match self.walk(newdirfd, new_raw) {
+            let to = match self.walk(newdirfd, new_raw, false) {
                 Ok(p) => p,
                 Err(e) => return e,
             };
@@ -855,11 +944,11 @@ pub mod files {
                 return if flags & RENAME_NOREPLACE != 0 { EEXIST } else { EBUSY };
             }
             let from_dir = self.dirs.contains(&from);
-            if !from_dir && !self.tree.contains_key(&from) {
+            if !self.exists(&from) {
                 return ENOENT;
             }
             let to_dir = self.dirs.contains(&to);
-            let to_exists = to_dir || self.tree.contains_key(&to);
+            let to_exists = self.exists(&to);
             if !from_dir && (old_raw.ends_with('/') || (new_raw.ends_with('/') && flags & RENAME_EXCHANGE == 0)) {
                 return ENOTDIR;
             }
@@ -869,7 +958,13 @@ pub mod files {
             if flags & RENAME_NOREPLACE != 0 && to_exists {
                 return EEXIST;
             }
-            if from == to {
+            // Two names of one file (or one link): Linux does nothing and reports success.
+            let same = match (self.tree.get(&from), self.tree.get(&to), self.links.get(&from), self.links.get(&to)) {
+                (Some(a), Some(b), _, _) => Arc::ptr_eq(a, b),
+                (_, _, Some(a), Some(b)) => Arc::ptr_eq(a, b),
+                _ => false,
+            };
+            if from == to || same {
                 return 0;
             }
             let inside = |path: &str, dir: &str| path.len() > dir.len() && path.starts_with(dir) && path.as_bytes()[dir.len()] == b'/';
@@ -911,9 +1006,9 @@ pub mod files {
                             }
                         }
                     }
-                } else if let Some(n) = self.tree.remove(&to) {
+                } else if self.links.remove(&to).is_none() {
                     // Descriptors open on the replaced file keep it; it just leaves the tree.
-                    self.total -= lk(&n).len();
+                    self.drop_name(&to);
                 }
             }
             self.remap(|p| if under(p, &from) { format!("{to}{}", &p[from.len()..]) } else { p.to_string() });
@@ -924,6 +1019,7 @@ pub mod files {
         fn remap(&mut self, f: impl Fn(&str) -> String) {
             self.tree = std::mem::take(&mut self.tree).into_iter().map(|(k, v)| (f(&k), v)).collect();
             self.dirs = std::mem::take(&mut self.dirs).into_iter().map(|d| if d == "/" { d } else { f(&d) }).collect();
+            self.links = std::mem::take(&mut self.links).into_iter().map(|(k, v)| (f(&k), v)).collect();
             for slot in self.fds.values() {
                 if let Desc::Dir { path, .. } = &mut *lk(&slot.desc) {
                     if path != "/" && path != GONE {
@@ -931,6 +1027,75 @@ pub mod files {
                     }
                 }
             }
+        }
+
+        /// symlinkat: a new name holding `target`, which need not exist.
+        pub fn symlink_at(&mut self, target: &str, dirfd: i64, raw: &str) -> i64 {
+            if target.is_empty() {
+                return ENOENT;
+            }
+            let path = match self.walk(dirfd, raw, false) {
+                Ok(p) => p,
+                Err(e) => return e,
+            };
+            if self.exists(&path) {
+                return EEXIST;
+            }
+            if raw.ends_with('/') {
+                return ENOENT;
+            }
+            if self.count() >= MAX_FILES {
+                return ENOSPC;
+            }
+            self.links.insert(path, Arc::new(target.to_string()));
+            0
+        }
+
+        /// readlinkat: the target of a symbolic link.
+        pub fn readlink_at(&self, dirfd: i64, raw: &str) -> Result<Vec<u8>, i64> {
+            let path = self.walk(dirfd, raw, false)?;
+            match self.links.get(&path) {
+                Some(l) => Ok(l.as_bytes().to_vec()),
+                None => Err(if self.exists(&path) { EINVAL } else { ENOENT }),
+            }
+        }
+
+        /// linkat: another name for a file (or for a symbolic link itself, unless AT_SYMLINK_FOLLOW).
+        pub fn link_at(&mut self, olddirfd: i64, old_raw: &str, newdirfd: i64, new_raw: &str, flags: u64) -> i64 {
+            if flags & !AT_SYMLINK_FOLLOW != 0 {
+                return EINVAL;
+            }
+            let from = match self.walk(olddirfd, old_raw, flags & AT_SYMLINK_FOLLOW != 0) {
+                Ok(p) => p,
+                Err(e) => return e,
+            };
+            if self.dirs.contains(&from) {
+                return EPERM;
+            }
+            let (file, link) = (self.tree.get(&from).cloned(), self.links.get(&from).cloned());
+            if file.is_none() && link.is_none() {
+                return ENOENT;
+            }
+            let to = match self.walk(newdirfd, new_raw, false) {
+                Ok(p) => p,
+                Err(e) => return e,
+            };
+            if self.exists(&to) {
+                return EEXIST;
+            }
+            if self.count() >= MAX_FILES {
+                return ENOSPC;
+            }
+            match (file, link) {
+                (Some(n), _) => {
+                    self.tree.insert(to, n);
+                }
+                (_, Some(l)) => {
+                    self.links.insert(to, l);
+                }
+                _ => {}
+            }
+            0
         }
 
         /// The file behind a descriptor, for mmap; `kind` is MAP_SHARED (1), MAP_PRIVATE (2) or
@@ -1016,6 +1181,9 @@ pub mod files {
             for d in self.dirs.iter().filter(|d| *d != "/") {
                 out.insert(format!("{d}/"), Vec::new());
             }
+            for (k, l) in &self.links {
+                out.insert(format!("{k}@"), l.as_bytes().to_vec());
+            }
             out
         }
     }
@@ -1100,14 +1268,19 @@ impl Shim {
         if p.is_empty() { Err(ENOENT) } else { Ok(p) }
     }
 
-    /// O_DIRECTORY is 0x4000 on AArch64 (where 0x10000 is O_DIRECT); GuestFiles takes the x86-64 bits.
+    /// O_DIRECTORY is 0x4000 and O_NOFOLLOW 0x8000 on AArch64 (where 0x10000 and 0x20000 are O_DIRECT and
+    /// O_LARGEFILE); GuestFiles takes the x86-64 bits.
     fn open_flags(&self, flags: u64) -> u64 {
         let mut f = flags & 0xffff_ffff;
         if self.arch == Arch::Aarch64 {
             let dir = f & 0x4000 != 0;
-            f &= !(0x4000 | 0x10000);
+            let nofollow = f & 0x8000 != 0;
+            f &= !(0x4000 | 0x8000 | 0x10000 | 0x20000);
             if dir {
                 f |= files::O_DIRECTORY;
+            }
+            if nofollow {
+                f |= files::O_NOFOLLOW;
             }
         }
         f
@@ -1139,15 +1312,16 @@ impl Shim {
             files::Kind::Dir => 0o40755,
             files::Kind::Fifo => 0o10600,
             files::Kind::File => 0o100644,
+            files::Kind::Link => 0o120777,
         };
         out[8..16].copy_from_slice(&(st.size as u64 + 2).to_le_bytes()); // st_ino
         if self.arch == Arch::X86_64 {
-            out[16..24].copy_from_slice(&1u64.to_le_bytes()); // st_nlink
+            out[16..24].copy_from_slice(&(st.nlink as u64).to_le_bytes()); // st_nlink
             out[24..28].copy_from_slice(&mode.to_le_bytes());
             out[56..64].copy_from_slice(&4096i64.to_le_bytes()); // st_blksize
         } else {
             out[16..20].copy_from_slice(&mode.to_le_bytes());
-            out[20..24].copy_from_slice(&1u32.to_le_bytes()); // st_nlink
+            out[20..24].copy_from_slice(&(st.nlink as u32).to_le_bytes()); // st_nlink
             out[56..60].copy_from_slice(&4096i32.to_le_bytes()); // st_blksize
         }
         out[48..56].copy_from_slice(&(st.size as i64).to_le_bytes()); // st_size: same offset on both
@@ -1509,14 +1683,57 @@ impl Shim {
                         ENOENT
                     }
                 }
+                Ok(_) if a[3] & !0x1900 != 0 => EINVAL,
                 Ok(p) => {
-                    let st = self.files.stat_at(fd(a[0]), &p);
+                    let st = self.files.stat_at(fd(a[0]), &p, a[3] & 0x100 == 0); // AT_SYMLINK_NOFOLLOW
                     self.stat(mem, a[2], st)
                 }
             },
+            "stat" | "lstat" => match Self::path_arg(mem, a[0]) {
+                Ok(p) => {
+                    let st = self.files.stat_at(files::AT_FDCWD, &p, name == "stat");
+                    self.stat(mem, a[1], st)
+                }
+                Err(e) => e,
+            },
+            "symlink" | "symlinkat" => {
+                let (dirfd, at) = if name == "symlink" { (files::AT_FDCWD, a[1]) } else { (fd(a[1]), a[2]) };
+                match Self::path(mem, a[0]).and_then(|t| Self::path_arg(mem, at).map(|p| (t, p))) {
+                    Ok((target, p)) => self.files.symlink_at(&target, dirfd, &p),
+                    Err(e) => e,
+                }
+            }
+            "link" | "linkat" => {
+                let (od, oa, nd, na, flags) =
+                    if name == "link" { (files::AT_FDCWD, a[0], files::AT_FDCWD, a[1], 0) } else { (fd(a[0]), a[1], fd(a[2]), a[3], a[4]) };
+                match Self::path_arg(mem, oa).and_then(|f| Self::path_arg(mem, na).map(|t| (f, t))) {
+                    Ok((from, to)) => self.files.link_at(od, &from, nd, &to, flags & 0xffff_ffff),
+                    Err(e) => e,
+                }
+            }
+            "readlink" | "readlinkat" => {
+                let (dirfd, at, buf, size) = if name == "readlink" { (files::AT_FDCWD, a[0], a[1], a[2]) } else { (fd(a[0]), a[1], a[2], a[3]) };
+                if size as u32 as i32 <= 0 {
+                    EINVAL
+                } else {
+                    let got = Self::path_arg(mem, at).and_then(|p| self.files.readlink_at(dirfd, &p)).map(|mut t| {
+                        t.truncate(size as usize);
+                        t
+                    });
+                    Self::give(mem, buf, got)
+                }
+            }
+            // The working directory is always the root of the tree.
+            "getcwd" => {
+                if a[1] < 2 {
+                    -34 // ERANGE
+                } else {
+                    Self::give(mem, a[0], Ok(b"/\0".to_vec()))
+                }
+            }
             "access" | "faccessat" => {
                 let (dirfd, at) = if name == "access" { (files::AT_FDCWD, a[0]) } else { (fd(a[0]), a[1]) };
-                match Self::path_arg(mem, at).and_then(|p| self.files.stat_at(dirfd, &p)) {
+                match Self::path_arg(mem, at).and_then(|p| self.files.stat_at(dirfd, &p, true)) {
                     Ok(_) => 0,
                     Err(e) => e,
                 }
@@ -1604,7 +1821,6 @@ impl Shim {
                     None => EFAULT,
                 }
             }
-            "readlinkat" | "readlink" => ENOENT, // no symbolic links in the tree
             "prlimit64" | "rseq" => ENOSYS, // known, deliberately not provided: libc falls back
             other => {
                 self.unsupported.insert(other.to_string());
@@ -1983,5 +2199,26 @@ mod tests {
             assert_eq!(call(&mut shim, &mut mem, pselect6, &[51, 0x6000, 0, 0, 0, 0]), EBADF);
             assert!(shim.unsupported.iter().all(|n| n == "#999"));
         }
+    }
+
+    #[test]
+    fn links_absolute_targets_loops_and_host_trees() {
+        let tree = BTreeMap::from([
+            ("etc/conf".to_string(), b"c".to_vec()),
+            ("bin/sh@".to_string(), b"/etc/conf".to_vec()),
+            ("a@".to_string(), b"b".to_vec()),
+            ("b@".to_string(), b"a".to_vec()),
+        ]);
+        let mut f = files::GuestFiles::new(tree, vec![]);
+        let fd = f.open("bin/sh", 0);
+        assert_eq!(f.read(fd, 9), Ok(b"c".to_vec()));
+        assert_eq!(f.open("a", 0), -40);
+        assert_eq!(f.stat_at(files::AT_FDCWD, "bin/sh", false), Ok(files::Stat { kind: files::Kind::Link, size: 9, nlink: 1 }));
+        assert_eq!(f.symlink_at("../../../outside", files::AT_FDCWD, "esc"), 0);
+        assert_eq!(f.open("esc", 0), ENOENT, "\"..\" stops at the root of the tree");
+        assert_eq!(f.link_at(files::AT_FDCWD, "etc/conf", files::AT_FDCWD, "conf2", 0), 0);
+        assert_eq!(f.stat_path("conf2"), Ok(files::Stat { kind: files::Kind::File, size: 1, nlink: 2 }));
+        let keys: Vec<String> = f.snapshot().into_keys().collect();
+        assert_eq!(keys, vec!["/a@", "/b@", "/bin/", "/bin/sh@", "/conf2", "/esc@", "/etc/", "/etc/conf"]);
     }
 }

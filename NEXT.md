@@ -16,12 +16,13 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
   `.github/workflows/arm-oracle.yml` is the ARM64 hardware oracle (builds `fixtures/linux/*.c` natively, records output,
   compares Forge). Guest files (N7): files, directories, dup/fcntl, pipes, file-backed mmap (shared mappings kept
   coherent with read/write at every system call), msync, ftruncate/truncate, pread/pwrite, rename/renameat2,
-  poll/select. Fixtures: `mapio.c` (raw system calls, both architectures), `libc-mapio.c` (glibc).
+  poll/select, symbolic and hard links. Fixtures: `mapio.c`, `links.c` (raw system calls, both architectures),
+  `libc-mapio.c`, `libc-links.c` (glibc).
 
 ## Next, most important first
 
 1. Code-sign the installers (needs the owner's certificates as secrets), and open the Windows/macOS builds in CI if possible.
-2. N7 leftovers: symbolic links (symlink, readlink, lstat), then threads (clone with CLONE_VM, futex) and processes.
+2. N7 leftovers: threads (clone with CLONE_VM, futex) and processes. Links are done.
    A private mapping does not yet see later writes to pages it has not touched (Linux shares them until the first store).
 3. Adjacency (work item 9) and replication over a real transport with client-side prediction (13).
 4. Portal test between two real machines (item 4): needs the owner's devices on one network.
