@@ -18,9 +18,15 @@
  */
 import type { Vec3 } from "./types.ts";
 
-/** One frame of input. forward/strafe in [-1, 1] (W/S, D/A), turn in radians. */
-export type MoveInput = { seq: number; forward: number; strafe: number; turn: number; dt: number };
-export type MoveState = { position: Vec3; yaw: number };
+/**
+ * One frame of input. forward/strafe in [-1, 1] (W/S, D/A), turn in radians. steer (A +1, D -1), lift
+ * (Space +1, Shift -1) and action are for carried mechanics (mechanic.ts); walking ignores them.
+ */
+export type MoveInput = { seq: number; forward: number; strafe: number; turn: number; dt: number; steer?: number; lift?: number; action?: number };
+/** slots: a carried mechanic's whole state (speed, throttle, ...), kept so both sides replay it exactly. */
+export type MoveState = { position: Vec3; yaw: number; slots?: number[] };
+/** How a mover moves: walking (step below) or a carried mechanic. Must be deterministic. */
+export type MoveRule = (state: MoveState, input: MoveInput, blockers: Blocker[]) => MoveState;
 /** An axis-aligned box the mover cannot enter (in x and z; y is ignored). */
 export type Blocker = { min: Vec3; max: Vec3 };
 
@@ -64,17 +70,19 @@ export function step(state: MoveState, input: MoveInput, blockers: Blocker[] = [
 export class HostMover {
   state: MoveState;
   ack = 0;
-  constructor(start: MoveState) {
-    this.state = { position: { ...start.position }, yaw: start.yaw };
+  rule: MoveRule;
+  constructor(start: MoveState, rule: MoveRule = step) {
+    this.state = { position: { ...start.position }, yaw: start.yaw, ...(start.slots ? { slots: [...start.slots] } : {}) };
+    this.rule = rule;
   }
   /** Inputs may repeat (the visitor resends until acked) or arrive out of order; old ones are ignored. */
   apply(inputs: MoveInput[], blockers: Blocker[] = []): { ack: number; state: MoveState } {
     for (const input of [...inputs].sort((a, b) => a.seq - b.seq)) {
       if (!Number.isInteger(input.seq) || input.seq <= this.ack) continue;
-      this.state = step(this.state, input, blockers);
+      this.state = this.rule(this.state, input, blockers);
       this.ack = input.seq;
     }
-    return { ack: this.ack, state: { position: { ...this.state.position }, yaw: this.state.yaw } };
+    return { ack: this.ack, state: { position: { ...this.state.position }, yaw: this.state.yaw, ...(this.state.slots ? { slots: [...this.state.slots] } : {}) } };
   }
 }
 
@@ -93,18 +101,21 @@ export class Predictor {
   /** Fraction of a correction removed per second (exponential glide). */
   smoothing: number;
   blockers: Blocker[];
+  /** The same rule the host moves this visitor with. */
+  rule: MoveRule;
 
-  constructor(start: MoveState, options: { smoothing?: number; blockers?: Blocker[] } = {}) {
-    this.predicted = { position: { ...start.position }, yaw: start.yaw };
+  constructor(start: MoveState, options: { smoothing?: number; blockers?: Blocker[]; rule?: MoveRule } = {}) {
+    this.predicted = { position: { ...start.position }, yaw: start.yaw, ...(start.slots ? { slots: [...start.slots] } : {}) };
     this.smoothing = options.smoothing ?? 12;
     this.blockers = options.blockers ?? [];
+    this.rule = options.rule ?? step;
   }
 
   /** A frame of input: applied at once. Returns the input to send (with its sequence number). */
-  input(forward: number, strafe: number, turn: number, dt: number): MoveInput {
-    const cmd: MoveInput = { seq: ++this.seq, forward, strafe, turn, dt };
+  input(forward: number, strafe: number, turn: number, dt: number, extra: { steer?: number; lift?: number; action?: number } = {}): MoveInput {
+    const cmd: MoveInput = { seq: ++this.seq, forward, strafe, turn, dt, ...extra };
     this.pending.push(cmd);
-    this.predicted = step(this.predicted, cmd, this.blockers);
+    this.predicted = this.rule(this.predicted, cmd, this.blockers);
     this.decay(dt);
     return cmd;
   }
@@ -119,8 +130,8 @@ export class Predictor {
     if (ack < this.acked) return; // a reply that was overtaken by a newer one
     this.acked = ack;
     this.pending = this.pending.filter((p) => p.seq > ack);
-    let s: MoveState = { position: { ...state.position }, yaw: state.yaw };
-    for (const p of this.pending) s = step(s, p, this.blockers);
+    let s: MoveState = { position: { ...state.position }, yaw: state.yaw, ...(state.slots ? { slots: [...state.slots] } : {}) };
+    for (const p of this.pending) s = this.rule(s, p, this.blockers);
     const before = this.shown().position;
     const moved = Math.hypot(s.position.x - this.predicted.position.x, s.position.z - this.predicted.position.z);
     this.maxCorrection = Math.max(this.maxCorrection, moved);
@@ -139,7 +150,7 @@ export class Predictor {
   /** Where to draw the visitor's own avatar this frame. */
   shown(): MoveState {
     const p = this.predicted.position;
-    return { position: { x: p.x + this.offset.x, y: p.y + this.offset.y, z: p.z + this.offset.z }, yaw: this.predicted.yaw };
+    return { position: { x: p.x + this.offset.x, y: p.y + this.offset.y, z: p.z + this.offset.z }, yaw: this.predicted.yaw, ...(this.predicted.slots ? { slots: this.predicted.slots } : {}) };
   }
 
   get inFlight(): number {

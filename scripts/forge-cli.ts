@@ -20,7 +20,7 @@ const flag = (name: string, fallback = "") => {
   const at = rest.indexOf(name);
   return at >= 0 && rest[at + 1] ? rest[at + 1] : fallback;
 };
-const VALUE_FLAGS = new Set(["--fuel", "--grant", "--name", "--slug", "--port", "--host", "--allow", "--dir", "--world", "--tick", "--id", "--memory-mb", "--speed"]);
+const VALUE_FLAGS = new Set(["--fuel", "--grant", "--name", "--slug", "--port", "--host", "--allow", "--dir", "--world", "--tick", "--id", "--memory-mb", "--speed", "--mechanic", "--max-speed"]);
 const positional = () => rest.find((a, i) => !a.startsWith("--") && !(i > 0 && VALUE_FLAGS.has(rest[i - 1])));
 
 async function main(): Promise<number> {
@@ -147,7 +147,8 @@ function usage(): number {
   forge info <file>                                                    identify a file and how Forge would use it
   forge gate <script.ts> [--grant fetch,storage] [--typecheck] [--emit] check a script
   forge script <script.ts>                                             gate it, then run it in an isolated worker
-  forge island --name N --slug S [--port 7420] [--allow render,input]  host an island here
+  forge island --name N --slug S [--port 7420] [--allow render,input,carry] [--mechanic file.json] [--max-speed 60]
+                                                                       host an island here
   forge compute --id ID [--port 7600] [--memory-mb 512] [--speed 1]    join pooled inference
   forge link [--name N] [--port 7430] [--dir .forge]                   be the home your devices pair and sync with
   forge version`);

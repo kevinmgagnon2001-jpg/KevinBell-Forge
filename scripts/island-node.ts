@@ -10,6 +10,12 @@
  *   GET  /island/content             the starting world (needs a session with "render"); its hash is in the manifest
  *   POST /island/sync                { view, inputs? } -> what this visitor can see, changes only (needs "render");
  *                                    with inputs (needs "input") the host walks the visitor and says where
+ *   POST /island/carry               { mechanic } (needs "carry"): the visitor moves with its own mechanic
+ *                                    (checked first) for the rest of the visit; { mechanic: null } stops
+ *   GET  /island/mechanics           the mechanics in use here (needs "render"), for visitors to keep
+ *
+ * Mechanics visitors bring are saved under <dir>/mechanics/ as they arrive. To make one this island's
+ * own (visitors who carry none move with it): --mechanic <dir>/mechanics/<file>.json
  *
  * Options: --world world.json (a saved Forge world; default is the lab room), --tick 100 (simulate every N ms).
  *
@@ -18,6 +24,7 @@
  */
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { DEFAULT_RULES, PACKAGE_LIMIT, type MechanicPackage } from "../src/engine/mechanic.ts";
 import { join } from "node:path";
 import { encodeEntry, entryFromWorld, entryInfo, IslandHost, type View } from "../src/engine/island-content.ts";
 import { labWorld, stepWorld } from "../src/engine/manifold.ts";
@@ -38,14 +45,29 @@ import {
   type SignedManifest,
 } from "../src/engine/island.ts";
 
-export type NodeOptions = { name: string; slug: string; host: string; port: number; allow: Capability[]; dir: string; world?: World; worldFile?: string; tickMs?: number };
+export type NodeOptions = {
+  name: string;
+  slug: string;
+  host: string;
+  port: number;
+  allow: Capability[];
+  dir: string;
+  world?: World;
+  worldFile?: string;
+  tickMs?: number;
+  /** A mechanic package file: how visitors who carry none move here. */
+  mechanicFile?: string;
+  maxSpeed?: number;
+  /** Save mechanics visitors carry in under <dir>/mechanics (default on). */
+  keepCarried?: boolean;
+};
 
 export function parseArgs(argv: string[]): NodeOptions {
   const get = (flag: string, fallback: string) => {
     const at = argv.indexOf(flag);
     return at >= 0 && argv[at + 1] ? argv[at + 1] : fallback;
   };
-  const allow = get("--allow", "render,input,audio,portal")
+  const allow = get("--allow", "render,input,audio,portal,carry")
     .split(",")
     .filter((item): item is Capability => (CAPABILITIES as readonly string[]).includes(item));
   return {
@@ -57,6 +79,8 @@ export function parseArgs(argv: string[]): NodeOptions {
     dir: get("--dir", ".forge"),
     worldFile: get("--world", "") || undefined,
     tickMs: Number(get("--tick", "0")) || undefined,
+    mechanicFile: get("--mechanic", "") || undefined,
+    maxSpeed: Number(get("--max-speed", "0")) || undefined,
   };
 }
 
@@ -79,13 +103,13 @@ async function loadIdentity(dir: string): Promise<Identity> {
 
 const LIMIT = 64 * 1024;
 
-function readBody(req: IncomingMessage): Promise<string> {
+function readBody(req: IncomingMessage, limit = LIMIT): Promise<string> {
   return new Promise((resolve, reject) => {
     let size = 0;
     const chunks: Buffer[] = [];
     req.on("data", (chunk: Buffer) => {
       size += chunk.length;
-      if (size > LIMIT) {
+      if (size > limit) {
         reject(new Error("too large"));
         req.destroy();
         return;
@@ -113,7 +137,20 @@ export async function startIsland(options: NodeOptions) {
     entry: await entryInfo(entryBytes),
     wants: ["render", "input"],
   });
-  const host = new IslandHost(world);
+  const host = new IslandHost(world, undefined, { ...DEFAULT_RULES, ...(options.maxSpeed ? { maxSpeed: options.maxSpeed } : {}) });
+  if (options.mechanicFile) {
+    const adopted = await host.adopt(JSON.parse(readFileSync(options.mechanicFile, "utf8")));
+    if (!adopted.ok) throw new Error(`${options.mechanicFile}: ${adopted.reason}`);
+  }
+  if (options.keepCarried !== false) {
+    host.onCarried = (pkg: MechanicPackage) => {
+      const dir = join(options.dir, "mechanics");
+      mkdirSync(dir, { recursive: true });
+      const file = join(dir, `${pkg.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "mechanic"}-${pkg.hash.slice(0, 8)}.json`);
+      if (!existsSync(file)) writeFileSync(file, JSON.stringify(pkg, null, 2));
+      if (!process.argv[1]?.includes(".test.")) console.log(`a visitor carried in "${pkg.name}" by ${pkg.author.name || "someone"}; kept a copy: ${file}`);
+    };
+  }
   const timer = options.tickMs
     ? setInterval(() => host.setWorld(stepWorld(host.world, 1)), options.tickMs)
     : null;
@@ -159,6 +196,22 @@ export async function startIsland(options: NodeOptions) {
         }
         const reply = host.sync(bearer(req) ?? "", body.view, body.inputs);
         return "error" in reply ? send(res, reply.status, { ok: false, reason: reply.error }) : send(res, 200, reply);
+      }
+      if (req.method === "POST" && req.url === "/island/carry") {
+        let body: { mechanic?: unknown };
+        try {
+          body = JSON.parse(await readBody(req, PACKAGE_LIMIT + 1024)) as { mechanic?: unknown };
+        } catch {
+          return send(res, 400, { ok: false, reason: "body is not JSON or is too large" });
+        }
+        const reply = await host.carry(bearer(req) ?? "", body?.mechanic ?? null);
+        return "error" in reply ? send(res, reply.status, { ok: false, reason: reply.error }) : send(res, 200, reply);
+      }
+      if (req.method === "GET" && req.url === "/island/mechanics") {
+        const s = host.session(bearer(req));
+        if (!s) return send(res, 401, { ok: false, reason: "no session (handshake again)" });
+        if (!s.grant.includes("render")) return send(res, 403, { ok: false, reason: "render was not granted" });
+        return send(res, 200, { mechanics: host.mechanics() });
       }
       send(res, 404, { ok: false, reason: "not found" });
     } catch {
