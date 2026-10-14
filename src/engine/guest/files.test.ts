@@ -142,7 +142,7 @@ function syscaller(arch: "x86_64" | "aarch64") {
     return BigInt.asIntN(64, state.reg(abi.ret));
   };
   const str = (at: number, s: string) => mem.set(enc.encode(s + "\0"), at);
-  return { mem, shim, call, str };
+  return { mem, shim, call, str, state, abi };
 }
 
 test("shared mappings: two views of one file and the file agree at every system call; private ones keep their own copy", () => {
@@ -200,4 +200,33 @@ test("links: absolute targets resolve inside the tree, loops stop with ELOOP, a 
   assert.equal(files.linkAt(-100, "etc/conf", -100, "conf2", 0), 0n);
   assert.deepEqual(files.statPath("conf2"), { kind: "file", size: 1, nlink: 2 });
   assert.deepEqual(Object.keys(files.snapshot()), ["/a@", "/b@", "/bin/", "/bin/sh@", "/conf2", "/esc@", "/etc/", "/etc/conf"]);
+});
+
+test("threads: clone runs a child on its own stack, exit wakes the joiner, and waiting forever stops the program", () => {
+  for (const arch of ["x86_64", "aarch64"] as const) {
+    const { mem, shim, call, state, abi } = syscaller(arch);
+    const v = new DataView(mem.buffer);
+    state.setReg(abi.sp, 0x8000n);
+    // CLONE_VM | CLONE_THREAD | CLONE_SIGHAND | CLONE_SETTLS | CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID
+    const flags = 0x100n | 0x10000n | 0x800n | 0x80000n | 0x100000n | 0x200000n;
+    const args = arch === "x86_64" ? [flags, 0x9000n, 0x5000n, 0x5004n, 0x7777n] : [flags, 0x9000n, 0x5000n, 0x7777n, 0x5004n];
+    const tid = call("clone", ...args);
+    assert.equal(tid, 1001n);
+    assert.equal(v.getUint32(0x5000, true), 1001, "CLONE_PARENT_SETTID");
+    assert.equal(state.reg(abi.sp), 0x8000n, "the parent keeps its stack");
+    v.setUint32(0x5004, 1001, true); // what glibc's pthread_join waits on
+    call("futex", 0x5004n, 0n, 1001n, 0n); // the parent waits: the child runs
+    assert.equal(state.reg(abi.sp), 0x9000n, "the child's stack");
+    assert.equal(state.reg(abi.ret), 0n, "clone returns 0 in the child");
+    assert.equal(call("gettid"), 1001n);
+    call("exit", 0n); // the child ends: its tid word clears and the parent wakes
+    assert.equal(v.getUint32(0x5004, true), 0);
+    assert.equal(state.reg(abi.sp), 0x8000n);
+    assert.equal(state.reg(abi.ret), 0n, "the parent's futex wait returns 0");
+    assert.equal(call("gettid"), 1000n);
+    v.setUint32(0x6000, 5, true);
+    assert.equal(call("futex", 0x6000n, 128n, 4n, 0n), -11n, "the word changed: EAGAIN");
+    call("futex", 0x6000n, 128n, 5n, 0n);
+    assert.match(shim.halt ?? "", /every thread is waiting/);
+  }
 });

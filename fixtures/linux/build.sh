@@ -81,3 +81,8 @@ for prog in links libc-links; do
   cp "$d/stdout" $prog.expected; cp "$d/exitcode" $prog.exitcode; dump_tree "$d" > $prog.tree; rm -rf "$d"
 done
 ls -l links-*.elf libc-links-*.elf
+
+# Threads (N7, fifth part): glibc pthreads. The output does not depend on the interleaving.
+gcc -static -O2 -no-pie -s -pthread libc-threads.c -o libc-threads-x86_64.elf
+./libc-threads-x86_64.elf > libc-threads.expected; echo $? > libc-threads.exitcode
+ls -l libc-threads-*.elf

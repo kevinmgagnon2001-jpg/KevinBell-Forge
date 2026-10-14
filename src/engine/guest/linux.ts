@@ -14,7 +14,7 @@
  */
 import { readElf, PF_X, type Segment } from "./elf.ts";
 import { GuestState, Interpreter, type Engine } from "./machine.ts";
-import { STOP_NAME, Stop, TP, type Gap, type GuestArch, type StopCode } from "./ir.ts";
+import { NREG, STATE, STOP_NAME, Stop, TP, type Gap, type GuestArch, type StopCode } from "./ir.ts";
 import { inText, lift, newProgram, type Program } from "./lift.ts";
 import { instantiate, lowerProgram } from "./wasm.ts";
 import { AT_FDCWD, FD_LIMIT, GuestFiles, O_DIRECTORY, O_NOFOLLOW, POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, POLLPRI, POLLRDNORM, POLLWRNORM, type ByteSink, type FileNode, type Stat } from "./files.ts";
@@ -75,14 +75,14 @@ export const ABI: Record<GuestArch, { nr: number; args: number[]; ret: number; s
     args: [7, 6, 2, 10, 8, 9],
     ret: 0,
     sp: 4,
-    names: { 0: "read", 1: "write", 2: "open", 3: "close", 4: "stat", 5: "fstat", 6: "lstat", 7: "poll", 8: "lseek", 9: "mmap", 10: "mprotect", 11: "munmap", 12: "brk", 13: "rt_sigaction", 14: "rt_sigprocmask", 16: "ioctl", 17: "pread64", 18: "pwrite64", 20: "writev", 21: "access", 22: "pipe", 23: "select", 26: "msync", 28: "madvise", 32: "dup", 33: "dup2", 39: "getpid", 60: "exit", 63: "uname", 72: "fcntl", 76: "truncate", 77: "ftruncate", 79: "getcwd", 82: "rename", 83: "mkdir", 84: "rmdir", 86: "link", 87: "unlink", 88: "symlink", 89: "readlink", 102: "getuid", 104: "getgid", 107: "geteuid", 108: "getegid", 158: "arch_prctl", 186: "gettid", 201: "time", 217: "getdents64", 218: "set_tid_address", 228: "clock_gettime", 231: "exit_group", 257: "openat", 258: "mkdirat", 262: "newfstatat", 263: "unlinkat", 264: "renameat", 265: "linkat", 266: "symlinkat", 267: "readlinkat", 269: "faccessat", 270: "pselect6", 271: "ppoll", 273: "set_robust_list", 292: "dup3", 293: "pipe2", 302: "prlimit64", 316: "renameat2", 318: "getrandom", 334: "rseq" },
+    names: { 0: "read", 1: "write", 2: "open", 3: "close", 4: "stat", 5: "fstat", 6: "lstat", 7: "poll", 8: "lseek", 9: "mmap", 10: "mprotect", 11: "munmap", 12: "brk", 13: "rt_sigaction", 14: "rt_sigprocmask", 24: "sched_yield", 16: "ioctl", 17: "pread64", 18: "pwrite64", 20: "writev", 21: "access", 22: "pipe", 23: "select", 26: "msync", 28: "madvise", 32: "dup", 33: "dup2", 39: "getpid", 56: "clone", 60: "exit", 63: "uname", 72: "fcntl", 76: "truncate", 77: "ftruncate", 79: "getcwd", 82: "rename", 83: "mkdir", 84: "rmdir", 86: "link", 87: "unlink", 88: "symlink", 89: "readlink", 102: "getuid", 104: "getgid", 107: "geteuid", 108: "getegid", 158: "arch_prctl", 186: "gettid", 201: "time", 202: "futex", 217: "getdents64", 218: "set_tid_address", 228: "clock_gettime", 231: "exit_group", 257: "openat", 258: "mkdirat", 262: "newfstatat", 263: "unlinkat", 264: "renameat", 265: "linkat", 266: "symlinkat", 267: "readlinkat", 269: "faccessat", 270: "pselect6", 271: "ppoll", 273: "set_robust_list", 292: "dup3", 293: "pipe2", 302: "prlimit64", 316: "renameat2", 318: "getrandom", 334: "rseq", 435: "clone3" },
   },
   aarch64: {
     nr: 8,
     args: [0, 1, 2, 3, 4, 5],
     ret: 0,
     sp: 31,
-    names: { 17: "getcwd", 23: "dup", 24: "dup3", 25: "fcntl", 29: "ioctl", 34: "mkdirat", 35: "unlinkat", 36: "symlinkat", 37: "linkat", 38: "renameat", 45: "truncate", 46: "ftruncate", 48: "faccessat", 56: "openat", 57: "close", 59: "pipe2", 61: "getdents64", 62: "lseek", 63: "read", 64: "write", 66: "writev", 67: "pread64", 68: "pwrite64", 72: "pselect6", 73: "ppoll", 78: "readlinkat", 79: "newfstatat", 80: "fstat", 93: "exit", 94: "exit_group", 96: "set_tid_address", 99: "set_robust_list", 113: "clock_gettime", 134: "rt_sigaction", 135: "rt_sigprocmask", 160: "uname", 172: "getpid", 174: "getuid", 175: "geteuid", 176: "getgid", 177: "getegid", 178: "gettid", 214: "brk", 215: "munmap", 222: "mmap", 226: "mprotect", 227: "msync", 233: "madvise", 261: "prlimit64", 276: "renameat2", 278: "getrandom", 293: "rseq" },
+    names: { 17: "getcwd", 23: "dup", 24: "dup3", 25: "fcntl", 29: "ioctl", 34: "mkdirat", 35: "unlinkat", 36: "symlinkat", 37: "linkat", 38: "renameat", 45: "truncate", 46: "ftruncate", 48: "faccessat", 56: "openat", 57: "close", 59: "pipe2", 61: "getdents64", 62: "lseek", 63: "read", 64: "write", 66: "writev", 67: "pread64", 68: "pwrite64", 72: "pselect6", 73: "ppoll", 78: "readlinkat", 79: "newfstatat", 80: "fstat", 93: "exit", 94: "exit_group", 96: "set_tid_address", 98: "futex", 99: "set_robust_list", 113: "clock_gettime", 124: "sched_yield", 134: "rt_sigaction", 135: "rt_sigprocmask", 160: "uname", 172: "getpid", 174: "getuid", 175: "geteuid", 176: "getgid", 177: "getegid", 178: "gettid", 214: "brk", 215: "munmap", 220: "clone", 222: "mmap", 226: "mprotect", 227: "msync", 233: "madvise", 261: "prlimit64", 276: "renameat2", 278: "getrandom", 293: "rseq", 435: "clone3" },
   },
 };
 
@@ -242,6 +242,24 @@ export function sparseChunks(memory: Uint8Array, gap = 64): { addr: number; byte
  */
 type SharedMap = { addr: number; len: number; node: FileNode; off: number; shadow: Uint8Array; version: number; visible: number };
 
+/**
+ * A thread of the guest program. The shim runs one at a time and switches only at system calls: when
+ * the running thread waits on a futex, yields or exits. Its registers live in guest memory while it
+ * runs and in `ctx` (the pc, flags and register area of the state page) while it does not, so every
+ * engine, wasmtime included, runs threads without knowing about them.
+ */
+type Thread = { tid: number; ctx: Uint8Array | null; wait: bigint | null; bitset: number; timed: boolean; clearTid: bigint };
+const CTX_PARTS: [number, number][] = [[STATE.pc, STATE.fuel], [STATE.regs, STATE.regs + NREG * 8]];
+const CTX_BYTES = CTX_PARTS.reduce((n, [a, b]) => n + b - a, 0);
+/** Where register `r` sits inside a saved context. */
+const ctxReg = (r: number) => STATE.fuel - STATE.pc + r * 8;
+export const MAX_THREADS = 64;
+const MAIN_TID = 1000;
+const BLOCK = Symbol("block");
+const YIELD = Symbol("yield");
+const THREAD_EXIT = Symbol("thread exit");
+type Switch = typeof BLOCK | typeof YIELD | typeof THREAD_EXIT;
+
 const POLLIN_SET = POLLIN | POLLRDNORM | POLLHUP | POLLERR;
 const POLLOUT_SET = POLLOUT | POLLWRNORM | POLLERR;
 
@@ -261,6 +279,12 @@ export class LinuxShim {
   private brk: bigint;
   private mmapTop: bigint;
   private shared: SharedMap[] = [];
+  /** Every live thread; `cur` is the one running. */
+  private threads: Thread[] = [{ tid: MAIN_TID, ctx: null, wait: null, bitset: 0, timed: false, clearTid: 0n }];
+  private cur = 0;
+  private nextTid = MAIN_TID + 1;
+  /** Why the program stopped without exiting (every thread waiting forever), or null. */
+  halt: string | null = null;
   readonly files: GuestFiles;
 
   constructor(arch: GuestArch, brkBase: bigint, mmapTop: bigint, stdin?: Uint8Array | string, files?: FileTree) {
@@ -353,9 +377,173 @@ export class LinuxShim {
     this.storeShared(state.mem);
     const out = this.call(state, name, a0, a1, a2, a3, a4, a5);
     if (out === "exit") return "exit";
+    if (typeof out === "symbol") {
+      if (!this.schedule(state, out)) return "exit";
+    } else state.setReg(abi.ret, out);
     this.loadShared(state.mem);
-    state.setReg(abi.ret, out);
     return "continue";
+  }
+
+  private saveCtx(mem: Uint8Array): Uint8Array {
+    const ctx = new Uint8Array(CTX_BYTES);
+    let at = 0;
+    for (const [a, b] of CTX_PARTS) {
+      ctx.set(mem.subarray(a, b), at);
+      at += b - a;
+    }
+    return ctx;
+  }
+
+  private loadCtx(mem: Uint8Array, ctx: Uint8Array) {
+    let at = 0;
+    for (const [a, b] of CTX_PARTS) {
+      mem.set(ctx.subarray(at, at + b - a), a);
+      at += b - a;
+    }
+  }
+
+  /** The value a waiting (not running) thread's system call returns when it runs again. */
+  private answer(t: Thread, v: bigint) {
+    new DataView(t.ctx!.buffer).setBigUint64(ctxReg(ABI[this.arch].ret), BigInt.asUintN(64, v), true);
+  }
+
+  /**
+   * After the running thread blocked, yielded or exited: run the next ready thread (round robin). When
+   * none is ready, time passes: the first thread waiting with a timeout times out. When nobody has a
+   * timeout either, every thread waits forever and the program stops. Returns false when it stops.
+   */
+  private schedule(state: GuestState, why: Switch): boolean {
+    const me = this.threads[this.cur];
+    const ret = ABI[this.arch].ret;
+    if (why === YIELD) state.setReg(ret, 0n);
+    if (why === THREAD_EXIT) {
+      this.threads.splice(this.cur, 1);
+      this.cur -= 1;
+    } else me.ctx = this.saveCtx(state.mem);
+    const n = this.threads.length;
+    let next = -1;
+    for (let k = 1; k <= n && next < 0; k += 1) {
+      const i = (this.cur + k + n) % n;
+      if (this.threads[i].wait === null) next = i; // the yielding thread itself comes last
+    }
+    if (next < 0) {
+      next = this.threads.findIndex((t) => t.timed);
+      if (next < 0) {
+        this.halt = `every thread is waiting on a futex that nothing will wake (${n} thread${n === 1 ? "" : "s"})`;
+        return false;
+      }
+      const t = this.threads[next];
+      t.wait = null;
+      t.timed = false;
+      this.answer(t, -110n); // ETIMEDOUT
+    }
+    this.cur = next;
+    this.loadCtx(state.mem, this.threads[next].ctx!);
+    this.threads[next].ctx = null;
+    return true;
+  }
+
+  /** Wake up to `count` threads waiting on `addr` whose bitset meets `bitset`, oldest first. */
+  private wake(addr: bigint, count: number, bitset = 0xffffffff, moveTo: bigint | null = null, moveCount = 0): number {
+    let woken = 0;
+    let moved = 0;
+    for (const t of this.threads) {
+      if (t.wait !== addr || !(t.bitset & bitset)) continue;
+      if (woken < count) {
+        t.wait = null;
+        t.timed = false;
+        this.answer(t, 0n);
+        woken += 1;
+      } else if (moveTo !== null && moved < moveCount) {
+        t.wait = moveTo;
+        moved += 1;
+      }
+    }
+    return woken + moved;
+  }
+
+  private futex(state: GuestState, addr: bigint, op: bigint, val: bigint, timeout: bigint, addr2: bigint, val3: bigint): bigint | Switch {
+    const cmd = Number(op & 0x7fn); // without FUTEX_PRIVATE_FLAG and FUTEX_CLOCK_REALTIME
+    if (addr & 3n) return EINVAL;
+    const word = () => {
+      const b = state.read(addr, 4);
+      return b ? BigInt(new DataView(b.buffer, b.byteOffset, 4).getUint32(0, true)) : null;
+    };
+    const v32 = val & 0xffffffffn;
+    switch (cmd) {
+      case 0: // FUTEX_WAIT
+      case 9: { // FUTEX_WAIT_BITSET
+        const bitset = cmd === 9 ? Number(val3 & 0xffffffffn) : 0xffffffff;
+        if (!bitset) return EINVAL;
+        const now = word();
+        if (now === null) return EFAULT;
+        if (now !== v32) return -11n; // EAGAIN: it changed before we slept
+        if (timeout) {
+          const t = this.timespec(state, timeout);
+          if (t !== null && t < 0n) return t;
+        }
+        const me = this.threads[this.cur];
+        me.wait = addr;
+        me.bitset = bitset;
+        me.timed = timeout !== 0n;
+        return BLOCK;
+      }
+      case 1: // FUTEX_WAKE
+      case 10: { // FUTEX_WAKE_BITSET
+        const bitset = cmd === 10 ? Number(val3 & 0xffffffffn) : 0xffffffff;
+        if (!bitset) return EINVAL;
+        return BigInt(this.wake(addr, Number(BigInt.asIntN(32, val) < 0n ? 0n : v32), bitset));
+      }
+      case 3: // FUTEX_REQUEUE
+      case 4: { // FUTEX_CMP_REQUEUE
+        if (addr2 & 3n) return EINVAL;
+        if (cmd === 4) {
+          const now = word();
+          if (now === null) return EFAULT;
+          if (now !== (val3 & 0xffffffffn)) return -11n;
+        }
+        const n = this.wake(addr, Number(v32), 0xffffffff, addr2, Number(timeout & 0x7fffffffn));
+        return BigInt(n);
+      }
+      default:
+        this.unsupported.add(`futex op ${cmd}`);
+        return ENOSYS;
+    }
+  }
+
+  /** clone for a new thread (CLONE_VM | CLONE_THREAD). A new process is not provided. */
+  private clone(state: GuestState, flags: bigint, stack: bigint, ptid: bigint, ctid: bigint, tls: bigint): bigint {
+    const f = Number(flags & 0xffffffffn);
+    if ((f & 0x10100) !== 0x10100) {
+      this.unsupported.add("clone (a new process)");
+      return ENOSYS;
+    }
+    if (this.threads.length >= MAX_THREADS) return -11n; // EAGAIN
+    const tid = this.nextTid++;
+    const put = (addr: bigint) => {
+      const b = new Uint8Array(4);
+      new DataView(b.buffer).setUint32(0, tid, true);
+      return state.write(addr, b);
+    };
+    if (f & 0x100000 && !put(ptid)) return EFAULT; // CLONE_PARENT_SETTID
+    if (f & 0x1000000 && !put(ctid)) return EFAULT; // CLONE_CHILD_SETTID
+    // The child starts as a copy of the parent returning 0 from clone, on its own stack and TLS.
+    const parent = this.saveCtx(state.mem);
+    const abi = ABI[this.arch];
+    state.setReg(abi.ret, 0n);
+    if (stack) state.setReg(abi.sp, stack);
+    if (f & 0x80000) state.setReg(TP, tls); // CLONE_SETTLS
+    const ctx = this.saveCtx(state.mem);
+    this.loadCtx(state.mem, parent);
+    this.threads.push({ tid, ctx, wait: null, bitset: 0, timed: false, clearTid: f & 0x200000 ? ctid : 0n }); // CLONE_CHILD_CLEARTID
+    return BigInt(tid);
+  }
+
+  /** A thread ends: its CLONE_CHILD_CLEARTID word becomes 0 and one waiter on it wakes (pthread_join). */
+  private threadExit(state: GuestState): Switch {
+    const me = this.threads[this.cur];
+    if (me.clearTid && state.write(me.clearTid, new Uint8Array(4))) this.wake(me.clearTid, 1);
+    return THREAD_EXIT;
   }
 
   /** Program stores into shared mappings reach their files (only bytes inside the file; Linux drops the rest too). */
@@ -537,7 +725,7 @@ export class LinuxShim {
     return BigInt(ready);
   }
 
-  private call(state: GuestState, name: string, a0: bigint, a1: bigint, a2: bigint, a3: bigint, a4: bigint, a5: bigint): bigint | "exit" {
+  private call(state: GuestState, name: string, a0: bigint, a1: bigint, a2: bigint, a3: bigint, a4: bigint, a5: bigint): bigint | "exit" | Switch {
     switch (name) {
       case "write": {
         const len = Number(a2 > 0x7fffffffn ? 0x7fffffffn : a2);
@@ -574,9 +762,19 @@ export class LinuxShim {
         return data ? this.files.pwrite(fd(a0), data.slice(), BigInt.asIntN(64, a3)) : EFAULT;
       }
       case "exit":
+        // One thread ends; the program ends with the last one.
+        if (this.threads.length > 1) return this.threadExit(state);
+        this.exitCode = Number(a0 & 0xffn);
+        return "exit";
       case "exit_group":
         this.exitCode = Number(a0 & 0xffn);
         return "exit";
+      case "clone":
+        return this.arch === "x86_64" ? this.clone(state, a0, a1, a2, a3, a4) : this.clone(state, a0, a1, a2, a4, a3);
+      case "futex":
+        return this.futex(state, a0, a1, a2, a3, a4, a5);
+      case "sched_yield":
+        return this.threads.length > 1 ? YIELD : 0n;
       case "brk":
         if (a0 === 0n || a0 < this.brkBase || a0 > this.mmapTop) return this.brk;
         if (a0 > this.brk) state.mem.fill(0, Number(this.brk), Number(a0));
@@ -732,14 +930,17 @@ export class LinuxShim {
       }
       case "ioctl":
         return ENOTTY;
-      case "getpid":
       case "gettid":
+        return BigInt(this.threads[this.cur].tid);
+      case "set_tid_address":
+        this.threads[this.cur].clearTid = a0;
+        return BigInt(this.threads[this.cur].tid);
+      case "getpid":
       case "getuid":
       case "geteuid":
       case "getgid":
       case "getegid":
-      case "set_tid_address":
-        return 1000n;
+        return BigInt(MAIN_TID);
       case "uname": {
         const buf = new Uint8Array(65 * 6);
         ["Linux", "forge", "6.0.0-forge", "#1 Forge", this.arch, ""].forEach((s, i) => buf.set(enc.encode(s), i * 65));
@@ -754,6 +955,7 @@ export class LinuxShim {
       }
       case "prlimit64":
       case "rseq":
+      case "clone3": // libc falls back to clone
         return ENOSYS; // known, deliberately not provided: libc falls back
 
       default:
@@ -803,8 +1005,8 @@ export function finishReport(
     stdout: dec.decode(out),
     stdoutBytes: out,
     stderr: dec.decode(shim.stderr.bytes()),
-    stop: finished ? "exit" : STOP_NAME[stop] ?? "stopped",
-    detail: finished ? `exited with code ${shim.exitCode}` : detail || "stopped: too many host round trips",
+    stop: finished ? "exit" : shim.halt ? "deadlock" : STOP_NAME[stop] ?? "stopped",
+    detail: finished ? `exited with code ${shim.exitCode}` : shim.halt ?? (detail || "stopped: too many host round trips"),
     gaps: [...program.gaps.values()],
     syscalls: shim.counts,
     unsupportedSyscalls: [...shim.unsupported],

@@ -200,6 +200,17 @@ test("mapped files, renames, truncation, poll/select and links: raw system calls
   }
 });
 
+test("threads: glibc pthreads (mutex, condition variable, barrier, once, TLS, join) match real hardware on every engine", () => {
+  for (const engine of ["tiered", "interpreter", "wasm"] as const) {
+    const report = runLinux(fixture("libc-threads-x86_64.elf"), { engine });
+    assert.equal(report.ok, true, `${engine}: ${report.detail}`);
+    assert.equal(report.stdout, text("libc-threads.expected"), engine);
+    assert.equal(report.exitCode, Number(text("libc-threads.exitcode").trim()));
+    assert.deepEqual(report.unsupportedSyscalls, []);
+    assert.ok(report.syscalls.clone >= 7 && report.syscalls.futex > 0, engine);
+  }
+});
+
 test("ARM64 glibc programs and the NEON/FP instruction corpus (built and run on ARM64 hardware) match the CPU on every engine", () => {
   const input = fixture("files-in.txt");
   for (const name of ["libc-demo", "libc-float", "libc-files", "libc-dirs", "libc-mapio", "libc-links", "neon"]) {
