@@ -128,7 +128,8 @@ export function portalAt(world: World, position: Vec3, reach = 1.1): { id: numbe
 
 // ---------- host side: sessions and live sync ----------
 
-export type View = { position: Vec3; forward: Vec3; fovDeg?: number; range?: number; tier?: Tier; budget?: number };
+/** Where a visitor stands and looks. `yaw` is only read once: where the host starts walking them from. */
+export type View = { position: Vec3; forward: Vec3; fovDeg?: number; range?: number; tier?: Tier; budget?: number; yaw?: number };
 export type SyncReply = {
   tick: number;
   enter: Entity[];
@@ -175,7 +176,8 @@ const proxyOf = (e: Entity): Entity => ({
   representation: { kind: "mesh", assetId: "proxy" },
   physics: null,
   tags: [...e.tags, "proxy"],
-  customData: e.customData.color ? { color: e.customData.color } : {},
+  // A proxy keeps its colour and, for a presence marker, who it is.
+  customData: Object.fromEntries(Object.entries(e.customData).filter(([k]) => k === "color" || k === "visitor")),
 });
 
 /**
@@ -269,7 +271,7 @@ export class IslandHost {
     if (inputs !== undefined) {
       if (!s.grant.includes("input")) return { error: "input was not granted", status: 403 };
       if (!validInputs(inputs)) return { error: "inputs are malformed", status: 400 };
-      s.mover ??= new HostMover({ position: view.position, yaw: 0 });
+      s.mover ??= new HostMover({ position: view.position, yaw: Number.isFinite(view.yaw) ? (view.yaw as number) : 0 });
       you = s.mover.apply(inputs, blockersOf(this.world));
       view = { ...view, position: you.state.position };
     }

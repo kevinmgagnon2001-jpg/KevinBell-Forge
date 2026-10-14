@@ -14,7 +14,7 @@ import { researchTask } from "./research-call";
 import { runModuleD } from "./module-d-call";
 import { settleIntent } from "./turn";
 import { currentGaze } from "@/components/forge/look";
-import { wantsSecondModel } from "./vm";
+import { runHarness, wantsSecondModel } from "./vm";
 
 const STORAGE_KEY = "aetherforge-manifold-v2";
 
@@ -275,7 +275,18 @@ export const useForge = create<ForgeState>((set, get) => {
     select: (id) => set({ selectedId: id }),
     submitIntent: async (intentRaw) => {
       const intent = intentRaw.trim().slice(0, 400);
-      if (!intent || get().busy) return;
+      if (!intent) return;
+      // A typed forge:// address needs no model (nor waits for one): the harness places the portal itself.
+      if (/forge:\/\/\S+/i.test(intent)) {
+        const before = get();
+        const ran = runHarness(before, intent, { kind: "message", arguments: {}, message: "" }, before.selectedId);
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Portal", body: ran.result },
+        ]);
+        return;
+      }
+      if (get().busy) return;
       const spec = residentById(get().residentId);
       if (!get().residentPower) {
         pushLog([

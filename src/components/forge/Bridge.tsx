@@ -12,7 +12,8 @@
 import { useEffect, useRef, useState } from "react";
 import { ingest } from "@/engine/ingest";
 import { placeVisited, portalAt } from "@/engine/island-content";
-import { enterIsland } from "@/engine/portal-client";
+import { LiveVisit } from "@/engine/live-visit";
+import { enterIsland, syncIsland } from "@/engine/portal-client";
 import { useForge } from "@/engine/store";
 import { visitorIdentity } from "@/engine/visitor";
 
@@ -108,10 +109,40 @@ export function DropRunner() {
   );
 }
 
+/** How often a visited island is synced (ms). */
+const VISIT_ROUND_MS = 150;
+
+/**
+ * Keeps a visited island in step with its host (work item 9): reports where the architect stands and
+ * looks, folds in the host's changes and other visitors, and takes the island away when the host stops.
+ */
+function keepLive(link: LiveVisit, name: string, alive: { current: boolean }) {
+  const round = async () => {
+    if (!alive.current) return;
+    const avatar = Object.values(useForge.getState().entities).find((e) => e.tags.includes("architect"));
+    if (avatar) {
+      const yaw = Number(avatar.customData.yaw) || 0;
+      const p = avatar.transform.position;
+      const result = await link.round({ position: { x: p.x, y: p.y + 1.6, z: p.z }, forward: { x: Math.sin(yaw), y: 0, z: Math.cos(yaw) }, budget: 200_000 });
+      if (!alive.current) return;
+      const now = useForge.getState();
+      if (result.status === "gone") {
+        now.adopt(result.apply(now), [{ tone: "warn", title: "Portal", body: `${name} left: ${result.reason}. Its half of the world is gone.` }]);
+        return;
+      }
+      now.adopt(result.apply(now), []);
+    }
+    window.setTimeout(round, VISIT_ROUND_MS);
+  };
+  void round();
+}
+
 export function PortalWatcher() {
   const inside = useRef<number | null>(null);
   const busy = useRef(false);
+  const alive = useRef(true);
   useEffect(() => {
+    alive.current = true;
     const timer = window.setInterval(() => {
       const state = useForge.getState();
       const avatar = Object.values(state.entities).find((e) => e.tags.includes("architect"));
@@ -140,14 +171,17 @@ export function PortalWatcher() {
             return;
           }
           const p = now.entities[hit.id]?.transform.position ?? avatar.transform.position;
-          const world = placeVisited(now, visit.entry, visit.host.manifest.id, { x: p.x + 14, y: 0, z: p.z });
+          const offset = { x: p.x + 14, y: 0, z: p.z };
+          const world = placeVisited(now, visit.entry, visit.host.manifest.id, offset);
           useForge.getState().adopt(world, [
             {
               tone: "engine",
               title: "Portal",
-              body: `Inside ${visit.host.manifest.name} (${visit.entry.entities.length} entities, hash checked against its signed manifest). Granted: ${visit.grant.join(", ") || "nothing"}. It sits read-only beside your island.`,
+              body: `Inside ${visit.host.manifest.name} (${visit.entry.entities.length} entities, hash checked against its signed manifest). Granted: ${visit.grant.join(", ") || "nothing"}. It sits read-only beside your island and stays live while its host runs.`,
             },
           ]);
+          const link = new LiveVisit(visit.host.manifest.id, offset, (view, inputs) => syncIsland(visit.base, visit.session, view, 4000, inputs));
+          keepLive(link, visit.host.manifest.name, alive);
         } catch (error) {
           say("warn", "Portal", String(error));
         } finally {
@@ -155,7 +189,10 @@ export function PortalWatcher() {
         }
       })();
     }, 250);
-    return () => window.clearInterval(timer);
+    return () => {
+      alive.current = false;
+      window.clearInterval(timer);
+    };
   }, []);
   return null;
 }

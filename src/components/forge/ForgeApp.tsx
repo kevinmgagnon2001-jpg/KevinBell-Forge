@@ -335,7 +335,7 @@ function IntentDock() {
           autoComplete="off"
           disabled={!power}
         />
-        <button type="submit" className="btn btn-primary" disabled={!intent.trim() || busy || !power}>
+        <button type="submit" className="btn btn-primary" disabled={!intent.trim() || (!/forge:\/\/\S+/i.test(intent) && (busy || !power))}>
           {busy && status === "ready" ? "Writing…" : forgeLabel}
         </button>
       </div>

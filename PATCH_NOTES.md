@@ -389,5 +389,24 @@ Tests: `npm run test:engine` (137 pass; src/engine/prediction.test.ts).
   on one host each stay under their byte budget.
 
 ## Still not done
-- The app does not keep a live sync running while visiting yet, so prediction is not on screen; hooking
-  the pilot to Predictor belongs with live visiting (work item 9).
+- The pilot does not drive Predictor yet: while visiting, the app reports where the architect stands
+  (the host trusts it) instead of sending inputs. LiveVisit.walk() is ready for it.
+
+## Adjacency, live (work item 9)
+Tests: `npm run test:engine` (139 pass; src/engine/live-visit.test.ts), plus a browser run (below).
+
+- src/engine/live-visit.ts: LiveVisit keeps a visited island in step with its host. Each round reports
+  the architect's position and gaze (converted to the host's coordinates) and folds the host's changes
+  into the local copy: new entities appear, changed ones move, gone ones leave, with stable local ids.
+  Other visitors' presence markers come with them, so two players see each other. After 5 missed rounds,
+  or a refused session, the host's half of the world is removed. A round returns a change to apply to
+  the world as it is when the answer lands, not a stale copy. walk() hands back a Predictor.
+- The first round of a predicted walk tells the host where the walk started (and the yaw), so host and
+  visitor agree from the first input.
+- Proxies (low-detail stand-ins) keep a presence marker's visitor id, so a far-away visitor is still known.
+- Bridge.tsx: after a portal visit the app runs a round every 150 ms; when the host stops, the log says
+  so and the island disappears.
+- A typed forge:// address now places its portal without the local model (and while it is still loading).
+- Checked in Chromium against a real island node: type the address, walk into the portal, "Inside Plaza"
+  (28 bodies), about 4 syncs a second, stop the node, "Plaza left: the host stopped answering" (15 bodies).
+- Two machines on one network are still to try (work item 4).
