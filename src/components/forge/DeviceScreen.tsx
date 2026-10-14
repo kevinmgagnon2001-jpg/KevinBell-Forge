@@ -4,7 +4,7 @@
  * time and you are where you were.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { countApps, deviceKind, ensureScreen, homeState, listApps, openApp, SCREEN_REACH, SCREEN_TAG, setHome, type DeviceApp, type DeviceKind, type HomeState } from "@/engine/device-apps";
+import { countApps, deviceKind, ensureScreen, homeState, listApps, openApp, OPEN_DEVICE_EVENT, SCREEN_REACH, SCREEN_TAG, setHome, type DeviceApp, type DeviceKind, type HomeState } from "@/engine/device-apps";
 import { useForge } from "@/engine/store";
 
 const say = (body: string) => useForge.getState().note([{ tone: "engine", title: "Device", body }]);
@@ -155,6 +155,22 @@ export function DeviceScreen() {
     const count = countApps();
     if (count !== null) console.info(`[forge] apps on this device: ${count}`);
   }, []);
+
+  // Keep it in the world: Reset, the lab tour, undo or a delete can rebuild the room without it.
+  useEffect(() => {
+    if (!kind) return;
+    return useForge.subscribe((s) => {
+      if (!Object.values(s.entities).some((e) => e.tags.includes(SCREEN_TAG))) useForge.setState((now) => ensureScreen(now, kind));
+    });
+  }, [kind]);
+
+  // The Phone / Computer button by the move keys opens it from anywhere.
+  useEffect(() => {
+    if (!kind) return;
+    const show = () => setOpen(true);
+    window.addEventListener(OPEN_DEVICE_EVENT, show);
+    return () => window.removeEventListener(OPEN_DEVICE_EVENT, show);
+  }, [kind]);
 
   // Close enough to use it?
   useEffect(() => {

@@ -104,6 +104,8 @@ export function countApps(): number | null {
 // ---------- the screen in the world ----------
 
 export const SCREEN_TAG = "device-screen";
+/** Dispatched on window to open the apps sheet from anywhere (the Phone / Computer button by the move keys). */
+export const OPEN_DEVICE_EVENT = "forge:open-device";
 /** Close enough to use the screen (metres from the avatar). */
 export const SCREEN_REACH = 2.4;
 
