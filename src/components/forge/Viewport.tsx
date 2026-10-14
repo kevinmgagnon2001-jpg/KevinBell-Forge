@@ -10,6 +10,7 @@ import { TEXTURE_PACKS, type TexturePack } from "@/engine/asset-url";
 import { loadAlbedo } from "@/engine/albedo";
 import { GRAVITY, restoreLab } from "@/engine/manifold";
 import { useForge } from "@/engine/store";
+import { deviceKind, OPEN_DEVICE_EVENT } from "@/engine/device-apps";
 import { scenePalette } from "./palette";
 import { Pilot } from "./pilot";
 import { RoomPicture } from "./picture";
@@ -1217,6 +1218,8 @@ function HoldKey({ code, label }: { code: string; label: string }) {
       onPointerUp={() => pilotKeys.delete(code)}
       onPointerLeave={() => pilotKeys.delete(code)}
       onPointerCancel={() => pilotKeys.delete(code)}
+      // A long press is "keep walking", not "select this text" or "open a menu".
+      onContextMenu={(event) => event.preventDefault()}
     >
       {label}
     </button>
@@ -1225,6 +1228,8 @@ function HoldKey({ code, label }: { code: string; label: string }) {
 
 function Steer() {
   const mode = useLook().mode;
+  const [device, setDevice] = useState<ReturnType<typeof deviceKind>>(null);
+  useEffect(() => setDevice(deviceKind()), []);
   const drag = useRef<{ id: number; x: number; y: number } | null>(null);
   if (mode === "bench") return null;
   const home = () => {
@@ -1242,9 +1247,16 @@ function Steer() {
           <HoldKey code="KeyD" label={mode === "first" ? "Right" : "Turn R"} />
         </div>
       </div>
-      <button type="button" className="steer-home" onClick={home}>
-        Find room
-      </button>
+      <div className="steer-actions">
+        {device ? (
+          <button type="button" className="steer-home" onClick={() => window.dispatchEvent(new Event(OPEN_DEVICE_EVENT))}>
+            {device === "phone" ? "Phone" : "Computer"}
+          </button>
+        ) : null}
+        <button type="button" className="steer-home" onClick={home}>
+          Find room
+        </button>
+      </div>
       <div
         className="look-pad"
         onPointerDown={(event) => {

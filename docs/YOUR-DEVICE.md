@@ -14,6 +14,9 @@ because Forge keeps its state. Nothing of your phone or computer is lost by livi
   - On a computer, Forge minimizes itself.
   - On a phone, Forge goes to the background.
 - **Coming back:** open Forge again from the taskbar, dock or recent apps.
+- **From anywhere:** the **Phone** (or **Computer**) button above **Find room** opens your apps
+  without walking to the screen. If the screen is ever gone (after Reset or the lab tour, say),
+  Forge puts it back.
 
 ## Forge as your phone's home screen (Android)
 

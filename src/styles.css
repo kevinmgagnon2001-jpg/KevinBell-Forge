@@ -1448,6 +1448,28 @@
   pointer-events: auto;
 }
 
+/* Holding a move key on a phone is "keep walking": never select its text or open a menu. */
+.steer,
+.steer *,
+.device-prompt {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.dpad .visor-key {
+  touch-action: none;
+}
+
+.steer-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.4rem;
+  pointer-events: none;
+}
+
 .dpad {
   display: flex;
   flex-direction: column;
@@ -1808,11 +1830,14 @@
     white-space: nowrap;
   }
 
-  /* Sits above the look pad so the bottom row is only the move keys and the pad. */
-  .steer-home {
+  /* Sit above the look pad so the bottom row is only the move keys and the pad. */
+  .steer-actions {
     position: absolute;
     right: 0;
     bottom: 6.75rem;
+  }
+
+  .steer-home {
     min-height: 40px;
     margin: 0;
     white-space: nowrap;
