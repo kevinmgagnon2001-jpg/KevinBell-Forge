@@ -325,7 +325,7 @@ Tests: `npm run test:engine` (127 pass), `rustc --edition 2021 --test src-tauri/
   the first store). Two shared views of one file agree at every system call, not between two stores with
   no call in between.
 - A shared mapping costs a compare of its whole length at every system call.
-- Threads and processes.
+- Processes (fork, exec); see the threads section below.
 
 ## Symbolic and hard links for guests (N7, fourth part)
 Tests: `npm run test:engine` (128 pass), Rust guest tests (10 pass), `npm run test:native` (7 pass).
@@ -345,3 +345,25 @@ Tests: `npm run test:engine` (128 pass), Rust guest tests (10 pass), `npm run te
   architectures) and libc-links.c (glibc: a "current" release link swapped with rename, realpath, readdir
   types, hard links). The ARM64 oracle builds libc-links too.
 
+## Threads for guests (N7, fifth part)
+Tests: `npm run test:engine` (130 pass), Rust guest tests (11 pass), `npm run test:native` (8 pass).
+
+- clone with CLONE_VM | CLONE_THREAD (SETTLS, PARENT_SETTID, CHILD_SETTID, CHILD_CLEARTID), futex (WAIT,
+  WAKE, WAIT_BITSET, WAKE_BITSET, REQUEUE, CMP_REQUEUE), sched_yield, gettid per thread, set_tid_address.
+  clone3 answers ENOSYS, and glibc falls back to clone.
+- The shim runs one thread at a time and switches only at system calls: when the running thread waits on a
+  futex, yields or exits. A waiting thread's pc, flags and registers are kept aside and put back into the
+  state page when it runs again, so the interpreter, WebAssembly, the tiered engine and wasmtime run threads
+  without any change. Switching only at system calls also makes atomic instructions atomic.
+- Time passes only when no thread can run: then the first thread waiting with a timeout gets ETIMEDOUT.
+  When every thread waits with no timeout, the program stops with stop "deadlock" and says so, where Linux
+  would hang.
+- A thread's exit clears its CLONE_CHILD_CLEARTID word and wakes one waiter (pthread_join); exit_group ends
+  every thread; the program ends when its last thread exits.
+- libc-threads.c (glibc pthreads: workers with a mutex-protected counter, a barrier, pthread_once,
+  thread-local storage, a producer and consumer on a condition variable, a small-stack thread, a detached
+  thread still running when main returns) matches the x86-64 CPU on every engine and through wasmtime.
+
+## Still not done
+- A thread that spins without system calls is never interrupted; the others wait until it makes one.
+- Processes: fork/vfork (clone without CLONE_VM), exec, wait4, signals between threads (tgkill).

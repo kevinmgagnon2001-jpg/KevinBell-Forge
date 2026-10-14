@@ -129,6 +129,13 @@ test("mapped files, renames, truncation, poll/select and links: both architectur
   }
 });
 
+test("threads: glibc pthreads through wasmtime", { skip }, async () => {
+  const report = await runLinuxHosted(fixture("libc-threads-x86_64.elf"), {});
+  assert.equal(report.ok, true, report.detail);
+  assert.equal(report.stdout, text("libc-threads.expected"));
+  assert.deepEqual(report.unsupportedSyscalls, []);
+});
+
 test("ARM64 glibc programs and the NEON/FP corpus, through wasmtime", { skip }, async () => {
   const input = fixture("files-in.txt");
   for (const name of ["libc-demo", "libc-float", "libc-files", "libc-dirs", "libc-mapio", "libc-links", "neon"]) {

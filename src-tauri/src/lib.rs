@@ -210,7 +210,7 @@ pub mod native_guest {
             let (status, code, pc, fault, detail) = match event {
                 Event::Exit(c) => ("exit", 0, 0, 0, format!("exited with code {c}")),
                 Event::NeedsCode(pc) => ("needs-code", guest::stop::UNMAPPED, pc, 0, String::new()),
-                Event::Stopped { code, pc, fault } => ("stopped", code, pc, fault, guest::stop::name(code).to_string()),
+                Event::Stopped { code, pc, fault } => ("stopped", code, pc, fault, s.shim.halt.clone().unwrap_or_else(|| guest::stop::name(code).to_string())),
                 Event::Yield => ("running", 0, 0, 0, String::new()),
                 Event::Trap(e) => ("trap", -1, 0, 0, e),
             };

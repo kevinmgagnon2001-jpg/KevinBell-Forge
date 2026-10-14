@@ -85,6 +85,12 @@ impl Arch {
     fn ret_reg(self) -> usize {
         0
     }
+    fn sp_reg(self) -> usize {
+        match self {
+            Arch::X86_64 => 4,
+            Arch::Aarch64 => 31,
+        }
+    }
     fn label(self) -> &'static str {
         match self {
             Arch::X86_64 => "x86_64",
@@ -96,23 +102,23 @@ impl Arch {
         let name = match self {
             Arch::X86_64 => match nr {
                 0 => "read", 1 => "write", 2 => "open", 3 => "close", 4 => "stat", 5 => "fstat", 6 => "lstat", 7 => "poll", 8 => "lseek", 9 => "mmap", 10 => "mprotect",
-                11 => "munmap", 12 => "brk", 13 => "rt_sigaction", 14 => "rt_sigprocmask", 16 => "ioctl", 17 => "pread64", 18 => "pwrite64", 20 => "writev",
-                21 => "access", 22 => "pipe", 23 => "select", 26 => "msync", 28 => "madvise", 32 => "dup", 33 => "dup2", 39 => "getpid", 60 => "exit",
+                11 => "munmap", 12 => "brk", 13 => "rt_sigaction", 14 => "rt_sigprocmask", 24 => "sched_yield", 16 => "ioctl", 17 => "pread64", 18 => "pwrite64", 20 => "writev",
+                21 => "access", 22 => "pipe", 23 => "select", 26 => "msync", 28 => "madvise", 32 => "dup", 33 => "dup2", 39 => "getpid", 56 => "clone", 60 => "exit",
                 63 => "uname", 72 => "fcntl", 76 => "truncate", 77 => "ftruncate", 79 => "getcwd", 82 => "rename", 83 => "mkdir", 84 => "rmdir", 86 => "link", 87 => "unlink", 88 => "symlink", 89 => "readlink",
-                102 => "getuid", 104 => "getgid", 107 => "geteuid", 108 => "getegid", 158 => "arch_prctl", 186 => "gettid",
+                102 => "getuid", 104 => "getgid", 107 => "geteuid", 108 => "getegid", 158 => "arch_prctl", 186 => "gettid", 202 => "futex",
                 201 => "time", 217 => "getdents64", 218 => "set_tid_address", 228 => "clock_gettime", 231 => "exit_group",
                 257 => "openat", 258 => "mkdirat", 262 => "newfstatat", 263 => "unlinkat", 264 => "renameat", 265 => "linkat", 266 => "symlinkat", 267 => "readlinkat", 269 => "faccessat", 270 => "pselect6", 271 => "ppoll",
-                273 => "set_robust_list", 292 => "dup3", 293 => "pipe2", 302 => "prlimit64", 316 => "renameat2", 318 => "getrandom", 334 => "rseq",
+                273 => "set_robust_list", 292 => "dup3", 293 => "pipe2", 302 => "prlimit64", 316 => "renameat2", 318 => "getrandom", 334 => "rseq", 435 => "clone3",
                 _ => "",
             },
             Arch::Aarch64 => match nr {
                 17 => "getcwd", 23 => "dup", 24 => "dup3", 25 => "fcntl", 29 => "ioctl", 34 => "mkdirat", 35 => "unlinkat", 36 => "symlinkat", 37 => "linkat", 38 => "renameat", 45 => "truncate", 46 => "ftruncate", 48 => "faccessat",
                 56 => "openat", 57 => "close", 59 => "pipe2", 61 => "getdents64", 62 => "lseek", 63 => "read", 64 => "write", 66 => "writev", 67 => "pread64", 68 => "pwrite64",
-                72 => "pselect6", 73 => "ppoll", 78 => "readlinkat", 79 => "newfstatat", 80 => "fstat", 93 => "exit", 94 => "exit_group", 96 => "set_tid_address",
-                99 => "set_robust_list", 113 => "clock_gettime", 134 => "rt_sigaction", 135 => "rt_sigprocmask", 160 => "uname",
+                72 => "pselect6", 73 => "ppoll", 78 => "readlinkat", 79 => "newfstatat", 80 => "fstat", 93 => "exit", 94 => "exit_group", 96 => "set_tid_address", 98 => "futex",
+                99 => "set_robust_list", 113 => "clock_gettime", 124 => "sched_yield", 134 => "rt_sigaction", 135 => "rt_sigprocmask", 160 => "uname",
                 172 => "getpid", 174 => "getuid", 175 => "geteuid", 176 => "getgid", 177 => "getegid", 178 => "gettid",
-                214 => "brk", 215 => "munmap", 222 => "mmap", 226 => "mprotect", 227 => "msync", 233 => "madvise", 261 => "prlimit64",
-                276 => "renameat2", 278 => "getrandom", 293 => "rseq",
+                214 => "brk", 215 => "munmap", 220 => "clone", 222 => "mmap", 226 => "mprotect", 227 => "msync", 233 => "madvise", 261 => "prlimit64",
+                276 => "renameat2", 278 => "getrandom", 293 => "rseq", 435 => "clone3",
                 _ => "",
             },
         };
@@ -1210,6 +1216,27 @@ struct SharedMap {
 const POLLIN_SET: i32 = files::POLLIN | files::POLLRDNORM | files::POLLHUP | files::POLLERR;
 const POLLOUT_SET: i32 = files::POLLOUT | files::POLLWRNORM | files::POLLERR;
 
+/// A thread of the guest program (see `Thread` in linux.ts): one runs at a time, switching at system
+/// calls; a thread that is not running keeps its pc, flags and registers in `ctx`.
+struct Thread {
+    tid: i64,
+    ctx: Option<Vec<u8>>,
+    wait: Option<u64>,
+    bitset: u32,
+    timed: bool,
+    clear_tid: u64,
+}
+
+const MAX_THREADS: usize = 64;
+const MAIN_TID: i64 = 1000;
+const CTX_PARTS: [(usize, usize); 2] = [(layout::PC, layout::FUEL), (layout::REGS, layout::REGS + layout::NREG * 8)];
+
+enum Switch {
+    Block,
+    Yield,
+    ThreadExit,
+}
+
 pub struct Shim {
     pub arch: Arch,
     pub counts: BTreeMap<String, u32>,
@@ -1220,6 +1247,11 @@ pub struct Shim {
     mmap_top: u64,
     seed: u64,
     shared: Vec<SharedMap>,
+    threads: Vec<Thread>,
+    cur: usize,
+    next_tid: i64,
+    /// Why the program stopped without exiting (every thread waiting forever), if it did.
+    pub halt: Option<String>,
     pub files: files::GuestFiles,
 }
 
@@ -1244,6 +1276,10 @@ impl Shim {
             mmap_top,
             seed,
             shared: Vec::new(),
+            threads: vec![Thread { tid: MAIN_TID, ctx: None, wait: None, bitset: 0, timed: false, clear_tid: 0 }],
+            cur: 0,
+            next_tid: MAIN_TID + 1,
+            halt: None,
             files: files::GuestFiles::new(tree, stdin),
         }
     }
@@ -1537,6 +1573,192 @@ impl Shim {
         ready
     }
 
+    fn save_ctx(mem: &[u8]) -> Vec<u8> {
+        CTX_PARTS.iter().flat_map(|&(a, b)| mem[a..b].iter().copied()).collect()
+    }
+
+    fn load_ctx(mem: &mut [u8], ctx: &[u8]) {
+        let mut at = 0;
+        for (a, b) in CTX_PARTS {
+            mem[a..b].copy_from_slice(&ctx[at..at + b - a]);
+            at += b - a;
+        }
+    }
+
+    /// The value a waiting thread's system call returns when it runs again.
+    fn answer(&mut self, i: usize, v: i64) {
+        let at = layout::FUEL - layout::PC + self.arch.ret_reg() * 8;
+        if let Some(ctx) = self.threads[i].ctx.as_mut() {
+            ctx[at..at + 8].copy_from_slice(&(v as u64).to_le_bytes());
+        }
+    }
+
+    /// Run the next ready thread (round robin); see `schedule` in linux.ts. False when the program stops.
+    fn schedule(&mut self, mem: &mut [u8], why: Switch) -> bool {
+        match why {
+            Switch::ThreadExit => {
+                self.threads.remove(self.cur);
+                self.cur = (self.cur + self.threads.len() - 1) % self.threads.len();
+            }
+            Switch::Yield => {
+                set_reg(mem, self.arch.ret_reg(), 0);
+                self.threads[self.cur].ctx = Some(Self::save_ctx(mem));
+            }
+            Switch::Block => self.threads[self.cur].ctx = Some(Self::save_ctx(mem)),
+        }
+        let n = self.threads.len();
+        let mut next = (1..=n).map(|k| (self.cur + k) % n).find(|&i| self.threads[i].wait.is_none());
+        if next.is_none() {
+            next = self.threads.iter().position(|t| t.timed);
+            match next {
+                None => {
+                    self.halt = Some(format!("every thread is waiting on a futex that nothing will wake ({n} thread{})", if n == 1 { "" } else { "s" }));
+                    return false;
+                }
+                Some(i) => {
+                    self.threads[i].wait = None;
+                    self.threads[i].timed = false;
+                    self.answer(i, -110); // ETIMEDOUT
+                }
+            }
+        }
+        let i = next.unwrap();
+        self.cur = i;
+        let ctx = self.threads[i].ctx.take().unwrap_or_default();
+        Self::load_ctx(mem, &ctx);
+        true
+    }
+
+    /// Wake up to `count` waiters on `addr` whose bitset meets `bitset`, oldest first; move up to
+    /// `move_count` more to `move_to`.
+    fn wake(&mut self, addr: u64, count: u64, bitset: u32, move_to: Option<u64>, move_count: u64) -> i64 {
+        let (mut woken, mut moved) = (0u64, 0u64);
+        for i in 0..self.threads.len() {
+            if self.threads[i].wait != Some(addr) || self.threads[i].bitset & bitset == 0 {
+                continue;
+            }
+            if woken < count {
+                self.threads[i].wait = None;
+                self.threads[i].timed = false;
+                self.answer(i, 0);
+                woken += 1;
+            } else if let Some(to) = move_to.filter(|_| moved < move_count) {
+                self.threads[i].wait = Some(to);
+                moved += 1;
+            }
+        }
+        (woken + moved) as i64
+    }
+
+    fn futex(&mut self, mem: &[u8], a: &[u64]) -> Result<i64, Switch> {
+        let (addr, op, val, timeout, addr2, val3) = (a[0], a[1], a[2], a[3], a[4], a[5]);
+        let cmd = op & 0x7f; // without FUTEX_PRIVATE_FLAG and FUTEX_CLOCK_REALTIME
+        if addr & 3 != 0 {
+            return Ok(EINVAL);
+        }
+        let word = || range(mem, addr, 4).map(|r| u32::from_le_bytes(mem[r].try_into().unwrap()));
+        let v32 = val as u32;
+        match cmd {
+            0 | 9 => {
+                // FUTEX_WAIT, FUTEX_WAIT_BITSET
+                let bitset = if cmd == 9 { val3 as u32 } else { u32::MAX };
+                if bitset == 0 {
+                    return Ok(EINVAL);
+                }
+                match word() {
+                    None => return Ok(EFAULT),
+                    Some(now) if now != v32 => return Ok(-11), // EAGAIN: it changed before we slept
+                    _ => {}
+                }
+                if let Err(e) = Self::timespec(mem, timeout, false) {
+                    return Ok(e);
+                }
+                let me = &mut self.threads[self.cur];
+                me.wait = Some(addr);
+                me.bitset = bitset;
+                me.timed = timeout != 0;
+                Err(Switch::Block)
+            }
+            1 | 10 => {
+                // FUTEX_WAKE, FUTEX_WAKE_BITSET
+                let bitset = if cmd == 10 { val3 as u32 } else { u32::MAX };
+                if bitset == 0 {
+                    return Ok(EINVAL);
+                }
+                Ok(self.wake(addr, if (v32 as i32) < 0 { 0 } else { v32 as u64 }, bitset, None, 0))
+            }
+            3 | 4 => {
+                // FUTEX_REQUEUE, FUTEX_CMP_REQUEUE
+                if addr2 & 3 != 0 {
+                    return Ok(EINVAL);
+                }
+                if cmd == 4 {
+                    match word() {
+                        None => return Ok(EFAULT),
+                        Some(now) if now != val3 as u32 => return Ok(-11),
+                        _ => {}
+                    }
+                }
+                Ok(self.wake(addr, v32 as u64, u32::MAX, Some(addr2), timeout & 0x7fff_ffff))
+            }
+            _ => {
+                self.unsupported.insert(format!("futex op {cmd}"));
+                Ok(ENOSYS)
+            }
+        }
+    }
+
+    /// clone for a new thread (CLONE_VM | CLONE_THREAD). A new process is not provided.
+    fn clone(&mut self, mem: &mut [u8], flags: u64, stack: u64, ptid: u64, ctid: u64, tls: u64) -> i64 {
+        if flags & 0x10100 != 0x10100 {
+            self.unsupported.insert("clone (a new process)".into());
+            return ENOSYS;
+        }
+        if self.threads.len() >= MAX_THREADS {
+            return -11; // EAGAIN
+        }
+        let tid = self.next_tid;
+        let mut put = |addr: u64| match range(mem, addr, 4) {
+            Some(r) => {
+                mem[r].copy_from_slice(&(tid as u32).to_le_bytes());
+                true
+            }
+            None => false,
+        };
+        if flags & 0x100000 != 0 && !put(ptid) {
+            return EFAULT; // CLONE_PARENT_SETTID
+        }
+        if flags & 0x1000000 != 0 && !put(ctid) {
+            return EFAULT; // CLONE_CHILD_SETTID
+        }
+        self.next_tid += 1;
+        // The child starts as a copy of the parent returning 0 from clone, on its own stack and TLS.
+        let parent = Self::save_ctx(mem);
+        set_reg(mem, self.arch.ret_reg(), 0);
+        if stack != 0 {
+            set_reg(mem, self.arch.sp_reg(), stack);
+        }
+        if flags & 0x80000 != 0 {
+            set_reg(mem, layout::TP, tls); // CLONE_SETTLS
+        }
+        let ctx = Self::save_ctx(mem);
+        Self::load_ctx(mem, &parent);
+        let clear_tid = if flags & 0x200000 != 0 { ctid } else { 0 }; // CLONE_CHILD_CLEARTID
+        self.threads.push(Thread { tid, ctx: Some(ctx), wait: None, bitset: 0, timed: false, clear_tid });
+        tid
+    }
+
+    /// A thread ends: its CLONE_CHILD_CLEARTID word becomes 0 and one waiter on it wakes (pthread_join).
+    fn thread_exit(&mut self, mem: &mut [u8]) {
+        let at = self.threads[self.cur].clear_tid;
+        if at != 0 {
+            if let Some(r) = range(mem, at, 4) {
+                mem[r].fill(0);
+                self.wake(at, 1, u32::MAX, None, 0);
+            }
+        }
+    }
+
     fn rename(&mut self, mem: &[u8], olddir: i64, old_at: u64, newdir: i64, new_at: u64, flags: u64) -> i64 {
         let from = match Self::path_arg(mem, old_at) {
             Ok(p) => p,
@@ -1594,9 +1816,32 @@ impl Shim {
                 let got = self.files.read(fd(a[0]), a[2].min(0x7fff_ffff) as usize);
                 Self::give(mem, a[1], got)
             }
+            // One thread ends; the program ends with the last one.
+            "exit" if self.threads.len() > 1 => {
+                self.thread_exit(mem);
+                return self.switch(mem, Switch::ThreadExit);
+            }
             "exit" | "exit_group" => {
                 self.exit_code = Some((a[0] & 0xff) as i32);
                 return Flow::Exit;
+            }
+            "clone" => {
+                if self.arch == Arch::X86_64 {
+                    self.clone(mem, a[0], a[1], a[2], a[3], a[4])
+                } else {
+                    self.clone(mem, a[0], a[1], a[2], a[4], a[3])
+                }
+            }
+            "futex" => match self.futex(mem, &a) {
+                Ok(v) => v,
+                Err(why) => return self.switch(mem, why),
+            },
+            "sched_yield" if self.threads.len() > 1 => return self.switch(mem, Switch::Yield),
+            "sched_yield" => 0,
+            "gettid" => self.threads[self.cur].tid,
+            "set_tid_address" => {
+                self.threads[self.cur].clear_tid = a[0];
+                self.threads[self.cur].tid
             }
             "brk" => {
                 if a[0] == 0 || a[0] < self.brk_base || a[0] > self.mmap_top {
@@ -1784,7 +2029,7 @@ impl Shim {
                 },
             },
             "ioctl" => ENOTTY,
-            "getpid" | "gettid" | "getuid" | "geteuid" | "getgid" | "getegid" | "set_tid_address" => 1000,
+            "getpid" | "getuid" | "geteuid" | "getgid" | "getegid" => MAIN_TID,
             "uname" => {
                 let mut buf = vec![0u8; 65 * 6];
                 for (i, s) in ["Linux", "forge", "6.0.0-forge", "#1 Forge", self.arch.label(), ""].iter().enumerate() {
@@ -1821,7 +2066,8 @@ impl Shim {
                     None => EFAULT,
                 }
             }
-            "prlimit64" | "rseq" => ENOSYS, // known, deliberately not provided: libc falls back
+            // known, deliberately not provided: libc falls back (clone3 to clone)
+            "prlimit64" | "rseq" | "clone3" => ENOSYS,
             other => {
                 self.unsupported.insert(other.to_string());
                 ENOSYS
@@ -1829,6 +2075,15 @@ impl Shim {
         };
         self.load_shared(mem);
         set_reg(mem, self.arch.ret_reg(), ret as u64);
+        Flow::Continue
+    }
+
+    /// Hand the CPU to another thread after a block, yield or exit.
+    fn switch(&mut self, mem: &mut [u8], why: Switch) -> Flow {
+        if !self.schedule(mem, why) {
+            return Flow::Exit;
+        }
+        self.load_shared(mem);
         Flow::Continue
     }
 }
@@ -1871,7 +2126,11 @@ pub fn drive(vm: &mut dyn Vm, shim: &mut Shim, budget: &mut i64, slice: i64, max
         match code {
             stop::SYSCALL => {
                 if let Flow::Exit = shim.handle(vm.mem()) {
-                    return Event::Exit(shim.exit_code.unwrap_or(0));
+                    return match shim.exit_code {
+                        Some(c) => Event::Exit(c),
+                        // every thread waits forever (shim.halt says so)
+                        None => Event::Stopped { code: stop::HALT, pc: pc(vm.mem()), fault: 0 },
+                    };
                 }
             }
             stop::FUEL => {
@@ -2220,5 +2479,39 @@ mod tests {
         assert_eq!(f.stat_path("conf2"), Ok(files::Stat { kind: files::Kind::File, size: 1, nlink: 2 }));
         let keys: Vec<String> = f.snapshot().into_keys().collect();
         assert_eq!(keys, vec!["/a@", "/b@", "/bin/", "/bin/sh@", "/conf2", "/esc@", "/etc/", "/etc/conf"]);
+    }
+
+    #[test]
+    fn threads_clone_join_and_deadlock_on_both_architectures() {
+        for (arch, clone, futex, gettid, exit) in [(Arch::X86_64, 56, 202, 186, 60), (Arch::Aarch64, 220, 98, 178, 93)] {
+            let mut shim = Shim::new(arch, 0x40000, 0x80000, vec![], BTreeMap::new());
+            let mut mem = vec![0u8; MEM];
+            let call = |shim: &mut Shim, mem: &mut Vec<u8>, nr: u64, args: &[u64]| {
+                set_reg(mem, arch.nr_reg(), nr);
+                for (i, v) in args.iter().enumerate() {
+                    set_reg(mem, arch.arg_regs()[i], *v);
+                }
+                let flow = shim.handle(mem);
+                (matches!(flow, Flow::Continue), reg(mem, arch.ret_reg()) as i64)
+            };
+            set_reg(&mut mem, arch.sp_reg(), 0x8000);
+            let flags = 0x100 | 0x10000 | 0x800 | 0x80000 | 0x100000 | 0x200000;
+            let args = if arch == Arch::X86_64 { [flags, 0x9000, 0x5000, 0x5004, 0x7777] } else { [flags, 0x9000, 0x5000, 0x7777, 0x5004] };
+            assert_eq!(call(&mut shim, &mut mem, clone, &args).1, 1001);
+            assert_eq!(&mem[0x5000..0x5004], &1001u32.to_le_bytes(), "CLONE_PARENT_SETTID");
+            mem[0x5004..0x5008].copy_from_slice(&1001u32.to_le_bytes());
+            call(&mut shim, &mut mem, futex, &[0x5004, 0, 1001, 0]); // the parent waits: the child runs
+            assert_eq!(reg(&mem, arch.sp_reg()), 0x9000);
+            assert_eq!(reg(&mem, layout::TP), 0x7777);
+            assert_eq!(call(&mut shim, &mut mem, gettid, &[]).1, 1001);
+            call(&mut shim, &mut mem, exit, &[0]); // the child ends: the parent wakes
+            assert_eq!(&mem[0x5004..0x5008], &[0, 0, 0, 0]);
+            assert_eq!(reg(&mem, arch.sp_reg()), 0x8000);
+            assert_eq!(reg(&mem, arch.ret_reg()), 0, "the parent's futex wait returns 0");
+            mem[0x6000..0x6004].copy_from_slice(&5u32.to_le_bytes());
+            assert_eq!(call(&mut shim, &mut mem, futex, &[0x6000, 128, 4, 0]), (true, -11));
+            assert!(!call(&mut shim, &mut mem, futex, &[0x6000, 128, 5, 0]).0, "waiting forever stops the program");
+            assert!(shim.halt.as_deref().unwrap_or("").contains("every thread is waiting"));
+        }
     }
 }
