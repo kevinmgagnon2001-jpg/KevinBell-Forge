@@ -128,8 +128,12 @@ export function portalAt(world: World, position: Vec3, reach = 1.1): { id: numbe
 
 // ---------- host side: sessions and live sync ----------
 
-/** Where a visitor stands and looks. `yaw` is only read once: where the host starts walking them from. */
-export type View = { position: Vec3; forward: Vec3; fovDeg?: number; range?: number; tier?: Tier; budget?: number; yaw?: number };
+/**
+ * Where a visitor stands and looks. With inputs, `walk` numbers the visitor's walk on this island: a new
+ * number (they stepped off and back on) makes the host start walking them again from `position` and
+ * `yaw`.
+ */
+export type View = { position: Vec3; forward: Vec3; fovDeg?: number; range?: number; tier?: Tier; budget?: number; yaw?: number; walk?: number };
 export type SyncReply = {
   tick: number;
   enter: Entity[];
@@ -162,7 +166,7 @@ export function validInputs(value: unknown): value is MoveInput[] {
   );
 }
 
-type Session = { visitorId: string; grant: Capability[]; expires: number; known: Known; view: View | null; mover: HostMover | null };
+type Session = { visitorId: string; grant: Capability[]; expires: number; known: Known; view: View | null; mover: HostMover | null; walk: number | undefined };
 
 function randomToken(): string {
   const raw = globalThis.crypto.getRandomValues(new Uint8Array(18));
@@ -200,7 +204,7 @@ export class IslandHost {
   open(visitorId: string, grant: Capability[], now = Date.now()): string {
     for (const [token, s] of this.sessions) if (s.expires < now) this.close(token);
     const token = randomToken();
-    this.sessions.set(token, { visitorId, grant, expires: now + this.ttlMs, known: new Map(), view: null, mover: null });
+    this.sessions.set(token, { visitorId, grant, expires: now + this.ttlMs, known: new Map(), view: null, mover: null, walk: undefined });
     return token;
   }
 
@@ -271,7 +275,10 @@ export class IslandHost {
     if (inputs !== undefined) {
       if (!s.grant.includes("input")) return { error: "input was not granted", status: 403 };
       if (!validInputs(inputs)) return { error: "inputs are malformed", status: 400 };
-      s.mover ??= new HostMover({ position: view.position, yaw: Number.isFinite(view.yaw) ? (view.yaw as number) : 0 });
+      if (!s.mover || view.walk !== s.walk) {
+        s.mover = new HostMover({ position: view.position, yaw: Number.isFinite(view.yaw) ? (view.yaw as number) : 0 });
+        s.walk = view.walk;
+      }
       you = s.mover.apply(inputs, blockersOf(this.world));
       view = { ...view, position: you.state.position };
     }

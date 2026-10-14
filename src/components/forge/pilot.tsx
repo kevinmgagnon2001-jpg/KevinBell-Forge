@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
+import { liveVisits } from "@/engine/live-visit";
 import { useForge } from "@/engine/store";
 import { ensureAvatar, restoreLab } from "@/engine/manifold";
 import { pilotKeys, pointerClaim, setPilotSpeed, useLook, lookPose, faceLook } from "./look";
@@ -182,8 +183,19 @@ export function Pilot() {
       const vz = face.z * gas + right.z * strafe;
       const moving = Math.hypot(vx, vz);
       setPilotSpeed(moving * SPEED);
-      const x = p.x + vx * SPEED * dt;
-      const z = p.z + vz * SPEED * dt;
+      let x = p.x + vx * SPEED * dt;
+      let z = p.z + vz * SPEED * dt;
+      // On a visited island its host decides where you are: walk with prediction (prediction.ts), so it
+      // still moves on this frame, and let the host correct it.
+      const visit = [...liveVisits].find((v) => v.contains(p));
+      for (const v of liveVisits) if (v !== visit && v.predictor) v.leave();
+      if (visit) {
+        const walker = visit.predictor ?? visit.walk({ position: p, yaw: yaw - (mode === "third" ? turn * TURN * dt : 0) });
+        walker.input(gas, strafe, yaw - walker.predicted.yaw, dt);
+        const shown = visit.toLocal(walker.shown().position);
+        x = shown.x;
+        z = shown.z;
+      }
       const y = Math.max(MIN_Y, p.y + lift * SPEED * dt);
       pose.x = x;
       pose.y = y;

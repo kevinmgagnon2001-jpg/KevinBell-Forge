@@ -65,6 +65,9 @@ export function removeVisited(world: World, hostId: string): World {
  * What a round brought, as a change to apply to the world as it is when the answer lands (the local
  * world keeps moving while the request is out).
  */
+/** Every visited island the app is keeping live, so the pilot can tell which one the architect stands on. */
+export const liveVisits = new Set<LiveVisit>();
+
 export type RoundResult = { status: "live"; apply: (world: World) => World; bytes: number } | { status: "gone"; apply: (world: World) => World; reason: string };
 
 export class LiveVisit {
@@ -78,6 +81,10 @@ export class LiveVisit {
   predictor: Predictor | null = null;
   /** Where the walk started (host coordinates), sent until the host has answered with a position. */
   private start: MoveState | null = null;
+  /** Numbers each walk on this island, so the host restarts its mover when a new one begins. */
+  private walks = 0;
+  /** The island's footprint in local coordinates (x and z), from its entities; null until known. */
+  bounds: { min: Vec3; max: Vec3 } | null = null;
 
   constructor(hostId: string, offset: Vec3, sync: SyncFn, maxFailures = 5) {
     this.hostId = hostId;
@@ -90,7 +97,35 @@ export class LiveVisit {
   walk(at: MoveState): Predictor {
     this.start = { position: this.toHost(at.position), yaw: at.yaw };
     this.predictor = new Predictor(this.start);
+    this.walks += 1;
     return this.predictor;
+  }
+
+  /** Stop predicting (the visitor stepped off the island). */
+  leave() {
+    this.predictor = null;
+    this.start = null;
+  }
+
+  /** Recompute the footprint from the island's entities in `world`, with a margin around them. */
+  measure(world: World, margin = 1.5) {
+    let [x0, z0, x1, z1] = [Infinity, Infinity, -Infinity, -Infinity];
+    for (const e of Object.values(world.entities)) {
+      if (e.customData.island !== this.hostId || e.tags.includes("presence")) continue;
+      const p = e.transform.position;
+      const k = e.transform.scale;
+      x0 = Math.min(x0, p.x - k.x / 2);
+      z0 = Math.min(z0, p.z - k.z / 2);
+      x1 = Math.max(x1, p.x + k.x / 2);
+      z1 = Math.max(z1, p.z + k.z / 2);
+    }
+    this.bounds = x0 <= x1 ? { min: { x: x0 - margin, y: 0, z: z0 - margin }, max: { x: x1 + margin, y: 0, z: z1 + margin } } : null;
+  }
+
+  /** Is this local point on the island? */
+  contains(p: Vec3): boolean {
+    const b = this.bounds;
+    return !!b && p.x >= b.min.x && p.x <= b.max.x && p.z >= b.min.z && p.z <= b.max.z;
   }
 
   toHost(p: Vec3): Vec3 {
@@ -108,7 +143,9 @@ export class LiveVisit {
    */
   async round(view: View): Promise<RoundResult> {
     // Until the host has walked us once, tell it where the walk started rather than where we are now.
-    const hostView: View = this.start ? { ...view, position: this.start.position, yaw: this.start.yaw } : { ...view, position: this.toHost(view.position) };
+    const hostView: View = this.start
+      ? { ...view, position: this.start.position, yaw: this.start.yaw, walk: this.walks }
+      : { ...view, position: this.toHost(view.position), ...(this.predictor ? { walk: this.walks } : {}) };
     const reply = await this.sync(hostView, this.predictor ? this.predictor.unacked() : undefined);
     if ("error" in reply) {
       this.failures += 1;

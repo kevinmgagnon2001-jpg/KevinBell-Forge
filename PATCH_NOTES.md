@@ -389,8 +389,7 @@ Tests: `npm run test:engine` (137 pass; src/engine/prediction.test.ts).
   on one host each stay under their byte budget.
 
 ## Still not done
-- The pilot does not drive Predictor yet: while visiting, the app reports where the architect stands
-  (the host trusts it) instead of sending inputs. LiveVisit.walk() is ready for it.
+- Done below (pilot on visited islands).
 
 ## Adjacency, live (work item 9)
 Tests: `npm run test:engine` (139 pass; src/engine/live-visit.test.ts), plus a browser run (below).
@@ -410,3 +409,12 @@ Tests: `npm run test:engine` (139 pass; src/engine/live-visit.test.ts), plus a b
 - Checked in Chromium against a real island node: type the address, walk into the portal, "Inside Plaza"
   (28 bodies), about 4 syncs a second, stop the node, "Plaza left: the host stopped answering" (15 bodies).
 - Two machines on one network are still to try (work item 4).
+
+## Walking on a visited island (work items 9 and 13 together)
+- While the architect stands inside a visited island's footprint (from its entities, with a margin), the
+  pilot sends its keys to that island's Predictor and draws the avatar where the prediction says: it moves
+  on the same frame, and the host, which walks the visitor from the same inputs, has the last word.
+  Stepping off returns to plain local walking; stepping back on starts a new numbered walk, and the host
+  restarts from there.
+- Checked in Chromium against a real island node: walking onto the island switches the sync requests to
+  carrying inputs (seq, forward, strafe, turn, dt) with the walk number; walking off switches back.

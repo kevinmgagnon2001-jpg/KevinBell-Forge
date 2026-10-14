@@ -115,3 +115,26 @@ test("merging: enter, update and leave map host ids to stable local ids", () => 
   assert.equal(w.entities[id], undefined);
   assert.deepEqual(Object.keys(removeVisited(placeVisited(base, { forge: "island-world", version: 1, entities: [e] }, "h", OFFSET), "h").entities), Object.keys(base.entities));
 });
+
+test("stepping off a visited island and back on starts a new walk the host follows", async () => {
+  const { IslandHost } = await import("./island-content.ts");
+  const host = new IslandHost(labWorld());
+  const token = host.open("ana", ["render", "input"]);
+  const link = new LiveVisit("h", OFFSET, async (view, inputs) => {
+    const r = host.sync(token, view, inputs);
+    return "error" in r ? { error: r.error } : r;
+  });
+  let world = placeVisited(labWorld(), { forge: "island-world", version: 1, entities: Object.values(labWorld().entities) }, "h", OFFSET);
+  link.measure(world);
+  assert.ok(link.contains({ x: 40, y: 0, z: 0 }) && !link.contains({ x: 0, y: 0, z: 0 }), "the island sits around x = 40");
+  const view: View = { position: { x: 40, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 } };
+  for (const startX of [40, 43]) {
+    const walker = link.walk({ position: { x: startX, y: 0, z: 0 }, yaw: 0 });
+    for (let round = 0; round < 4; round += 1) {
+      walker.input(1, 0, 0.1, 1 / 30);
+      world = (await link.round(view)).apply(world);
+    }
+    assert.ok(walker.maxCorrection < 1e-9, `walk from x = ${startX}: the host followed it`);
+    link.leave();
+  }
+});

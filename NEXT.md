@@ -25,8 +25,8 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
 2. N7 leftovers: processes (fork/vfork, exec, wait4), signals (tgkill). Threads (with preemption at fuel-slice
    ends) and links are done.
    A private mapping does not yet see later writes to pages it has not touched (Linux shares them until the first store).
-3. Work item 9 is live (live-visit.ts, Bridge.tsx). Next: have the pilot drive LiveVisit.walk()'s Predictor
-   while on a visited island, so the host is authoritative over visitor movement (item 13 on screen).
+3. Work items 9 and 13 run on one machine (live-visit.ts, prediction.ts, pilot.tsx). Next: try them across two
+   machines with real latency (item 4), and show other visitors through prediction.ts's Interpolator.
 4. Portal test between two real machines (item 4): needs the owner's devices on one network.
 5. N8 (packed SSE float, AVX) and ARM ld2/ld3/ld4 when a real program needs them.
 

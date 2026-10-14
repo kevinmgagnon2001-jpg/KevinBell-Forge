@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ingest } from "@/engine/ingest";
 import { placeVisited, portalAt } from "@/engine/island-content";
-import { LiveVisit } from "@/engine/live-visit";
+import { LiveVisit, liveVisits } from "@/engine/live-visit";
 import { enterIsland, syncIsland } from "@/engine/portal-client";
 import { useForge } from "@/engine/store";
 import { visitorIdentity } from "@/engine/visitor";
@@ -117,20 +117,30 @@ const VISIT_ROUND_MS = 150;
  * looks, folds in the host's changes and other visitors, and takes the island away when the host stops.
  */
 function keepLive(link: LiveVisit, name: string, alive: { current: boolean }) {
+  liveVisits.add(link);
+  link.measure(useForge.getState());
   const round = async () => {
-    if (!alive.current) return;
+    if (!alive.current) {
+      liveVisits.delete(link);
+      return;
+    }
     const avatar = Object.values(useForge.getState().entities).find((e) => e.tags.includes("architect"));
     if (avatar) {
       const yaw = Number(avatar.customData.yaw) || 0;
       const p = avatar.transform.position;
       const result = await link.round({ position: { x: p.x, y: p.y + 1.6, z: p.z }, forward: { x: Math.sin(yaw), y: 0, z: Math.cos(yaw) }, budget: 200_000 });
-      if (!alive.current) return;
+      if (!alive.current) {
+        liveVisits.delete(link);
+        return;
+      }
       const now = useForge.getState();
       if (result.status === "gone") {
+        liveVisits.delete(link);
         now.adopt(result.apply(now), [{ tone: "warn", title: "Portal", body: `${name} left: ${result.reason}. Its half of the world is gone.` }]);
         return;
       }
       now.adopt(result.apply(now), []);
+      link.measure(useForge.getState());
     }
     window.setTimeout(round, VISIT_ROUND_MS);
   };
