@@ -288,3 +288,42 @@ model store tests (2 Rust, 1 mock-IPC, 1 page side).
 - ARM64: SVE, LSE atomics, MTE and ld2/ld3/ld4 are gaps; half-precision floating point too.
 - Files: mmap of files, rename, symbolic links, poll/select, threads and processes.
 
+## Mapped files, renames and readiness for guests (N7, third part)
+Tests: `npm run test:engine` (127 pass), `rustc --edition 2021 --test src-tauri/src/guest.rs` (9 pass),
+`npm run test:native` (7 pass).
+
+- File-backed mmap. MAP_PRIVATE gives the program its own copy. With MAP_SHARED, stores reach the file and
+  writes to the file show up in the mapping. Guest memory is one flat array, so the shim imitates the page
+  cache. At every system call, bytes the program changed in a shared view go to the file (only inside the
+  file, as on Linux), and every shared view then reloads the file as it stands. A file cut under a mapping
+  reads as zeros past its new end. munmap splits mappings. msync checks its arguments; the stores have
+  already landed by then. MAP_FIXED is honoured, for anonymous memory too. Errors come in Linux's order:
+  EINVAL for the offset, EBADF, EINVAL for the length and the type, then EACCES, then ENODEV for
+  directories, pipes and the standard streams.
+- ftruncate and truncate. pread64 and pwrite64 leave the offset alone; pwrite on an O_APPEND file still
+  appends, as on Linux.
+- rename, renameat and renameat2 (RENAME_NOREPLACE, RENAME_EXCHANGE). They move files and whole
+  directories, replace files and empty directories, and refuse a directory moved into itself (EINVAL),
+  "." and ".." (EBUSY), a directory over a file (ENOTDIR) and a file over a directory (EISDIR). A
+  directory descriptor follows its directory when it is renamed. One open on a directory that was
+  replaced or removed finds nothing and can create nothing (ENOENT); rmdir now behaves the same way.
+- poll, ppoll, select and pselect6 report readiness as Linux does. Files, directories and the standard
+  streams are always ready. A pipe's read end gives POLLIN when it holds data and POLLHUP when no writer is
+  left; its write end gives POLLOUT when there is room and POLLERR when no reader is left. A closed
+  descriptor gives POLLNVAL in poll and EBADF in select. Timeouts are range-checked. A program has one
+  thread and the clock is fixed, so nothing becomes ready by waiting: the answer is the readiness now,
+  whatever the timeout.
+- Same rules in TypeScript (files.ts, linux.ts) and Rust (guest.rs).
+- Fixtures checked against the real CPU, tree left behind included: fixtures/linux/mapio.c (raw system
+  calls, x86-64 and AArch64) and libc-mapio.c (glibc: an mmap word count, a record table edited through a
+  shared mapping, pread/pwrite, an atomic save by rename, renameat2, poll and select on a pipe).
+  build-arm.sh and the arm-oracle workflow now also build libc-mapio on ARM64.
+
+## Still not done
+- libc-mapio has no ARM64 recording in fixtures/linux/ yet. The arm-oracle run on this push records one;
+  download its artifact and commit libc-mapio.arm.* to add it to the ARM64 tests.
+- A private mapping does not see later writes to pages it has not touched yet (Linux shares them until
+  the first store). Two shared views of one file agree at every system call, not between two stores with
+  no call in between.
+- A shared mapping costs a compare of its whole length at every system call.
+- Symbolic links, threads and processes.
