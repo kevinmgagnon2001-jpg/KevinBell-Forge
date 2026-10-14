@@ -26,6 +26,8 @@ Android only lets a new version replace an installed one when both were signed w
 
 Without them the build still works. Each APK is then signed with a one-off key, so a new version needs the old one uninstalled first, and its data goes with it.
 
+If a secret is wrong, the build stops at "Sign the APK" and says which one. Each build prints its signing certificate's SHA-256 fingerprint on the run page and in the Release notes; it is public, and matching it against `keytool -list -v -keystore forge-release.jks` confirms your key was used.
+
 Never commit the keystore or its password. `.gitignore` already excludes `*.jks`, `*.keystore` and `forge-android-signing*`.
 
 To make a key yourself (any machine with Java):
