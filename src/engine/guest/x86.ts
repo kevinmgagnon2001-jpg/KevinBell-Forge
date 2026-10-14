@@ -7,7 +7,7 @@
  * Anything else (SSE, x87, segment overrides, string ops, adc/sbb, rotates by flag...) is a gap.
  * Encodings follow the Intel SDM, Volume 2.
  */
-import { imm, reg, shuffleId, SINK, T0, T1, T2, T3, TP, u64, XMM, type Cond, type Ea, type Gap, type Insn, type Op, type Src, type VecOp, type W } from "./ir.ts";
+import { FCW, FSW, FTAG, imm, reg, shuffleId, SINK, STE, STM, T0, T1, T2, T3, TP, u64, XMM, type Cond, type Ea, type Gap, type Insn, type Op, type Src, type VecOp, type W } from "./ir.ts";
 
 export type Fetch = (addr: bigint) => number | undefined;
 export type Decoded = { insn: Insn; targets: bigint[] } | { gap: Gap };
@@ -282,6 +282,321 @@ export function decodeX86(fetch: Fetch, pc: bigint): Decoded {
     }
     if (op >= 0x50 && op <= 0x57) { text = "push"; push(reg((op & 7) | rexB)); return finish(); }
     if (op >= 0x58 && op <= 0x5f) { text = "pop"; pop((op & 7) | rexB); return finish(); }
+    // ---------- x87 floating point (80-bit, f80/f80.c) ----------
+    if (op >= 0xd8 && op <= 0xdf) {
+      const m = modrm();
+      const r = m.reg & 7;
+      const sti = m.rm & 7;
+      const mov = (d: number, a: Src) => ops.push({ k: "mov", d, s: a, w: 64 });
+      const alu = (o: "and" | "or" | "xor" | "shl" | "shr" | "add" | "mul", d: number, a: Src, b: Src) => ops.push({ k: "alu", op: o, d, a, b, w: 64, f: "none" });
+      const call = (fn: string, args: Src[], outs: number[]) => ops.push({ k: "f80call", fn, args, outs });
+      const setTop = (delta: 1 | 7) => {
+        alu("shr", T3, reg(FSW), imm(11));
+        alu("add", T3, reg(T3), imm(delta));
+        alu("and", T3, reg(T3), imm(7));
+        alu("shl", T3, reg(T3), imm(11));
+        alu("and", FSW, reg(FSW), imm(~0x3800n & 0xffffffffffffffffn));
+        alu("or", FSW, reg(FSW), reg(T3));
+      };
+      /** Push (m, e) onto the stack: everything moves down one, the new value is ST(0). */
+      const push = (vm: Src, ve: Src) => {
+        for (let i = 7; i > 0; i -= 1) {
+          mov(STM(i), reg(STM(i - 1)));
+          mov(STE(i), reg(STE(i - 1)));
+        }
+        mov(STM(0), vm);
+        mov(STE(0), ve);
+        setTop(7);
+        alu("shl", FTAG, reg(FTAG), imm(1));
+        alu("or", FTAG, reg(FTAG), imm(1));
+        alu("and", FTAG, reg(FTAG), imm(0xff));
+      };
+      const pop = () => {
+        for (let i = 0; i < 7; i += 1) {
+          mov(STM(i), reg(STM(i + 1)));
+          mov(STE(i), reg(STE(i + 1)));
+        }
+        mov(STM(7), imm(0));
+        mov(STE(7), imm(0));
+        setTop(1);
+        alu("shr", FTAG, reg(FTAG), imm(1));
+      };
+      /** The operand's address plus k (kept in eas, so RIP-relative addresses are fixed up too). */
+      const eaAt = (ea: Ea, k: number): Ea => {
+        const copy: Ea = { ...ea, disp: u64(ea.disp + BigInt(k)) };
+        eas.push(copy);
+        return copy;
+      };
+      const at8 = (ea: Ea) => eaAt(ea, 8);
+      /** A memory operand as an 80-bit value in (T0, T1). */
+      const loadValue = (kind: "f32" | "f64" | "f80" | "i16" | "i32" | "i64") => {
+        const ea = m.ea!;
+        if (kind === "f80") {
+          ops.push({ k: "load", d: T0, ea, size: 8, signed: false, w: 64 });
+          ops.push({ k: "load", d: T1, ea: at8(ea), size: 2, signed: false, w: 64 });
+          return;
+        }
+        const size = kind === "f32" || kind === "i32" ? 4 : kind === "i16" ? 2 : 8;
+        ops.push({ k: "load", d: T0, ea, size, signed: kind[0] === "i", w: 64 });
+        call(kind === "f32" ? "f80_from_f32" : kind === "f64" ? "f80_from_f64" : "f80_from_i64", [reg(T0)], [T0, T1]);
+      };
+      const ST = (i: number): [Src, Src] => [reg(STM(i)), reg(STE(i))];
+      /** d = a op b, for add sub mul div (sub and div as written: a - b, a / b). */
+      const arith = (fn: "add" | "sub" | "mul" | "div", d: number, a: [Src, Src], b: [Src, Src]) =>
+        call(`f80_${fn}`, [a[0], a[1], b[0], b[1], reg(FCW)], [STM(d), STE(d)]);
+      /** compare a with b: into C3 C2 C0 of the status word, or into ZF PF CF (fcomi). */
+      const compare = (a: [Src, Src], b: [Src, Src], toFlags: boolean) => {
+        call("f80_cmp", [a[0], a[1], b[0], b[1]], [T2]);
+        if (toFlags) {
+          alu("shl", T2, reg(T2), imm(3));
+          ops.push({ k: "alu", op: "shr", d: T2, a: imm(0x45004001), b: reg(T2), w: 64, f: "none" }); // CF, ZF, none, ZF PF CF
+          alu("and", T2, reg(T2), imm(0xff));
+          ops.push({ k: "setflags", s: reg(T2) });
+        } else {
+          alu("shl", T2, reg(T2), imm(4));
+          ops.push({ k: "alu", op: "shr", d: T2, a: imm(0x4500000040000100n), b: reg(T2), w: 64, f: "none" });
+          alu("and", T2, reg(T2), imm(0xffff));
+          alu("and", FSW, reg(FSW), imm(~0x4700n & 0xffffffffffffffffn));
+          alu("or", FSW, reg(FSW), reg(T2));
+        }
+      };
+      const tmp: [Src, Src] = [reg(T0), reg(T1)];
+      const ARITH = ["add", "mul", "cmp", "cmpp", "sub", "subr", "div", "divr"] as const;
+      /** ST(0) = ST(0) op operand, for the eight D8-style operations. */
+      const withSt0 = (o: (typeof ARITH)[number], b: [Src, Src]) => {
+        if (o === "cmp" || o === "cmpp") {
+          compare(ST(0), b, false);
+          if (o === "cmpp") pop();
+        } else if (o === "subr" || o === "divr") arith(o === "subr" ? "sub" : "div", 0, b, ST(0));
+        else arith(o, 0, ST(0), b);
+      };
+      if (m.ea) {
+        const ea = m.ea;
+        const MEMARITH: Record<number, "f32" | "i32" | "f64" | "i16"> = { 0xd8: "f32", 0xda: "i32", 0xdc: "f64", 0xde: "i16" };
+        if (MEMARITH[op]) {
+          loadValue(MEMARITH[op]);
+          withSt0(ARITH[r], tmp);
+          text = `f${ARITH[r]}`;
+          return finish();
+        }
+        const store = (kind: "f32" | "f64" | "f80" | "i16" | "i32" | "i64", trunc = false) => {
+          if (kind === "f80") {
+            ops.push({ k: "store", s: reg(STM(0)), ea, size: 8 });
+            ops.push({ k: "store", s: reg(STE(0)), ea: at8(ea), size: 2 });
+            return;
+          }
+          if (kind === "f32" || kind === "f64") call(kind === "f32" ? "f80_to_f32" : "f80_to_f64", [...ST(0), reg(FCW)], [T0]);
+          else call("f80_to_int", [...ST(0), reg(FCW), imm(kind === "i16" ? 16 : kind === "i32" ? 32 : 64), imm(trunc ? 1 : 0)], [T0]);
+          ops.push({ k: "store", s: reg(T0), ea, size: kind === "f32" || kind === "i32" ? 4 : kind === "i16" ? 2 : 8 });
+        };
+        const load = (kind: "f32" | "f64" | "f80" | "i16" | "i32" | "i64") => {
+          loadValue(kind);
+          push(reg(T0), reg(T1));
+        };
+        const key = `${op.toString(16)}/${r}`;
+        switch (key) {
+          case "d9/0": load("f32"); text = "fld"; return finish();
+          case "d9/2": store("f32"); text = "fst"; return finish();
+          case "d9/3": store("f32"); pop(); text = "fstp"; return finish();
+          case "d9/5": ops.push({ k: "load", d: FCW, ea, size: 2, signed: false, w: 64 }); text = "fldcw"; return finish();
+          case "d9/7": ops.push({ k: "store", s: reg(FCW), ea, size: 2 }); text = "fnstcw"; return finish();
+          case "d9/6": {
+            // fnstenv: control, status and tag words; the tag word says "all empty" or "all valid"
+            ops.push({ k: "store", s: reg(FCW), ea, size: 8 });
+            ops.push({ k: "store", s: reg(FSW), ea: eaAt(ea, 4), size: 4 });
+            // 0xffff when nothing is on the stack, else 0 (computed without touching the flags)
+            alu("add", T0, reg(FTAG), imm(0xff));
+            alu("shr", T0, reg(T0), imm(8));
+            alu("xor", T0, reg(T0), imm(1));
+            alu("mul", T0, reg(T0), imm(0xffff));
+            ops.push({ k: "store", s: reg(T0), ea: eaAt(ea, 8), size: 8 });
+            ops.push({ k: "store", s: imm(0), ea: eaAt(ea, 16), size: 8 });
+            ops.push({ k: "store", s: imm(0), ea: eaAt(ea, 20), size: 8 });
+            text = "fnstenv";
+            return finish();
+          }
+          case "d9/4": {
+            // fldenv: control word and status bits (the stack top stays where it is)
+            ops.push({ k: "load", d: FCW, ea, size: 2, signed: false, w: 64 });
+            ops.push({ k: "load", d: T0, ea: eaAt(ea, 4), size: 2, signed: false, w: 64 });
+            alu("and", T0, reg(T0), imm(~0x3800n & 0xffffffffffffffffn));
+            alu("and", FSW, reg(FSW), imm(0x3800));
+            alu("or", FSW, reg(FSW), reg(T0));
+            text = "fldenv";
+            return finish();
+          }
+          case "db/0": load("i32"); text = "fild"; return finish();
+          case "db/1": store("i32", true); pop(); text = "fisttp"; return finish();
+          case "db/2": store("i32"); text = "fist"; return finish();
+          case "db/3": store("i32"); pop(); text = "fistp"; return finish();
+          case "db/5": load("f80"); text = "fld"; return finish();
+          case "db/7": store("f80"); pop(); text = "fstp"; return finish();
+          case "dd/0": load("f64"); text = "fld"; return finish();
+          case "dd/1": store("i64", true); pop(); text = "fisttp"; return finish();
+          case "dd/2": store("f64"); text = "fst"; return finish();
+          case "dd/3": store("f64"); pop(); text = "fstp"; return finish();
+          case "dd/7": ops.push({ k: "store", s: reg(FSW), ea, size: 2 }); text = "fnstsw"; return finish();
+          case "df/0": load("i16"); text = "fild"; return finish();
+          case "df/1": store("i16", true); pop(); text = "fisttp"; return finish();
+          case "df/2": store("i16"); text = "fist"; return finish();
+          case "df/3": store("i16"); pop(); text = "fistp"; return finish();
+          case "df/5": load("i64"); text = "fild"; return finish();
+          case "df/7": store("i64"); pop(); text = "fistp"; return finish();
+        }
+        throw new Gapped(`x87 ${key} with memory is not in the map`);
+      }
+      const b = 0xc0 | (r << 3) | sti; // the second byte, as the manual lists it
+      const lo = b & 0xf8;
+      if (op === 0xd8) {
+        withSt0(ARITH[r], ST(sti));
+        text = `f${ARITH[r]}`;
+        return finish();
+      }
+      if (op === 0xdc || op === 0xde) {
+        // ST(i) = ST(i) op ST(0); the de forms pop
+        if (r === 2 || r === 3) {
+          if (op === 0xde && !(r === 3 && sti === 1)) throw new Gapped("x87 de compare form is not in the map");
+          compare(ST(0), ST(sti), false);
+          if (op === 0xde) { pop(); pop(); } else if (r === 3) pop();
+          text = op === 0xde ? "fcompp" : "fcom";
+          return finish();
+        }
+        const o = (["add", "mul", "", "", "subr", "sub", "divr", "div"] as const)[r];
+        if (o === "subr" || o === "divr") arith(o === "subr" ? "sub" : "div", sti, ST(0), ST(sti));
+        else arith(o as "add" | "mul" | "sub" | "div", sti, ST(sti), ST(0));
+        if (op === 0xde) pop();
+        text = `f${o}${op === 0xde ? "p" : ""}`;
+        return finish();
+      }
+      if (op === 0xd9) {
+        if (lo === 0xc0) { mov(T0, reg(STM(sti))); mov(T1, reg(STE(sti))); push(reg(T0), reg(T1)); text = "fld"; return finish(); }
+        if (lo === 0xc8) {
+          mov(T0, reg(STM(0))); mov(T1, reg(STE(0)));
+          mov(STM(0), reg(STM(sti))); mov(STE(0), reg(STE(sti)));
+          mov(STM(sti), reg(T0)); mov(STE(sti), reg(T1));
+          text = "fxch";
+          return finish();
+        }
+        const CONST: Record<number, [bigint, number]> = {
+          0xe8: [1n << 63n, 0x3fff], 0xe9: [0xd49a784bcd1b8afen, 0x4000], 0xea: [0xb8aa3b295c17f0bcn, 0x3fff], 0xeb: [0xc90fdaa22168c235n, 0x4000],
+          0xec: [0x9a209a84fbcff799n, 0x3ffd], 0xed: [0xb17217f7d1cf79acn, 0x3ffe], 0xee: [0n, 0],
+        };
+        if (CONST[b]) { push(imm(CONST[b][0]), imm(CONST[b][1])); text = "fldconst"; return finish(); }
+        switch (b) {
+          case 0xd0: text = "fnop"; return finish();
+          case 0xe0: alu("xor", STE(0), reg(STE(0)), imm(0x8000)); text = "fchs"; return finish();
+          case 0xe1: alu("and", STE(0), reg(STE(0)), imm(0x7fff)); text = "fabs"; return finish();
+          case 0xe4: compare(ST(0), [imm(0), imm(0)], false); text = "ftst"; return finish();
+          case 0xe5: {
+            // fxam: class into C3 C2 C0, sign into C1; an empty ST(0) is class 5
+            call("f80_class", ST(0), [T0]);
+            alu("and", T1, reg(FTAG), imm(1));
+            alu("mul", T0, reg(T0), reg(T1));
+            alu("xor", T1, reg(T1), imm(1));
+            alu("mul", T1, reg(T1), imm(5));
+            alu("or", T0, reg(T0), reg(T1));
+            alu("and", FSW, reg(FSW), imm(~0x4700n & 0xffffffffffffffffn));
+            for (const [bit, at] of [[4, 14], [2, 10], [1, 8]] as const) {
+              alu("and", T1, reg(T0), imm(bit));
+              alu("shl", T1, reg(T1), imm(at - Math.log2(bit)));
+              alu("or", FSW, reg(FSW), reg(T1));
+            }
+            alu("shr", T1, reg(STE(0)), imm(15));
+            alu("and", T1, reg(T1), imm(1));
+            alu("shl", T1, reg(T1), imm(9));
+            alu("or", FSW, reg(FSW), reg(T1));
+            text = "fxam";
+            return finish();
+          }
+          case 0xf5:
+          case 0xf8: {
+            // fprem1 / fprem: the whole reduction at once (C2 = 0); quotient bits into C0 C3 C1
+            call(b === 0xf8 ? "f80_prem" : "f80_prem1", [...ST(0), ...ST(1)], [STM(0), STE(0), T0]);
+            alu("and", FSW, reg(FSW), imm(~0x4700n & 0xffffffffffffffffn));
+            for (const [bit, at] of [[4, 8], [2, 14], [1, 9]] as const) {
+              alu("and", T1, reg(T0), imm(bit));
+              alu("shl", T1, reg(T1), imm(at - Math.log2(bit)));
+              alu("or", FSW, reg(FSW), reg(T1));
+            }
+            text = b === 0xf8 ? "fprem" : "fprem1";
+            return finish();
+          }
+          case 0xfa: call("f80_sqrt", [...ST(0), reg(FCW)], [STM(0), STE(0)]); text = "fsqrt"; return finish();
+          case 0xfc: call("f80_round", [...ST(0), reg(FCW)], [STM(0), STE(0)]); text = "frndint"; return finish();
+          case 0xfd: call("f80_scale", [...ST(0), ...ST(1), reg(FCW)], [STM(0), STE(0)]); text = "fscale"; return finish();
+        }
+        throw new Gapped(`x87 d9 ${b.toString(16)} is not in the map`);
+      }
+      if (op === 0xda || op === 0xdb) {
+        const FCMOV: Record<number, Cond> = { 0xc0: "b", 0xc8: "eq", 0xd0: "be", 0xd8: "p" };
+        const NFCMOV: Record<number, Cond> = { 0xc0: "ae", 0xc8: "ne", 0xd0: "a", 0xd8: "np" };
+        const c = (op === 0xda ? FCMOV : NFCMOV)[lo];
+        if (c) {
+          ops.push({ k: "csel", d: STM(0), c, a: reg(STM(sti)), b: reg(STM(0)), w: 64 });
+          ops.push({ k: "csel", d: STE(0), c, a: reg(STE(sti)), b: reg(STE(0)), w: 64 });
+          text = "fcmov";
+          return finish();
+        }
+        if (op === 0xda && b === 0xe9) { compare(ST(0), ST(1), false); pop(); pop(); text = "fucompp"; return finish(); }
+        if (op === 0xdb && (lo === 0xe8 || lo === 0xf0)) { compare(ST(0), ST(sti), true); text = "fcomi"; return finish(); }
+        if (op === 0xdb && b === 0xe2) { alu("and", FSW, reg(FSW), imm(0x7f00)); text = "fnclex"; return finish(); }
+        if (op === 0xdb && b === 0xe3) { mov(FCW, imm(0x37f)); mov(FSW, imm(0)); mov(FTAG, imm(0)); text = "fninit"; return finish(); }
+        throw new Gapped(`x87 ${op.toString(16)} ${b.toString(16)} is not in the map`);
+      }
+      if (op === 0xdd) {
+        if (lo === 0xc0) { alu("and", FTAG, reg(FTAG), imm(~(1 << sti) & 0xff)); text = "ffree"; return finish(); }
+        if (lo === 0xd0 || lo === 0xd8) {
+          mov(STM(sti), reg(STM(0))); mov(STE(sti), reg(STE(0)));
+          if (lo === 0xd8) pop();
+          text = lo === 0xd8 ? "fstp" : "fst";
+          return finish();
+        }
+        if (lo === 0xe0 || lo === 0xe8) { compare(ST(0), ST(sti), false); if (lo === 0xe8) pop(); text = "fucom"; return finish(); }
+        throw new Gapped(`x87 dd ${b.toString(16)} is not in the map`);
+      }
+      // 0xdf
+      if (b === 0xe0) {
+        // fnstsw ax
+        alu("and", 0, reg(0), imm(~0xffffn & 0xffffffffffffffffn));
+        alu("or", 0, reg(0), reg(FSW));
+        text = "fnstsw";
+        return finish();
+      }
+      if (lo === 0xe8 || lo === 0xf0) { compare(ST(0), ST(sti), true); pop(); text = "fcomip"; return finish(); }
+      throw new Gapped(`x87 df ${b.toString(16)} is not in the map`);
+    }
+    if (op === 0x9b) { text = "fwait"; return finish(); }
+    if (op === 0xf8 || op === 0xf9) { text = op === 0xf9 ? "stc" : "clc"; ops.push({ k: "setflag", flag: "c", v: imm(op & 1), bit: 0, when: null }); return finish(); }
+    if (op === 0xf5) {
+      text = "cmc";
+      ops.push({ k: "set", d: T0, c: "ae", w: 64 });
+      ops.push({ k: "setflag", flag: "c", v: reg(T0), bit: 0, when: null });
+      return finish();
+    }
+    if (op === 0x9e) {
+      // sahf: SF ZF AF PF CF from AH; OF stays
+      text = "sahf";
+      ops.push({ k: "alu", op: "shr", d: T0, a: reg(0), b: imm(8), w: 64, f: "none" });
+      ops.push({ k: "alu", op: "and", d: T0, a: reg(T0), b: imm(0xd5), w: 64, f: "none" });
+      ops.push({ k: "set", d: T1, c: "o", w: 64 });
+      ops.push({ k: "alu", op: "shl", d: T1, a: reg(T1), b: imm(11), w: 64, f: "none" });
+      ops.push({ k: "alu", op: "or", d: T0, a: reg(T0), b: reg(T1), w: 64, f: "none" });
+      ops.push({ k: "setflags", s: reg(T0) });
+      return finish();
+    }
+    if (op === 0x9f) {
+      // lahf: AH = SF ZF 0 AF 0 PF 1 CF
+      text = "lahf";
+      ops.push({ k: "mov", d: T0, s: imm(2), w: 64 });
+      for (const [c, bit] of [["b", 0], ["p", 2], ["eq", 6], ["s", 7]] as const) {
+        ops.push({ k: "set", d: T1, c, w: 64 });
+        ops.push({ k: "alu", op: "shl", d: T1, a: reg(T1), b: imm(bit + 8), w: 64, f: "none" });
+        ops.push({ k: "alu", op: "or", d: T0, a: reg(T0), b: reg(T1), w: 64, f: "none" });
+      }
+      ops.push({ k: "alu", op: "and", d: 0, a: reg(0), b: imm(~0xff00n & 0xffffffffffffffffn), w: 64, f: "none" });
+      ops.push({ k: "alu", op: "or", d: 0, a: reg(0), b: reg(T0), w: 64, f: "none" });
+      return finish();
+    }
     if (op === 0x9c) {
       // pushfq: CF PF ZF SF OF from the flags, bit 1 and IF set (DF is always clear here; AF is not kept)
       text = "pushfq";
@@ -427,8 +742,38 @@ export function decodeX86(fetch: Fetch, pc: bigint): Decoded {
       let count: Src = op <= 0xc1 ? imm(byte()) : op <= 0xd1 ? imm(1) : reg(RCX);
       if (kind === 0 || kind === 1) {
         // rol / ror: CF from the rotated bit, OF for a count of one; a zero count changes nothing.
-        if (bits < 32) return fail("8/16-bit rotates are not in the map");
         const written = count;
+        if (bits < 32) {
+          // 8/16-bit rotates: the count is masked to 5 bits, then taken modulo the width
+          const mask = (1n << BigInt(bits)) - 1n;
+          ops.push({ k: "alu", op: "and", d: T1, a: count, b: imm(31), w: 64, f: "none" });
+          ops.push({ k: "alu", op: "urem", d: T1, a: reg(T1), b: imm(bits), w: 64, f: "none" });
+          if (kind === 0) {
+            ops.push({ k: "alu", op: "sub", d: T1, a: imm(bits), b: reg(T1), w: 64, f: "none" });
+            ops.push({ k: "alu", op: "urem", d: T1, a: reg(T1), b: imm(bits), w: 64, f: "none" });
+          }
+          const v = readRm(m, bits, T0);
+          ops.push({ k: "alu", op: "and", d: T0, a: v, b: imm(mask), w: 64, f: "none" });
+          ops.push({ k: "alu", op: "shr", d: T2, a: reg(T0), b: reg(T1), w: 64, f: "none" });
+          ops.push({ k: "alu", op: "sub", d: T3, a: imm(bits), b: reg(T1), w: 64, f: "none" });
+          ops.push({ k: "alu", op: "shl", d: T0, a: reg(T0), b: reg(T3), w: 64, f: "none" });
+          ops.push({ k: "alu", op: "or", d: T0, a: reg(T0), b: reg(T2), w: 64, f: "none" });
+          ops.push({ k: "alu", op: "and", d: T0, a: reg(T0), b: imm(mask), w: 64, f: "none" });
+          writeRm(m, reg(T0), bits);
+          text = kind === 0 ? "rol" : "ror";
+          const immCount8 = op >= 0xd2 ? -1 : op >= 0xd0 ? 1 : Number(((written as { imm?: bigint }).imm ?? 0n) & 31n);
+          const when8 = () => (op >= 0xd2 ? { s: reg(RCX), mask: 31 } : null);
+          if (immCount8 !== 0) {
+            ops.push({ k: "setflag", flag: "c", v: reg(T0), bit: kind === 0 ? 0 : bits - 1, when: when8() });
+            // OF for a count of one (undefined for other counts)
+            if (immCount8 === 1 || immCount8 === -1) {
+              if (kind === 0) ops.push({ k: "alu", op: "shr", d: T2, a: reg(T0), b: imm(bits - 1), w: 64, f: "none" }, { k: "alu", op: "xor", d: T2, a: reg(T2), b: reg(T0), w: 64, f: "none" });
+              else ops.push({ k: "alu", op: "shl", d: T2, a: reg(T0), b: imm(1), w: 64, f: "none" }, { k: "alu", op: "xor", d: T2, a: reg(T2), b: reg(T0), w: 64, f: "none" });
+              ops.push({ k: "setflag", flag: "o", v: reg(T2), bit: kind === 0 ? 0 : bits - 1, when: op >= 0xd2 ? { s: reg(RCX), mask: 31, eq: 1 } : immCount8 === 1 ? null : { s: imm(0), mask: 1, eq: 1 } });
+            }
+          }
+          return finish();
+        }
         if (kind === 0) {
           // rol by n == ror by (-n mod width)
           ops.push({ k: "alu", op: "sub", d: T1, a: imm(0), b: count, w: 64, f: "none" });

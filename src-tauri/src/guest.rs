@@ -23,7 +23,7 @@ pub mod layout {
     pub const CODE_LO: usize = 0x340;
     pub const CODE_HI: usize = 0x348;
     pub const NULL_PAGE: u64 = 0x1000;
-    pub const NREG: usize = 106;
+    pub const NREG: usize = 125;
     /// Thread pointer (x86 fs base, ARM tpidr_el0).
     pub const TP: usize = 36;
 }

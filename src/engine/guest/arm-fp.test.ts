@@ -6,7 +6,7 @@
  */
 import assert from "node:assert/strict";
 import test from "node:test";
-import { STATE, Stop, XMM, type FpRound, type Op } from "./ir.ts";
+import { NREG, STATE, Stop, XMM, type FpRound, type Op } from "./ir.ts";
 import { newProgram } from "./lift.ts";
 import { GuestState, Interpreter } from "./machine.ts";
 import { instantiate, lowerProgram } from "./wasm.ts";
@@ -73,13 +73,13 @@ function differential(name: string, ops: Op[], size: 4 | 8, count: number, input
     const cw = wasm.run();
     assert.equal(ci, Stop.halt);
     assert.equal(cw, Stop.halt);
-    const regs = (st: GuestState) => Array.from({ length: 106 }, (_, r) => st.reg(r));
+    const regs = (st: GuestState) => Array.from({ length: NREG }, (_, r) => st.reg(r));
     const ri = regs(ist);
     const rw = regs(wst);
     const fi = ist.flags;
     const fw = wst.flags;
     const where = `${name} a=${a.toString(16)} b=${b.toString(16)} c=${c.toString(16)}`;
-    for (let r = 0; r < 106; r += 1) if (ri[r] !== rw[r]) assert.fail(`${where}: r${r} interpreter ${ri[r].toString(16)} wasm ${rw[r].toString(16)}`);
+    for (let r = 0; r < NREG; r += 1) if (ri[r] !== rw[r]) assert.fail(`${where}: r${r} interpreter ${ri[r].toString(16)} wasm ${rw[r].toString(16)}`);
     assert.deepEqual([fw.z, fw.s, fw.c ^ fw.k, fw.o], [fi.z, fi.s, fi.c ^ fi.k, fi.o], where);
     void STATE;
   }

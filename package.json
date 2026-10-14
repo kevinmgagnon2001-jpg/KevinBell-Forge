@@ -19,7 +19,7 @@
     "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/preview-path-prefix.test.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "test:engine": "node --experimental-strip-types --test src/engine/*.test.ts src/engine/guest/*.test.ts",
+    "test:engine": "node --experimental-strip-types --test src/engine/*.test.ts src/engine/guest/*.test.ts src/engine/guest/f80/*.test.ts",
     "test:native": "cargo build --manifest-path src-tauri/Cargo.toml --example guest_bridge && node --experimental-strip-types --test scripts/native-guest.test.ts",
     "forge:run": "node --experimental-strip-types scripts/forge-run.ts",
     "forge:island": "node --experimental-strip-types scripts/island-node.ts",

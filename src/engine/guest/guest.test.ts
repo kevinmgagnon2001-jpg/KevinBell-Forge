@@ -226,6 +226,22 @@ test("SSE2 integer instructions match the x86-64 CPU on every engine, and zlib r
   assert.equal(zlib.stdout, text("zlib-demo.expected"));
 });
 
+test("x87: 80-bit arithmetic, conversions, compares and rounding modes, and 8/16-bit rotates, match the x86-64 CPU on every engine", () => {
+  for (const engine of ["tiered", "interpreter", "wasm"] as const) {
+    for (const name of ["x87", "rotate"]) {
+      const report = runLinux(fixture(`${name}-x86_64.elf`), { engine });
+      assert.equal(report.ok, true, `${name} ${engine}: ${report.detail}`);
+      assert.equal(report.stdout, text(`${name}.expected`), `${name} ${engine}`);
+    }
+  }
+});
+
+test("sqlite (a real program that formats numbers with long double) runs as on the CPU", () => {
+  const report = runLinux(fixture("sqlite-demo-x86_64.elf"), { memBytes: 64 * 1024 * 1024 });
+  assert.equal(report.ok, true, report.detail);
+  assert.equal(report.stdout, text("sqlite-demo.expected"));
+});
+
 test("ARM64 glibc programs and the NEON/FP instruction corpus (built and run on ARM64 hardware) match the CPU on every engine", () => {
   const input = fixture("files-in.txt");
   for (const name of ["libc-demo", "libc-float", "libc-files", "libc-dirs", "libc-mapio", "libc-links", "libc-threads", "libc-spin", "neon"]) {

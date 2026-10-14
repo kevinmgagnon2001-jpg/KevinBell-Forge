@@ -4,6 +4,7 @@
  * State lives inside guest memory in the null page (see STATE in ir.ts), so the interpreter and the
  * WebAssembly backend share one layout and the Linux shim can work with either.
  */
+import { f80Call } from "./f80/f80.ts";
 import {
   aluValue,
   bitsToF32,
@@ -244,6 +245,11 @@ export class Interpreter implements Engine {
           case "setnzcv":
             flags = nzcvFlags(op.nzcv, flags.p);
             break;
+          case "f80call": {
+            const got = f80Call(op.fn, op.args.map((a) => this.val(a)));
+            op.outs.forEach((r, i) => (regs[r] = got[i]));
+            break;
+          }
           case "setflags": {
             const v = this.val(op.s);
             const bit = (n: number) => Number((v >> BigInt(n)) & 1n);

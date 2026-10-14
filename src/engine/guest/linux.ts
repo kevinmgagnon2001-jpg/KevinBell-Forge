@@ -14,7 +14,7 @@
  */
 import { readElf, PF_X, type Segment } from "./elf.ts";
 import { GuestState, Interpreter, type Engine } from "./machine.ts";
-import { NREG, STATE, STOP_NAME, Stop, TP, type Gap, type GuestArch, type StopCode } from "./ir.ts";
+import { FCW, NREG, STATE, STOP_NAME, Stop, TP, type Gap, type GuestArch, type StopCode } from "./ir.ts";
 import { inText, lift, newProgram, type Program } from "./lift.ts";
 import { instantiate, lowerProgram } from "./wasm.ts";
 import { AT_FDCWD, FD_LIMIT, GuestFiles, O_DIRECTORY, O_NOFOLLOW, POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, POLLPRI, POLLRDNORM, POLLWRNORM, type ByteSink, type FileNode, type Stat } from "./files.ts";
@@ -155,6 +155,7 @@ export function prepareLinux(bytes: Uint8Array, options: LinuxOptions = {}): Pre
   const dv = new DataView(memory.buffer);
   words.forEach((w, i) => dv.setBigUint64(Number(sp) + i * 8, w, true));
   state.setReg(abi.sp, sp);
+  if (elf.arch === "x86_64") state.setReg(FCW, 0x37fn); // x87: round to nearest, 64-bit precision, all exceptions masked
   state.pc = elf.entry;
   state.fuel = BigInt(options.fuel ?? 2_000_000_000);
   state.flags = { z: 0, s: 0, c: 0, o: 0, k: 0 };

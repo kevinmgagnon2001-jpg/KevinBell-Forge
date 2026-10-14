@@ -11,6 +11,8 @@
  * falls from one instruction to the next without going through the table; every taken branch goes
  * through it and costs one unit of fuel.
  */
+import { F80_BODIES, f80Index, f80Type } from "./f80/f80.ts";
+import { F80_FUNCS } from "./f80/f80-wasm.ts";
 import { CPUID, NREG, NULL_PAGE, STATE, Stop, VEC_UNARY, vecShuffles, XMM, type VecOp, type AluOp, type Cond, type Ea, type FlagMode, type Insn, type Op, type Src, type W } from "./ir.ts";
 import type { Program } from "./lift.ts";
 
@@ -33,6 +35,8 @@ const I32_LOCALS = 8;
 const PF = ZF + 7; // parity, set by floating-point compares
 const I_IDX = ZF + 6; // dispatch index
 const CHUNK_BITS = 15;
+/** Function index of the first x87 soft-float helper (after the ten fixed helpers). */
+const F80_FN = 10;
 const CHUNK = 1 << CHUNK_BITS;
 const V0 = ZF + I32_LOCALS; // two v128 scratch locals
 const V128 = 0x7b;
@@ -153,7 +157,7 @@ export function lowerProgram(program: Program, memBytes: number, options: { fnBi
     else groups.set(c, [insn]);
   }
   const chunkIds = [...groups.keys()].sort((x, y) => x - y);
-  const FIRST_CHUNK_FN = 10;
+  const FIRST_CHUNK_FN = F80_FN + F80_FUNCS.length;
   const fnOf = new Map(chunkIds.map((c, i) => [c, FIRST_CHUNK_FN + i]));
 
   // ---- top-level run(): pick the chunk function for pc, call it, follow jumps between chunks ----
@@ -183,7 +187,7 @@ export function lowerProgram(program: Program, memBytes: number, options: { fnBi
   const stubBody = [0, 0x41, Stop.unmapped, 0x0b];
 
   const chunkBodies = chunkIds.map((c) => chunkBody(groups.get(c)!, arm, memBytes));
-  const bodies = [topBody, mulhBody(false), mulhBody(true), stubBody, udiv128Body(), armFopBody(), armRoundBody(), armF2iBody(), armFcmpBody(), armFmaBody(), ...chunkBodies];
+  const bodies = [topBody, mulhBody(false), mulhBody(true), stubBody, udiv128Body(), armFopBody(), armRoundBody(), armF2iBody(), armFcmpBody(), armFmaBody(), ...F80_BODIES, ...chunkBodies];
   const pages = memBytes / 65536;
   const name = (str: string) => [...uleb(str.length), ...[...str].map((ch) => ch.charCodeAt(0))];
   const elems: number[] = [];
@@ -191,7 +195,7 @@ export function lowerProgram(program: Program, memBytes: number, options: { fnBi
   const parts: number[][] = [
     [0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00],
     section(1, [
-      8,
+      ...uleb(8 + F80_FUNCS.length),
       0x60, 0, 1, I32,
       0x60, 2, I64, I64, 1, I64,
       0x60, 3, I64, I64, I64, 2, I64, I64,
@@ -200,8 +204,9 @@ export function lowerProgram(program: Program, memBytes: number, options: { fnBi
       0x60, 4, I64, I32, I32, I32, 1, I64, // armF2i(a, mode, single, kind)
       0x60, 3, I64, I64, I32, 1, I32, // armFcmp(a, b, single) -> nzcv
       0x60, 4, I64, I64, I64, I32, 1, I64, // armFma(a, b, c, flags)
+      ...F80_FUNCS.flatMap((_, i) => f80Type(i)), // the x87 soft-float (f80/f80.c)
     ]),
-    section(3, [...uleb(bodies.length), 0, 1, 1, 0, 2, 3, 4, 5, 6, 7, ...chunkIds.map(() => 0)]),
+    section(3, [...uleb(bodies.length), 0, 1, 1, 0, 2, 3, 4, 5, 6, 7, ...F80_FUNCS.flatMap((_, i) => uleb(8 + i)), ...chunkIds.map(() => 0)]),
     section(4, [1, 0x70, 0x01, ...uleb(chunks), ...uleb(chunks)]),
     section(5, [1, 1, ...uleb(pages), ...uleb(pages)]),
     section(7, [2, ...name("run"), 0x00, 0, ...name("mem"), 0x02, 0]),
@@ -983,6 +988,22 @@ function lowerOp(e: Emitter, op: Op, insn: Insn, memBytes: number) {
     case "setnzcv":
       setNzcv(e, op.nzcv);
       return;
+    case "f80call": {
+      const i = f80Index(op.fn);
+      if (i < 0) throw new Error(`no soft-float function ${op.fn}`);
+      const f = F80_FUNCS[i];
+      op.args.forEach((a, k) => {
+        src(e, a);
+        if (f.params[k] === I32) e.emit(0xa7); // i32.wrap_i64
+      });
+      e.emit(0x10, ...uleb(F80_FN + i));
+      // results come off the stack last first
+      for (let k = op.outs.length - 1; k >= 0; k -= 1) {
+        if (f.results[k] === I32) e.emit(0xad); // i64.extend_i32_u
+        e.set(op.outs[k]);
+      }
+      return;
+    }
     case "setflags":
       for (const [bit, local] of [[0, CF], [2, PF], [6, ZF], [7, SF], [11, OF]] as const) {
         src(e, op.s); e.i64(BigInt(bit)); e.emit(0x88); e.i64(1n); e.emit(0x83); e.emit(0xa7); e.set(local); // (s >> bit) & 1

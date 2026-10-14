@@ -27,6 +27,8 @@ jobs:
       - run: .github/scripts/step.sh "Lint" npm run lint
       - run: .github/scripts/step.sh "Typecheck" npm run typecheck
       - run: .github/scripts/step.sh "Engine tests" npm run test:engine
+      # The x87 soft-float against the runner's real x87, every rounding and precision mode
+      - run: .github/scripts/step.sh "x87 soft-float vs the CPU" sh -c 'cc -O1 -o "$RUNNER_TEMP/f80-check" src/engine/guest/f80/f80-check.c && "$RUNNER_TEMP/f80-check" 300000' 
       - run: .github/scripts/step.sh "Web build" npm run build
 
   desktop:

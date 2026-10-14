@@ -95,3 +95,12 @@ gcc -static -O1 -no-pie -s sse2.c -o sse2-x86_64.elf
 ./sse2-x86_64.elf > sse2.expected; echo $? > sse2.exitcode
 gcc -static -O2 -no-pie -s zlib-demo.c -o zlib-demo-x86_64.elf -lz
 ./zlib-demo-x86_64.elf > zlib-demo.expected
+
+# x87 floating point (N8): 80-bit arithmetic, conversions, compares and rounding modes as raw bits;
+# 8/16-bit rotates; sqlite as a real program that needs x87 (needs libsqlite3.a).
+gcc -static -O1 -no-pie -s x87.c -o x87-x86_64.elf -lm
+./x87-x86_64.elf > x87.expected; echo $? > x87.exitcode
+gcc -static -O1 -no-pie -s rotate.c -o rotate-x86_64.elf
+./rotate-x86_64.elf > rotate.expected
+gcc -static -O2 -no-pie -s sqlite-demo.c -o sqlite-demo-x86_64.elf -lsqlite3 -lm
+./sqlite-demo-x86_64.elf > sqlite-demo.expected

@@ -440,7 +440,36 @@ Real static programs found the gaps: zlib (pinsrw), OpenSSL (packuswb, pushfq) a
   OpenSSL program (SHA-1/256/512, AES-256-CBC, AES-128-GCM, ChaCha20) matches it too, in 55 s.
 
 ## Still not done
-- x87 floating point (sqlite formats numbers with long double): next.
 - Big programs are slow: every relift rebuilds the whole WebAssembly module.
 - Packed SSE floating point (addps, mulpd, cvtdq2ps...), SSE3 and later: cpuid says SSE2 only, so
   libraries do not pick those paths.
+
+## x87 floating point, exactly (work item N8, second part)
+Tests: `npm run test:engine` (147 pass), `npm run test:native`, and in CI the soft-float against the runner's x87.
+
+- src/engine/guest/f80/f80.c: 80-bit extended precision in software. add, sub, mul, div, sqrt, round to
+  integer, fscale, fprem/fprem1 (with quotient bits), compare, fxam classes, conversions to and from f32,
+  f64 and integers; all four rounding modes and the three precision-control settings; x87 NaN rules
+  (quiet beats signalling, then the larger significand), unsupported encodings giving the indefinite NaN,
+  denormals and pseudo-denormals. Plain C with 64-bit integers only.
+- f80-check.c runs it natively against the real x87: 40 million checks, 0 mismatches. CI runs 300,000
+  cases on every push.
+- scripts/build-f80.mjs compiles it to WebAssembly (17 functions, 19.5 KB), refuses any body that touches
+  memory, globals or tables or calls anything, and writes f80-wasm.ts with the source's SHA-256 (a test
+  checks it is current). Every lowered guest module embeds these functions; the interpreter runs the
+  same ones through a small module of its own. So the browser, the interpreter and wasmtime compute the
+  same bits, and the guest module still has no imports.
+- IR: one new op, f80call (a named soft-float function on IR values), and x87 registers: ST(0)..ST(7) as
+  significand and sign-exponent, control word (0x37f at start), status word (C0..C3 and TOP) and which
+  stack slots hold values (NREG 125, same in guest.rs). The stack is kept in order: a push moves every
+  slot down and a pop moves them up, so register numbers stay fixed.
+- Decoded: fld/fst/fstp (m32, m64, m80, st(i)), fild/fist/fistp/fisttp (m16, m32, m64), the arithmetic in
+  all its forms (memory, st(0) op st(i), st(i) op st(0), the popping ones), fcom/fucom/fcomp/fucompp/
+  fcompp/ftst, fcomi/fucomi/fcomip/fucomip, fxch, fchs, fabs, fxam, the constants, fsqrt, frndint,
+  fscale, fprem/fprem1, fcmov, fldcw/fnstcw, fnstsw ax and m16, fnstenv/fldenv, fninit, fnclex, ffree,
+  fwait; also sahf, lahf, clc, stc, cmc and 8/16-bit rol/ror.
+- fixtures/linux/x87.c (3,522 results as raw bits, all rounding modes) and rotate.c match the CPU on every
+  engine and through wasmtime. sqlite (sqlite-demo.c: 2,000 rows, an index, aggregates, printf) prints
+  exactly what the CPU prints.
+- Not done: transcendental x87 instructions (fsin, fcos, fptan, fpatan, f2xm1, fyl2x...; glibc's long
+  double libm uses some), fsave/frstor, fbld/fbstp, x87 exception flags (everything acts masked).

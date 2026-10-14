@@ -37,6 +37,11 @@ export type Op =
   | { k: "csel"; d: number; c: Cond; a: Src; b: Src; w: W }
   | { k: "ccmp"; c: Cond; a: Src; b: Src; w: W; neg: boolean; nzcv: number }
   | { k: "setnzcv"; nzcv: number }
+  /**
+   * Call an x87 soft-float function (f80/f80.c) by name: args are IR values (i32 parameters take the
+   * low 32 bits), each result lands in a register (i32 results zero-extended).
+   */
+  | { k: "f80call"; fn: string; args: Src[]; outs: number[] }
   /** x86 popf: CF, PF, ZF, SF and OF from bits 0, 2, 6, 7 and 11 of s. */
   | { k: "setflags"; s: Src }
   | { k: "br"; c: Cond; t: bigint }
@@ -341,8 +346,17 @@ export type Gap = { pc: bigint; bytes: string; reason: string };
  *   71      fourth temp
  *   72..103 vectors 17..32 (ARM v16..v31)
  *   104..105 vector 33: a second temp vector
+ *   106..113 x87 ST(0)..ST(7) significands (64 bits, explicit integer bit)
+ *   114..121 x87 ST(0)..ST(7) sign and exponent (16 bits)
+ *   122     x87 control word, 123 status word (C0..C3, TOP), 124 which of ST(0)..ST(7) hold values (bit i)
  */
-export const NREG = 106;
+export const NREG = 125;
+/** x87 stack register i (0..7): significand and sign-exponent halves. */
+export const STM = (i: number) => 106 + i;
+export const STE = (i: number) => 114 + i;
+export const FCW = 122;
+export const FSW = 123;
+export const FTAG = 124;
 /** A fourth temp, for decodings that need one more scratch value. */
 export const T3 = 71;
 export const T0 = 32;
@@ -548,6 +562,7 @@ export function describeOp(op: Op): string {
     case "csel": return `csel.${op.c} r${op.d}, ${s(op.a)}, ${s(op.b)}`;
     case "ccmp": return `ccmp.${op.c} ${s(op.a)}, ${s(op.b)}, #${op.nzcv}`;
     case "setflags": return `setflags ${s(op.s)}`;
+    case "f80call": return `${op.fn}(${op.args.map(s).join(", ")}) -> ${op.outs.map((r) => `r${r}`).join(", ")}`;
     case "setnzcv": return `nzcv #${op.nzcv}`;
     case "br": return `b.${op.c} 0x${op.t.toString(16)}`;
     case "cbz": return `${op.nz ? "cbnz" : "cbz"} ${s(op.s)}, 0x${op.t.toString(16)}`;
