@@ -511,3 +511,53 @@ Tests: `npm run test:engine` (147 pass), `npm run test:native`, and in CI the so
 - Whole-save sync only: two devices saving in the same moment keep the first and tell the other.
 - No live control from one device while another renders, and the simulation does not move to the
   strongest device (pickHost is not used yet).
+
+## Carried mechanics: your own way of moving, on any island
+- src/engine/mechanic.ts: a mechanic is a WebAssembly module over 16 state numbers (x, y, z, yaw, pitch,
+  speed, vx, vy, vz and seven of its own) and 8 inputs (forward, strafe, turn, steer, lift, dt, action).
+  checkMover() reads every instruction before the module is ever instantiated. It allows only
+  arithmetic, locals, memory loads and stores, and forward branches. It refuses loops, calls, imports,
+  memory.grow, mutable globals, global.set, tables, start functions and bulk memory. One fixed page of
+  memory, reset before every step. So any step finishes after at most as many instructions as the module
+  has: no timeout needed.
+- Recipes (named lines of arithmetic with sin, cos, sqrt, min, max, clamp, if, ...) compile to such
+  modules. sin and cos are inlined with range reduction (error below 1e-12). Built in: Walk (matches
+  prediction.ts step), Car, Plane.
+- Packages are signed by their author (island.ts identities). Each carries 12 fixtures from a fixed test
+  drive, and checkMechanic() reruns them bit for bit. A tampered name, module, author or fixture is refused.
+- stepUnderRules(): the island's speed limit, floor, ceiling and walls apply to every mover. Walls are
+  checked in pieces of 0.15 m, so fast movers cannot jump over a thin wall (found by the test).
+- prediction.ts: MoveRule. HostMover and Predictor take any rule, inputs gain steer/lift/action, and the
+  state can carry a mechanic's slots.
+- island.ts: new capability "carry". island-content.ts: IslandHost.carry(), adopt() (the island's own
+  mechanic) and mechanics(). Presence markers carry look, mechanic name, author and yaw. Sync replies
+  carry the walk number, so a reply about an earlier walk is ignored. island-node.ts:
+  - POST /island/carry and GET /island/mechanics;
+  - --mechanic file and --max-speed;
+  - carry allowed by default;
+  - visitors' mechanics saved under <dir>/mechanics/.
+- App: Mechanics panel (choose Walk/Car/Plane or your own, carrying status, "In use where you are" with
+  Keep, "Make your own" recipe editor). The pilot moves you with your mechanic at home and on islands
+  that took it. Car, plane and hover models in the viewport, for you and other visitors. Your mechanics
+  and choice are part of the shared save across linked devices.
+- Tests: mechanic.test.ts (checker against hand-made hostile modules, built-ins, Walk equal to walking,
+  sin/cos accuracy, car and plane behaviour including A = left, recipe errors, package tampering, island
+  rules) and carry.test.ts over real HTTP:
+  - a car driven on another island with zero host corrections;
+  - a plane arriving at 30 m/s keeps its speed;
+  - a speed limit announced and held;
+  - carrying refused without the grant, and a tampered package refused;
+  - an island saving a visitor's mechanic and adopting it.
+- Checked by hand in Chromium:
+  - Car chosen in the panel: A turns left, D right.
+  - A car driven through a portal onto a Node island, where the host ran it (its marker dropped from view
+    height to the car's) with zero corrections, parked at the island's centre.
+  - A second visitor saw the car and its author.
+  - Her plane was kept, credited, and switched to mid-visit.
+  - A recipe built in the editor, bouncing as written.
+  - 390 px wide without overflow.
+
+## Still not done
+- Mechanics move only their owner's avatar; acting on an island's world needs wider permissions.
+- Custom 3D models do not travel with a mechanic yet (built-in car, plane and hover looks only).
+- Not tried between two physical machines.

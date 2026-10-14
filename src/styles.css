@@ -845,6 +845,51 @@
     color: var(--color-ok);
   }
 
+  .mechanic-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .mechanic-list li {
+    display: flex;
+    align-items: stretch;
+    gap: 0.4rem;
+  }
+
+  .mechanic-list .model-option {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .recipe-field {
+    min-height: 12rem;
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: 1.5;
+    resize: vertical;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .row-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .sub-head {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 0.78rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
   .pair-code {
     margin: 0;
     padding: 0.6rem 0;

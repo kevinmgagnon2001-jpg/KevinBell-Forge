@@ -209,3 +209,23 @@ test("an island's rules hold whoever wrote the mechanic: speed limit, floor, cei
   const long = stepUnderRules(rocket, s, { ...idle, dt: 5 }, [], DEFAULT_RULES);
   assert.ok(long[0] <= 60 * 0.1 + 1e-9);
 });
+
+test("recipes typed as text: headers, one line per number, and clear errors", async () => {
+  const { readRecipe } = await import("./mechanic.ts");
+  const recipe = readRecipe(`Name: Hopper
+Look: hover
+Vars: t
+# comments are fine
+t = t + dt
+y = 0.45 + abs(sin(t * 3))
+z = z + forward * 5 * dt`);
+  assert.equal(recipe.name, "Hopper");
+  assert.equal(recipe.look, "hover");
+  assert.deepEqual(recipe.vars, ["t"]);
+  assert.equal(recipe.set.length, 3);
+  const rt = new MoverRuntime(compileRecipe(recipe));
+  const out = rt.step(start(), { ...idle, forward: 1, dt: 0.1 }) as number[];
+  assert.ok(out[1] > 0.45 && out[2] > 0);
+  assert.throws(() => readRecipe("Name: X\nLook: boat\nx = 1"), /Look must be/);
+  assert.throws(() => readRecipe("Name: X\nthis is not a line"), /can't read this line/);
+});

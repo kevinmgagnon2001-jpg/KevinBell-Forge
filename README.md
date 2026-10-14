@@ -21,7 +21,7 @@ npm run cli:build        # the `forge` command-line tool -> bin/forge
 | `forge run <program>` | run a static Linux x86-64 or ARM64 program |
 | `forge info <file>` | identify a file and say how Forge would use it |
 | `forge gate <script.ts>` / `forge script <script.ts>` | check or run a script in the sandbox |
-| `forge island` | host an island on this machine |
+| `forge island` | host an island on this machine (visitors may bring their own mechanics: [docs/MECHANICS.md](docs/MECHANICS.md)) |
 | `forge compute` | offer this machine for pooled AI inference |
 | `forge link` | be the home your devices pair with and share one world through ([docs/LINKING.md](docs/LINKING.md)) |
 

@@ -13,6 +13,11 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
 - **Linked devices (first part):** `forge link` runs a home on a PC; devices pair in the app's Devices panel (matching
   six-digit codes) and share one save (world, log, clock). The device in use leads; the others follow. Engine:
   `link-home.ts`, `link-client.ts`; app: `link-browser.ts`, `Devices.tsx`. Guide: `docs/LINKING.md`.
+- **Carried mechanics:** movement mechanics (Walk, Car, Plane, or recipes people write) are checked, signed
+  WebAssembly that visitors carry through portals ("carry" grant). The host runs the visitor's mechanic under its
+  own rules, and the visitor predicts with the same one, so there are zero corrections. Others can keep a mechanic
+  with its author credited, and islands can adopt one (`--mechanic`). Engine: `mechanic.ts`; app:
+  `Mechanics.tsx`, `carry-browser.ts`, `movers.ts`. Guide: `docs/MECHANICS.md`.
 - **Desktop:** `.github/workflows/desktop.yml` builds installers for Linux x86-64/ARM64 (opened on a virtual display,
   screenshots kept), Windows and macOS (not opened). Not code-signed. Guide: `docs/DESKTOP.md`.
 - **Linux programs:** static x86-64 and ARM64 programs, glibc included, match real hardware on every engine.
@@ -24,6 +29,8 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
 
 ## Next, most important first
 
+1. Carried mechanics, next: mechanics that act on an island's world (doors, tools), with per-island
+   permissions; custom models that travel with a mechanic; try carrying between two physical machines.
 1. Linked devices, next: try it between the owner's phone and PC; run the home inside the desktop and Android apps
    (link-home.ts is transport-free; the app needs a small local HTTP listener in Rust that hands requests to it);
    pairing by QR code; encrypt traffic; live control from one device while another renders; move the simulation

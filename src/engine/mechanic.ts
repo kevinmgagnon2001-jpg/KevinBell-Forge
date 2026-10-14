@@ -622,6 +622,32 @@ export const PLANE: Recipe = {
 
 export const BUILT_IN: Recipe[] = [WALK, CAR, PLANE];
 
+/** "Name: …", "Look: …", "Vars: a, b" and "target = expression" lines into a recipe. */
+export function readRecipe(text: string): Recipe {
+  let name = "";
+  let look: Look = "walker";
+  let vars: string[] = [];
+  const set: [string, string][] = [];
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const header = /^(name|look|vars)\s*:\s*(.*)$/i.exec(line);
+    if (header) {
+      const key = header[1].toLowerCase();
+      if (key === "name") name = header[2].trim();
+      else if (key === "look") look = header[2].trim().toLowerCase() as Look;
+      else vars = header[2].split(",").map((v) => v.trim()).filter(Boolean);
+      continue;
+    }
+    const assign = /^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$/.exec(line);
+    if (!assign) throw new Error(`I can't read this line: ${line}`);
+    set.push([assign[1], assign[2]]);
+  }
+  if (!LOOKS.includes(look)) throw new Error(`Look must be one of ${LOOKS.join(", ")}`);
+  return { name, look, vars, set, summary: "Made in Forge's mechanic editor." };
+}
+
+
 // ---------- packages: signed, with fixtures ----------
 
 export type Fixture = { state: number[]; input: number[]; expect: number[] };

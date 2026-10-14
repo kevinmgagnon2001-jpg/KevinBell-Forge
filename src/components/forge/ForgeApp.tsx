@@ -7,6 +7,8 @@ import { meteredConnection, residentCached } from "@/engine/resident";
 import { startPersist, useForge } from "@/engine/store";
 import { DropRunner, PortalWatcher } from "./Bridge";
 import { DevicesCard } from "./Devices";
+import { MechanicsCard } from "./Mechanics";
+import { startMechanics } from "@/engine/carry-browser";
 import { resumeLink } from "@/engine/link-browser";
 import type { Entity, ToolSchema } from "@/engine/types";
 import { FlatStage } from "./FlatStage";
@@ -846,6 +848,7 @@ function ForgeShell() {
   useEffect(() => {
     startPersist();
     void resumeLink();
+    startMechanics();
     const boot = window.setTimeout(() => {
       void (async () => {
         const forge = useForge.getState();
@@ -890,6 +893,7 @@ function ForgeShell() {
         <div className="side-scroll">
           <ManifoldCard />
           <ModelCard />
+          <MechanicsCard />
           <DevicesCard />
           <LibraryCard />
           <ToolCard />
