@@ -30,4 +30,5 @@ npm run cli:build        # the `forge` command-line tool -> bin/forge
 - `src/engine/`: the skill registry, script sandbox, islands and portals, pooled inference and file intake
 - `src-tauri/`: the native desktop and Android host (Rust, wasmtime)
 - `.github/workflows/android.yml`: builds and publishes the Android APK
+- `NEXT.md`: where the last session stopped and what comes next
 - `PATCH_NOTES.md` and `Forge-Handoff.pdf`: history and the roadmap
