@@ -46,8 +46,15 @@ echo "The page sees $APPS app(s) on the phone."
 
 # Forge as the home screen: turn it on the way the person does, press Home, and Forge must come back
 # as the same, single, running Forge. (It used to start a second copy that stayed black.)
-adb shell pm enable "$PKG/.HomeActivity" > /dev/null
-adb shell cmd package set-home-activity "$PKG/.HomeActivity" > /dev/null
+# Android 14 does not let the plain adb shell switch another app's components on, so do the person's
+# part (turning it on in Forge, choosing it in Android's setting) as root, which the emulator allows.
+adb root > /dev/null 2>&1 || true
+adb wait-for-device
+if ! adb shell pm enable "$PKG/.HomeActivity" > "$OUT/home-setup.txt" 2>&1 \
+  || ! adb shell cmd package set-home-activity "$PKG/.HomeActivity" >> "$OUT/home-setup.txt" 2>&1; then
+  cat "$OUT/home-setup.txt"
+  echo "::error title=Android smoke test::could not make Forge the home screen on the emulator (a test setup problem, not the app); see home-setup.txt"; exit 1
+fi
 adb shell input keyevent KEYCODE_HOME
 sleep 3
 adb shell input keyevent KEYCODE_HOME
