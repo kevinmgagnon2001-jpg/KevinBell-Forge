@@ -1060,17 +1060,27 @@ export function runLinux(bytes: Uint8Array, options: LinuxOptions = {}): LinuxRe
    */
   let tierAt = engineKind === "tiered" ? BigInt(options.tierUpAfter ?? 3_000_000) : 0n;
   const SLICE = 1_000_000n;
+  /**
+   * After new code is lifted, how long the interpreter runs before the module is rebuilt: long enough
+   * that a burst of discoveries costs one rebuild, short because rebuilding reuses every unchanged chunk.
+   */
+  const SETTLE = 100_000n;
   let mode: "interp" | "wasm" = engineKind === "interpreter" || tierAt > 0n ? "interp" : "wasm";
   let wasm: Engine | null = null;
   let interp: Interpreter | null = null;
   let interpRan = 0n;
+  let wasmMemory: WebAssembly.Memory | null = null;
   const buildWasm = (): Engine => {
     if (!program.insns.size) return { name: "wasm", state, run: () => Stop.unmapped }; // nothing translatable yet
-    const { run, mem } = instantiate(lowerProgram(program, memBytes));
-    const fresh = new Uint8Array(mem.buffer);
-    fresh.set(memory);
-    memory = fresh;
-    state = new GuestState(memory);
+    // One memory for every rebuild: only the first build copies the image into it.
+    if (!wasmMemory) {
+      wasmMemory = new WebAssembly.Memory({ initial: memBytes / 65536, maximum: memBytes / 65536 });
+      const fresh = new Uint8Array(wasmMemory.buffer);
+      fresh.set(memory);
+      memory = fresh;
+      state = new GuestState(memory);
+    }
+    const { run } = instantiate(lowerProgram(program, memBytes, { importMemory: true }), wasmMemory);
     interp = null;
     return { name: "wasm", state, run: () => run() as StopCode };
   };
@@ -1095,7 +1105,8 @@ export function runLinux(bytes: Uint8Array, options: LinuxOptions = {}): LinuxRe
       }
     } else {
       const total = state.fuel;
-      const slice = (engineKind === "interpreter" && !shim.threaded) || total < SLICE ? total : SLICE;
+      let slice = (engineKind === "interpreter" && !shim.threaded) || total < SLICE ? total : SLICE;
+      if (engineKind !== "interpreter" && tierAt - interpRan > 0n && tierAt - interpRan < slice) slice = tierAt - interpRan;
       state.fuel = slice;
       interp ??= new Interpreter(program, state);
       stop = interp.run();
@@ -1125,7 +1136,7 @@ export function runLinux(bytes: Uint8Array, options: LinuxOptions = {}): LinuxRe
         wasm = null; // rebuilt when the interpreter has run a slice without finding more
         mode = "interp";
         interpRan = 0n;
-        tierAt = tierAt > SLICE ? tierAt : SLICE;
+        tierAt = SETTLE;
       }
       continue;
     }

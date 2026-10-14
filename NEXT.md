@@ -28,7 +28,12 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
 3. Work items 9 and 13 run on one machine (live-visit.ts, prediction.ts, pilot.tsx). Next: try them across two
    machines with real latency (item 4).
 4. Portal test between two real machines (item 4): needs the owner's devices on one network.
-5. N8: speed for big programs (each relift rebuilds the whole module; OpenSSL takes 55 s), packed SSE float,
+5. N8: speed for big programs. Last commit (unverified by the full suite; run `npm run test:engine` and
+   `npm run test:native` first): lowered chunks are cached per program, the in-page engine reuses one imported
+   memory across rebuilds, 100k interpreted instructions after a relift instead of 1M, no double validation.
+   OpenSSL 55 s -> 32 s, sqlite 29 -> 17 s, zlib 8.5 -> 3 s. Profile now: lowerProgram 12 s inclusive (it re-sorts
+   all instructions per rebuild; group incrementally), V8 compile 5 s, interpreter 5 s, 365 rebuilds for OpenSSL.
+   Then packed SSE float,
    x87 transcendentals. SSE2 integer and x87 arithmetic are done (zlib, OpenSSL, sqlite run). ARM ld2/ld3/ld4
    when a real program needs them.
 

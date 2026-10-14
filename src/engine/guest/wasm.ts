@@ -134,7 +134,14 @@ export type WasmBuild = { bytes: Uint8Array; lo: bigint; count: number };
  */
 export const FN_BITS_DEFAULT = 14;
 
-export function lowerProgram(program: Program, memBytes: number, options: { fnBits?: number } = {}): WasmBuild {
+/** Lowered chunk bodies per program, by absolute chunk and instruction count. */
+const loweredChunks = new WeakMap<Program, Map<string, number[]>>();
+
+/**
+ * options.importMemory: the module imports its memory (env.mem) instead of defining it, so the
+ * in-page engine can keep one memory across rebuilds. Modules for the desktop host import nothing.
+ */
+export function lowerProgram(program: Program, memBytes: number, options: { fnBits?: number; importMemory?: boolean } = {}): WasmBuild {
   const FN_BITS = BigInt(options.fnBits ?? FN_BITS_DEFAULT);
   if (memBytes % 65536 !== 0) throw new Error("guest memory must be a multiple of 64 KiB");
   const all = [...program.insns.values()].sort((a, b) => (a.pc < b.pc ? -1 : a.pc > b.pc ? 1 : 0));
@@ -186,7 +193,17 @@ export function lowerProgram(program: Program, memBytes: number, options: { fnBi
   const topBody = [2, 1, I64, 2, I32, ...t.code];
   const stubBody = [0, 0x41, Stop.unmapped, 0x0b];
 
-  const chunkBodies = chunkIds.map((c) => chunkBody(groups.get(c)!, arm, memBytes));
+  // Lifting only ever adds instructions, so a chunk with as many instructions as last time lowers to the
+  // same bytes: reuse them (a big program is rebuilt many times while its code is being discovered).
+  let cache = loweredChunks.get(program);
+  if (!cache) loweredChunks.set(program, (cache = new Map()));
+  const chunkBodies = chunkIds.map((c) => {
+    const list = groups.get(c)!;
+    const key = `${(lo >> FN_BITS) + BigInt(c)}:${list.length}:${FN_BITS}:${memBytes}`;
+    let body = cache.get(key);
+    if (!body) cache.set(key, (body = chunkBody(list, arm, memBytes)));
+    return body;
+  });
   const bodies = [topBody, mulhBody(false), mulhBody(true), stubBody, udiv128Body(), armFopBody(), armRoundBody(), armF2iBody(), armFcmpBody(), armFmaBody(), ...F80_BODIES, ...chunkBodies];
   const pages = memBytes / 65536;
   const name = (str: string) => [...uleb(str.length), ...[...str].map((ch) => ch.charCodeAt(0))];
@@ -206,9 +223,10 @@ export function lowerProgram(program: Program, memBytes: number, options: { fnBi
       0x60, 4, I64, I64, I64, I32, 1, I64, // armFma(a, b, c, flags)
       ...F80_FUNCS.flatMap((_, i) => f80Type(i)), // the x87 soft-float (f80/f80.c)
     ]),
+    ...(options.importMemory ? [section(2, [1, ...name("env"), ...name("mem"), 0x02, 1, ...uleb(pages), ...uleb(pages)])] : []),
     section(3, [...uleb(bodies.length), 0, 1, 1, 0, 2, 3, 4, 5, 6, 7, ...F80_FUNCS.flatMap((_, i) => uleb(8 + i)), ...chunkIds.map(() => 0)]),
     section(4, [1, 0x70, 0x01, ...uleb(chunks), ...uleb(chunks)]),
-    section(5, [1, 1, ...uleb(pages), ...uleb(pages)]),
+    ...(options.importMemory ? [] : [section(5, [1, 1, ...uleb(pages), ...uleb(pages)])]),
     section(7, [2, ...name("run"), 0x00, 0, ...name("mem"), 0x02, 0]),
     section(9, [1, 0x00, 0x41, 0x00, 0x0b, ...uleb(chunks), ...elems]),
   ];
@@ -1449,10 +1467,18 @@ function lowerInsn(e: Emitter, insn: Insn, memBytes: number) {
   for (const op of insn.ops) lowerOp(e, op, insn, memBytes);
 }
 
-export function instantiate(build: WasmBuild): { run: () => number; mem: WebAssembly.Memory } {
-  if (!WebAssembly.validate(build.bytes as BufferSource)) throw new Error("lowered module failed validation");
-  const module = new WebAssembly.Module(build.bytes as BufferSource);
-  if (WebAssembly.Module.imports(module).length) throw new Error("lowered module must not import anything");
-  const instance = new WebAssembly.Instance(module, {});
+/** Compile and start a lowered module; with `memory`, a module built with importMemory gets that one. */
+export function instantiate(build: WasmBuild, memory?: WebAssembly.Memory): { run: () => number; mem: WebAssembly.Memory } {
+  let module: WebAssembly.Module;
+  try {
+    module = new WebAssembly.Module(build.bytes as BufferSource);
+  } catch (error) {
+    throw new Error(`lowered module failed validation: ${String(error)}`);
+  }
+  const imports = WebAssembly.Module.imports(module);
+  if (imports.length > (memory ? 1 : 0) || (imports.length && (imports[0].kind !== "memory" || imports[0].name !== "mem"))) {
+    throw new Error("lowered module must import nothing but its memory");
+  }
+  const instance = new WebAssembly.Instance(module, memory ? { env: { mem: memory } } : {});
   return { run: instance.exports.run as () => number, mem: instance.exports.mem as WebAssembly.Memory };
 }

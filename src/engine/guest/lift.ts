@@ -13,6 +13,8 @@ export type Program = {
   gaps: Map<bigint, Gap>;
   /** Executable ranges [lo, hi). Lifting never leaves them. */
   text: [bigint, bigint][];
+  /** The span holding lifted instructions [lo, hi), kept current by lift (codeExtent). */
+  span?: [bigint, bigint];
 };
 
 export function newProgram(arch: GuestArch, text: [bigint, bigint][]): Program {
@@ -52,6 +54,8 @@ export function lift(program: Program, fetch: Fetch, roots: bigint[], budget = 2
       continue;
     }
     program.insns.set(pc, result.insn);
+    const end = pc + BigInt(result.insn.len);
+    program.span = program.span ? [pc < program.span[0] ? pc : program.span[0], end > program.span[1] ? end : program.span[1]] : [pc, end];
     added += 1;
     for (const t of result.targets) work.push(t);
     if (result.insn.fall) work.push(result.insn.next);
@@ -64,6 +68,7 @@ export function lift(program: Program, fetch: Fetch, roots: bigint[], budget = 2
  * translation stale, so both engines stop with "self-modifying code" instead.
  */
 export function codeExtent(program: Program): [bigint, bigint][] {
+  if (program.span && program.insns.size) return [program.span];
   let lo = -1n;
   let hi = -1n;
   for (const insn of program.insns.values()) {
