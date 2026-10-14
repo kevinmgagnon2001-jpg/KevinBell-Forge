@@ -1,15 +1,18 @@
 # Pick up here
 
-State at the end of the last session (branch `ccr-35d6a362-2y91j1`; all work is committed and pushed).
+State at the end of the last session (branch `ccr-cb829fc1-9iqt9m`; all work is committed and pushed).
 History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status per item: `docs/handoff.html`, section 3.
 
 ## Where things stand
 
 - **Android:** `.github/workflows/android.yml` builds an arm64 APK (for phones) and an x86_64 APK, launches the
   x86_64 one on an emulator (`.github/scripts/android-smoke.sh`), and only then may publish a Release (on a `v*` tag).
-  No signing secrets are set, so each build uses a one-off key. The owner accepts this for now.
-- **Release v0.6.0 is not published.** Pushing the tag from a session was blocked as a production deploy. Either the
-  owner creates the release on GitHub (tag `v0.6.0`, target this branch) or allows the push.
+  Signed with the owner's permanent key (secrets ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS).
+- **Release v0.6.0 is published** (tag `v0.6.0` on main): the Android APK, signed with the owner's permanent key
+  (repository secrets), and the desktop installers. Android builds print the signing fingerprint from the next tag on.
+- **Linked devices (first part):** `forge link` runs a home on a PC; devices pair in the app's Devices panel (matching
+  six-digit codes) and share one save (world, log, clock). The device in use leads; the others follow. Engine:
+  `link-home.ts`, `link-client.ts`; app: `link-browser.ts`, `Devices.tsx`. Guide: `docs/LINKING.md`.
 - **Desktop:** `.github/workflows/desktop.yml` builds installers for Linux x86-64/ARM64 (opened on a virtual display,
   screenshots kept), Windows and macOS (not opened). Not code-signed. Guide: `docs/DESKTOP.md`.
 - **Linux programs:** static x86-64 and ARM64 programs, glibc included, match real hardware on every engine.
@@ -21,6 +24,10 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
 
 ## Next, most important first
 
+1. Linked devices, next: try it between the owner's phone and PC; run the home inside the desktop and Android apps
+   (link-home.ts is transport-free; the app needs a small local HTTP listener in Rust that hands requests to it);
+   pairing by QR code; encrypt traffic; live control from one device while another renders; move the simulation
+   with `pickHost`.
 1. Code-sign the installers (needs the owner's certificates as secrets), and open the Windows/macOS builds in CI if possible.
 2. N7 leftovers: processes (fork/vfork, exec, wait4), signals (tgkill). Threads (with preemption at fuel-slice
    ends) and links are done.

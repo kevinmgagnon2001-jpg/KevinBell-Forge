@@ -683,6 +683,60 @@ function cleanSkills(value: unknown): Skill[] {
     .slice(-12);
 }
 
+function persistedWorld(state: ForgeState): World {
+  return {
+    entities: state.entities,
+    nextId: state.nextId,
+    tick: state.tick,
+    gravity: state.gravity,
+    deltaTime: state.deltaTime,
+    eventLog: state.eventLog.slice(-64),
+    events: state.events.slice(-64),
+    undo: (state.undo ?? []).slice(-16),
+    skills: (state.skills ?? []).slice(-12),
+    compat: (state.compat ?? []).slice(0, 8),
+  };
+}
+
+/**
+ * What linked devices share (link-client.ts): the world, its clock and the log. Choices that belong to
+ * one device (which model it runs, what it has selected) stay on that device. Islands visited through a
+ * portal are left out: each device keeps its own live link to them.
+ */
+export type SharedSave = { forge: "shared-save"; version: 1; world: World; osTicks: number; history: LogEntry[]; logSeq: number; running: boolean };
+
+export function sharedSave(state: ForgeState): SharedSave {
+  const world = persistedWorld(state);
+  const entities = Object.fromEntries(Object.entries(world.entities).filter(([, entity]) => !entity.customData?.island));
+  return { forge: "shared-save", version: 1, world: { ...world, entities }, osTicks: state.osTicks, history: state.history.slice(-80), logSeq: state.logSeq, running: state.running };
+}
+
+/** Take a save from another device. Returns false (and changes nothing) if it is not a usable save. */
+export function applySharedSave(value: unknown): boolean {
+  const save = value as SharedSave;
+  if (!save || save.forge !== "shared-save" || save.version !== 1 || !save.world || !isEntityRecord(save.world.entities)) return false;
+  const state = useForge.getState();
+  const visited = Object.fromEntries(Object.entries(state.entities).filter(([, entity]) => entity.customData?.island));
+  const world = ensureHelm(ensureAvatar({
+    ...save.world,
+    entities: { ...save.world.entities, ...visited },
+    undo: Array.isArray(save.world.undo) ? save.world.undo.slice(-16) : [],
+    skills: cleanSkills(save.world.skills),
+    compat: Array.isArray(save.world.compat) ? save.world.compat.filter((item): item is string => typeof item === "string").slice(0, 8) : [],
+    gravity: bootWorld().gravity,
+    deltaTime: bootWorld().deltaTime,
+  }));
+  useForge.setState({
+    ...world,
+    osTicks: Number(save.osTicks) || 0,
+    history: Array.isArray(save.history) ? save.history.slice(-80) : state.history,
+    logSeq: Number(save.logSeq) || state.logSeq,
+    selectedId: state.selectedId != null && world.entities[state.selectedId] ? state.selectedId : (Number(Object.keys(world.entities)[0]) || null),
+    running: Boolean(save.running),
+  });
+  return true;
+}
+
 let persistReady = false;
 
 export function startPersist() {
@@ -694,18 +748,7 @@ export function startPersist() {
     window.clearTimeout(timer);
     timer = window.setTimeout(() => {
       const payload: Persisted = {
-        world: {
-          entities: state.entities,
-          nextId: state.nextId,
-          tick: state.tick,
-          gravity: state.gravity,
-          deltaTime: state.deltaTime,
-          eventLog: state.eventLog.slice(-64),
-          events: state.events.slice(-64),
-          undo: (state.undo ?? []).slice(-16),
-          skills: (state.skills ?? []).slice(-12),
-          compat: (state.compat ?? []).slice(0, 8),
-        },
+        world: persistedWorld(state),
         osTicks: state.osTicks,
         history: state.history,
         logSeq: state.logSeq,

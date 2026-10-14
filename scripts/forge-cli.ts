@@ -8,6 +8,7 @@
  *   forge script <script.ts>                                gate it, then run it in an isolated worker
  *   forge island --name N --slug S [--port 7420]            host an island on this machine
  *   forge compute --id ID [--port 7600] [--memory-mb 512]   offer this machine for pooled inference
+ *   forge link [--name N] [--port 7430]                     be the home your devices pair and sync with
  *   forge version
  */
 import { readFileSync } from "node:fs";
@@ -99,6 +100,11 @@ async function main(): Promise<number> {
       console.log(`island online  ${address}\nisland id      ${identity.id}\nstop this process and the island leaves the network`);
       return await new Promise<number>(() => {});
     }
+    case "link": {
+      const { parseLinkArgs, runLinkHome } = await import("./link-node.ts");
+      await runLinkHome(parseLinkArgs(rest));
+      return await new Promise<number>(() => {});
+    }
     case "compute": {
       const { startComputeNode } = await import("./compute-node.ts");
       const { base } = await startComputeNode({
@@ -143,6 +149,7 @@ function usage(): number {
   forge script <script.ts>                                             gate it, then run it in an isolated worker
   forge island --name N --slug S [--port 7420] [--allow render,input]  host an island here
   forge compute --id ID [--port 7600] [--memory-mb 512] [--speed 1]    join pooled inference
+  forge link [--name N] [--port 7430] [--dir .forge]                   be the home your devices pair and sync with
   forge version`);
   return 2;
 }

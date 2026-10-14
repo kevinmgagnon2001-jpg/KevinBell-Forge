@@ -23,6 +23,7 @@ npm run cli:build        # the `forge` command-line tool -> bin/forge
 | `forge gate <script.ts>` / `forge script <script.ts>` | check or run a script in the sandbox |
 | `forge island` | host an island on this machine |
 | `forge compute` | offer this machine for pooled AI inference |
+| `forge link` | be the home your devices pair with and share one world through ([docs/LINKING.md](docs/LINKING.md)) |
 
 ## Where things are
 

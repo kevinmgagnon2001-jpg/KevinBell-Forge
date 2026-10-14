@@ -6,6 +6,8 @@ import { RESIDENT_MODELS, residentById } from "@/engine/resident-catalog";
 import { meteredConnection, residentCached } from "@/engine/resident";
 import { startPersist, useForge } from "@/engine/store";
 import { DropRunner, PortalWatcher } from "./Bridge";
+import { DevicesCard } from "./Devices";
+import { resumeLink } from "@/engine/link-browser";
 import type { Entity, ToolSchema } from "@/engine/types";
 import { FlatStage } from "./FlatStage";
 import { LookProvider, useLook } from "./look";
@@ -843,6 +845,7 @@ function ForgeShell() {
 
   useEffect(() => {
     startPersist();
+    void resumeLink();
     const boot = window.setTimeout(() => {
       void (async () => {
         const forge = useForge.getState();
@@ -887,6 +890,7 @@ function ForgeShell() {
         <div className="side-scroll">
           <ManifoldCard />
           <ModelCard />
+          <DevicesCard />
           <LibraryCard />
           <ToolCard />
         </div>
