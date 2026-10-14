@@ -8,7 +8,8 @@
  *   POST /portal/hello               a visitor's signed hello; answers with a signed welcome, or 403
  *   GET  /health                     liveness for portal probes
  *   GET  /island/content             the starting world (needs a session with "render"); its hash is in the manifest
- *   POST /island/sync                { view } -> what this visitor can see, changes only (needs "render")
+ *   POST /island/sync                { view, inputs? } -> what this visitor can see, changes only (needs "render");
+ *                                    with inputs (needs "input") the host walks the visitor and says where
  *
  * Options: --world world.json (a saved Forge world; default is the lab room), --tick 100 (simulate every N ms).
  *
@@ -21,6 +22,7 @@ import { join } from "node:path";
 import { encodeEntry, entryFromWorld, entryInfo, IslandHost, type View } from "../src/engine/island-content.ts";
 import { labWorld, stepWorld } from "../src/engine/manifold.ts";
 import type { World } from "../src/engine/types.ts";
+import type { MoveInput } from "../src/engine/prediction.ts";
 import {
   answerHello,
   b64url,
@@ -149,13 +151,13 @@ export async function startIsland(options: NodeOptions) {
         return;
       }
       if (req.method === "POST" && req.url === "/island/sync") {
-        let body: { view: View };
+        let body: { view: View; inputs?: MoveInput[] };
         try {
-          body = JSON.parse(await readBody(req)) as { view: View };
+          body = JSON.parse(await readBody(req)) as { view: View; inputs?: MoveInput[] };
         } catch {
           return send(res, 400, { ok: false, reason: "body is not JSON or is too large" });
         }
-        const reply = host.sync(bearer(req) ?? "", body.view);
+        const reply = host.sync(bearer(req) ?? "", body.view, body.inputs);
         return "error" in reply ? send(res, reply.status, { ok: false, reason: reply.error }) : send(res, 200, reply);
       }
       send(res, 404, { ok: false, reason: "not found" });

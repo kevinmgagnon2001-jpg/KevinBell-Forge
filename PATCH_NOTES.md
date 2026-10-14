@@ -369,3 +369,25 @@ Tests: `npm run test:engine` (130 pass), Rust guest tests (11 pass), `npm run te
 
 ## Still not done
 - Processes: fork/vfork (clone without CLONE_VM), exec, wait4, signals between threads (tgkill).
+
+## Client-side prediction (work item 13)
+Tests: `npm run test:engine` (137 pass; src/engine/prediction.test.ts).
+
+- src/engine/prediction.ts: one movement rule (`step`) that host and visitor both run, in the pilot's frame
+  and at its walking speed, with inputs clamped so bigger numbers do not mean faster walking. `HostMover`
+  applies each visitor input once, in order (repeats and stragglers ignored). `Predictor` moves the
+  visitor on the frame the key is pressed, resends every unacknowledged input with each packet, replays
+  them on top of each host reply, ignores replies that were overtaken, and glides away corrections
+  instead of snapping. `Interpolator` plays other players back 100 ms in the past, so uneven packets
+  still give smooth motion.
+- IslandHost.sync takes the visitor's inputs (needs "input") and walks the visitor itself, against walls
+  (entities tagged "wall" or "solid") only it may know about; the reply says the last input applied and
+  where that left the visitor. island-node.ts and syncIsland pass inputs through.
+- Measured in the test at 150 ms each way: the avatar moves on the same frame; with no walls the host
+  agrees exactly (largest correction 0) even with 25% packet loss and jitter; with a wall only the host
+  knows, the avatar never moves more than 0.25 m in one frame and ends where the host says. Two visitors
+  on one host each stay under their byte budget.
+
+## Still not done
+- The app does not keep a live sync running while visiting yet, so prediction is not on screen; hooking
+  the pilot to Predictor belongs with live visiting (work item 9).

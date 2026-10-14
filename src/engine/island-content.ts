@@ -15,6 +15,7 @@ import { canonical, normalizeAddress, sha256, type Capability, type IslandManife
 import { diff, selectForViewer, type Delta, type Known, type RepEntity, type Viewer } from "./replication.ts";
 import type { Entity, Vec3, World } from "./types.ts";
 import type { Tier } from "./hardware.ts";
+import { HostMover, type Blocker, type MoveInput, type MoveState } from "./prediction.ts";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -135,9 +136,32 @@ export type SyncReply = {
   leave: number[];
   bytes: number;
   dropped: number;
+  /** When the visitor sent inputs: the last one the host applied and where that left the visitor. */
+  you?: { ack: number; state: MoveState };
 };
 
-type Session = { visitorId: string; grant: Capability[]; expires: number; known: Known; view: View | null };
+/** Solid things a walker cannot pass: entities tagged "wall" or "solid", as boxes on the ground plane. */
+export function blockersOf(world: World): Blocker[] {
+  const out: Blocker[] = [];
+  for (const e of Object.values(world.entities)) {
+    if (!e.tags.includes("wall") && !e.tags.includes("solid")) continue;
+    const { position: p, scale: k } = e.transform;
+    out.push({ min: { x: p.x - k.x / 2, y: p.y - k.y / 2, z: p.z - k.z / 2 }, max: { x: p.x + k.x / 2, y: p.y + k.y / 2, z: p.z + k.z / 2 } });
+  }
+  return out;
+}
+
+/** Inputs as a visitor sends them: at most 256, each with a whole sequence number and finite numbers. */
+export function validInputs(value: unknown): value is MoveInput[] {
+  if (!Array.isArray(value) || value.length > 256) return false;
+  return value.every(
+    (i) =>
+      i && typeof i === "object" && Number.isInteger(i.seq) && i.seq > 0 &&
+      ["forward", "strafe", "turn", "dt"].every((k) => typeof i[k] === "number" && Number.isFinite(i[k])),
+  );
+}
+
+type Session = { visitorId: string; grant: Capability[]; expires: number; known: Known; view: View | null; mover: HostMover | null };
 
 function randomToken(): string {
   const raw = globalThis.crypto.getRandomValues(new Uint8Array(18));
@@ -174,7 +198,7 @@ export class IslandHost {
   open(visitorId: string, grant: Capability[], now = Date.now()): string {
     for (const [token, s] of this.sessions) if (s.expires < now) this.close(token);
     const token = randomToken();
-    this.sessions.set(token, { visitorId, grant, expires: now + this.ttlMs, known: new Map(), view: null });
+    this.sessions.set(token, { visitorId, grant, expires: now + this.ttlMs, known: new Map(), view: null, mover: null });
     return token;
   }
 
@@ -230,12 +254,25 @@ export class IslandHost {
     return PRESENCE_BASE + (h % 1_000_000);
   }
 
-  /** One sync round for one visitor. */
-  sync(token: string, view: View): SyncReply | { error: string; status: number } {
+  /**
+   * One sync round for one visitor. With `inputs` (needs "input"), the host walks the visitor itself:
+   * it applies each new input once with the same movement rule the visitor predicts with
+   * (prediction.ts), against the walls only it may know about, and answers with where that left them.
+   * The visitor's reported position is then only used to start from.
+   */
+  sync(token: string, view: View, inputs?: MoveInput[]): SyncReply | { error: string; status: number } {
     const s = this.session(token);
     if (!s) return { error: "no session (handshake again)", status: 401 };
     if (!s.grant.includes("render")) return { error: "render was not granted", status: 403 };
     if (!vec(view?.position) || !vec(view?.forward)) return { error: "view is malformed", status: 400 };
+    let you: SyncReply["you"];
+    if (inputs !== undefined) {
+      if (!s.grant.includes("input")) return { error: "input was not granted", status: 403 };
+      if (!validInputs(inputs)) return { error: "inputs are malformed", status: 400 };
+      s.mover ??= new HostMover({ position: view.position, yaw: 0 });
+      you = s.mover.apply(inputs, blockersOf(this.world));
+      view = { ...view, position: you.state.position };
+    }
     s.view = view;
     if (s.grant.includes("input")) {
       // Presence: the visitor appears to others as a read-only marker the host owns.
@@ -285,6 +322,7 @@ export class IslandHost {
       leave: delta.leave,
       bytes: selection.bytes,
       dropped: selection.dropped.length,
+      ...(you ? { you } : {}),
     };
   }
 }
