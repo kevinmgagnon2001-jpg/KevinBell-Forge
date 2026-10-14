@@ -317,11 +317,10 @@ Tests: `npm run test:engine` (127 pass), `rustc --edition 2021 --test src-tauri/
 - Fixtures checked against the real CPU, tree left behind included: fixtures/linux/mapio.c (raw system
   calls, x86-64 and AArch64) and libc-mapio.c (glibc: an mmap word count, a record table edited through a
   shared mapping, pread/pwrite, an atomic save by rename, renameat2, poll and select on a pipe).
-  build-arm.sh and the arm-oracle workflow now also build libc-mapio on ARM64.
+  libc-mapio was also built and recorded on ARM64 hardware by the arm-oracle workflow (libc-mapio.arm.*)
+  and matches there, through the engines and wasmtime.
 
 ## Still not done
-- libc-mapio has no ARM64 recording in fixtures/linux/ yet. The arm-oracle run on this push records one;
-  download its artifact and commit libc-mapio.arm.* to add it to the ARM64 tests.
 - A private mapping does not see later writes to pages it has not touched yet (Linux shares them until
   the first store). Two shared views of one file agree at every system call, not between two stores with
   no call in between.

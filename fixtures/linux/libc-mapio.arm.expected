@@ -1,0 +1,44 @@
+in.txt: 135 bytes, 4 lines, 26 words
+ftruncate: 0
+msync: 0
+pread record 3: dmitri 22
+offset untouched by pread/pwrite: 0
+mapping after pwrite: dmitri 99
+1. dmitri    99
+2. farah     96
+3. cleo      85
+4. eve       59
+5. brian     48
+6. ada       11
+log through mmap: entry 0: ada
+first bytes of the mapping still: entry 0
+save config: 0
+save again: 0
+config.txt:
+  | colour=green
+  | size=4
+config.txt.tmp left behind: 0
+rename missing: -1 errno 2
+move log into archive: 0
+renameat2 NOREPLACE: -1 errno 17
+renameat2 EXCHANGE: 0
+config.txt:
+  | entry 0: ada
+  | entry 1: brian
+  | entry 2: cleo
+  | entry 3: dmitri
+  | entry 4: eve
+archive/log-1.txt:
+  | colour=green
+  | size=4
+rename the directory: 0
+old/log-1.txt:
+  | colour=green
+  | size=4
+pwrite to a bad descriptor: -1 errno 9
+poll empty: 1 (0 4)
+poll after write: 2 (1 4)
+select: 1 readable 1
+pwrite to a pipe: -1 errno 29
+read: 5
+poll writer gone: 1 (16)

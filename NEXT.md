@@ -1,6 +1,6 @@
 # Pick up here
 
-State at the end of the last session (branch `ccr-35d6a362-2y91j1`; all work is committed and pushed, CI green).
+State at the end of the last session (branch `ccr-35d6a362-2y91j1`; all work is committed and pushed).
 History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status per item: `docs/handoff.html`, section 3.
 
 ## Where things stand
@@ -14,12 +14,15 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
   screenshots kept), Windows and macOS (not opened). Not code-signed. Guide: `docs/DESKTOP.md`.
 - **Linux programs:** static x86-64 and ARM64 programs, glibc included, match real hardware on every engine.
   `.github/workflows/arm-oracle.yml` is the ARM64 hardware oracle (builds `fixtures/linux/*.c` natively, records output,
-  compares Forge). Guest files (N7): files, directories, dup/fcntl, pipes.
+  compares Forge). Guest files (N7): files, directories, dup/fcntl, pipes, file-backed mmap (shared mappings kept
+  coherent with read/write at every system call), msync, ftruncate/truncate, pread/pwrite, rename/renameat2,
+  poll/select. Fixtures: `mapio.c` (raw system calls, both architectures), `libc-mapio.c` (glibc).
 
 ## Next, most important first
 
 1. Code-sign the installers (needs the owner's certificates as secrets), and open the Windows/macOS builds in CI if possible.
-2. Rest of N7: file-backed `mmap`, `rename`/`renameat2`, then poll/select. Hardware-check each with a fixture.
+2. N7 leftovers: symbolic links (symlink, readlink, lstat), then threads (clone with CLONE_VM, futex) and processes.
+   A private mapping does not yet see later writes to pages it has not touched (Linux shares them until the first store).
 3. Adjacency (work item 9) and replication over a real transport with client-side prediction (13).
 4. Portal test between two real machines (item 4): needs the owner's devices on one network.
 5. N8 (packed SSE float, AVX) and ARM ld2/ld3/ld4 when a real program needs them.
