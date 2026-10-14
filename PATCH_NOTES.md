@@ -668,3 +668,31 @@ and mountains around it, under a late-afternoon sky.
 - Reduced motion turns off the wind, drifting clouds and ripples.
 - Checked in Chromium (software GPU) at 1400x900 and 390x844: third person, bench and helm views;
   full, lite, min and off; no console errors. Not timed on a real phone yet.
+
+## Your phone as a thing you carry, and an on-screen controller
+- The phone (or computer) is no longer a screen fixed in the lab. It waits on its stand, floating and
+  turning in a beam of light. You pick it up into your pocket, pull it out to use your apps, put it
+  away, or drop it anywhere. If it is not with you, **Summon phone** flies it back to your hand in an
+  arc.
+  - src/engine/device-apps.ts: `customData.carry` (lying / pocket / out) and pure steps for each:
+    pickUp (within reach only), pullOut, putAway, drop, summonStep (the flight), carryAlong. Tested
+    in src/engine/device-carry.test.ts.
+  - pilot.tsx moves a carried phone with you, the same way it moves the helm. In your pocket it is
+    hidden; in your hand it is in front of you, screen towards you, and the crosshair ignores it.
+  - An older fixed screen in a saved world is replaced by the phone (`customData.model`).
+  - DeviceScreen.tsx: the apps sheet is open exactly while the phone is out. The sheet has Drop and
+    Put away. E picks up or pulls out; P pulls out from anywhere (summoning if needed).
+- On-screen controller (Viewport.tsx): an analog thumbstick replaces the four move buttons, so a half
+  push walks at half speed. There are Up and Down keys for flying, and one phone button that says what
+  it will do (Phone, Put away, Pick up phone, Summon phone). The Look pad and drag-to-look are
+  unchanged.
+- Game controllers (Gamepad API, pilot.tsx): left stick moves, right stick looks, A uses, the
+  triggers fly. A pad left idle does not hold the touch stick at zero.
+- Scenery on a software renderer (no GPU) is now off by default: even the light level took the frame
+  rate from 13 to 3 there. Real GPUs are unchanged. hardware.ts is tested (src/engine/hardware.test.ts).
+- Checked in Chromium at 1400x900 and 390x844 with `?apps=demo-phone`:
+  - summon from the start;
+  - pick up, pull out (the sheet opens), put away, drop, P to get it back, Escape to pocket it;
+  - a half push on the stick gives half speed (1.1 vs 2.7 m/s), and letting go stops you;
+  - no console errors.
+  Not tried with a real game controller or on a real phone yet.

@@ -25,6 +25,7 @@ export type HardwareProfile = {
 
 /** How much of the world around the lab to draw (Scenery.tsx). */
 export type SceneryLevel = "full" | "lite" | "min";
+export type SceneryChoice = SceneryLevel | "off";
 
 export type Quality = {
   dpr: [number, number];
@@ -32,7 +33,7 @@ export type Quality = {
   powerPreference: "high-performance" | "low-power" | "default";
   /** Sun shadows. */
   shadows: boolean;
-  scenery: SceneryLevel;
+  scenery: SceneryChoice;
 };
 
 const SOFTWARE_RENDERER = /swiftshader|llvmpipe|software|softpipe|microsoft basic render/i;
@@ -93,7 +94,9 @@ export function qualityFor(profile: HardwareProfile): Quality {
     case "mid":
       return { dpr: [1, 1.5], antialias: true, powerPreference: "default", shadows: true, scenery: "lite" };
     default:
-      return { dpr: [1, 1], antialias: false, powerPreference: "low-power", shadows: false, scenery: "min" };
+      // With no graphics chip at all (a software renderer) even the light scenery drops the frame rate
+      // several times over, so it keeps the plain lab.
+      return { dpr: [1, 1], antialias: false, powerPreference: "low-power", shadows: false, scenery: profile.software ? "off" : "min" };
   }
 }
 
@@ -108,7 +111,7 @@ export function softRenderRequested(): boolean {
 }
 
 /** ?scenery=full|lite|min|off picks how much of the world around the lab to draw, whatever the hardware. */
-export function sceneryRequested(): SceneryLevel | "off" | null {
+export function sceneryRequested(): SceneryChoice | null {
   if (typeof window === "undefined") return null;
   try {
     const flag = new URLSearchParams(window.location.search).get("scenery");

@@ -63,7 +63,7 @@ const FOG_FAR = 340;
 const COUNTS: Record<SceneryLevel, { land: number; pines: number; leafy: number; rocks: number; grass: number; flowers: number; clouds: number; motes: number; shadowMap: number }> = {
   full: { land: 220, pines: 520, leafy: 260, rocks: 150, grass: 16000, flowers: 1100, clouds: 16, motes: 220, shadowMap: 2048 },
   lite: { land: 150, pines: 300, leafy: 150, rocks: 90, grass: 6500, flowers: 450, clouds: 10, motes: 110, shadowMap: 1024 },
-  min: { land: 96, pines: 150, leafy: 70, rocks: 40, grass: 0, flowers: 0, clouds: 6, motes: 0, shadowMap: 512 },
+  min: { land: 64, pines: 80, leafy: 36, rocks: 20, grass: 0, flowers: 0, clouds: 4, motes: 0, shadowMap: 512 },
 };
 
 const ignoreRays = () => {};
@@ -397,7 +397,7 @@ function blob(radius: number, detail: number): BufferGeometry {
 
 function leafyGeometry(): BufferGeometry {
   const trunk = paint(new CylinderGeometry(0.13, 0.22, 2.0, 7).translate(0, 1.0, 0), "#6a4a35", 0.15, 4);
-  const crown = lumpy(blob(1.35, 3).translate(0, 2.75, 0), 0.22, 1.4, 5);
+  const crown = lumpy(blob(1.35, 2).translate(0, 2.75, 0), 0.22, 1.4, 5);
   const side = lumpy(blob(0.95, 2).translate(0.7, 2.25, 0.35), 0.2, 1.6, 9);
   const top = lumpy(blob(0.85, 2).translate(-0.45, 3.45, -0.2), 0.2, 1.7, 13);
   const merged = mergeGeometries([trunk, paint(crown, "#4f7d32", 0.25, 6), paint(side, "#5b8a38", 0.25, 7), paint(top, "#6a9a3f", 0.25, 8)]);

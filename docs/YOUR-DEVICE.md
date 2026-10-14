@@ -7,16 +7,32 @@ because Forge keeps its state. Nothing of your phone or computer is lost by livi
 
 ## Using it
 
-- **Get to it:** the screen stands a few steps ahead and to the right of where you start. When you
-  are close, **Use your phone** (or **Use your computer**) appears. Tap it or press **E**. Tapping the
-  screen itself works too.
-- **Open an app:** search, then tap the app (or press Enter for the first match).
+Your phone (or computer) is a thing you carry in Forge.
+
+- **Find it:** it waits on its stand a few steps ahead and to the right of where you start, floating
+  and turning in a beam of light.
+- **Pick it up:** walk up to it and tap **Pick up your phone** (or press **E**, or tap the phone). It
+  goes in your pocket.
+- **Use it:** tap **Phone** on the controller (or press **E** or **P**, or **A** on a game controller).
+  You pull it out and your apps are on it. Search, then tap an app (or press Enter for the first
+  match).
   - On a computer, Forge minimizes itself.
   - On a phone, Forge goes to the background.
-- **Coming back:** open Forge again from the taskbar, dock or recent apps.
-- **From anywhere:** the **Phone** (or **Computer**) button above **Find room** opens your apps
-  without walking to the screen. If the screen is ever gone (after Reset or the lab tour, say),
-  Forge puts it back.
+- **Put it away:** **Put away** (or Escape) puts it back in your pocket.
+- **Drop it:** **Drop** leaves it floating where you stand, beam and all.
+- **Lost it?** When it is not with you, the controller's button says **Summon phone**: it flies back
+  to your hand from wherever it is. After Reset or the lab tour it is back on its stand.
+- **Coming back from an app:** open Forge again from the taskbar, dock or recent apps.
+
+## The controller
+
+- **Move:** the stick on the left. Push further to go faster. Sideways turns you (third person) or
+  steps sideways (helm).
+- **Up / Down:** fly up and down.
+- **Look:** drag the **Look** pad, or drag the view itself, for fine aiming.
+- **Keyboard:** W A S D or the arrows, Space and C, E to pick up or use.
+- **Game controller:** left stick moves, right stick looks, A picks up or uses, the triggers fly up and
+  down.
 
 ## Forge as your phone's home screen (Android)
 
@@ -41,8 +57,8 @@ over after the update). Pressing Home now brings back the Forge that is already 
 - **Android:** every app with a launcher icon, with its icon.
 - **Only what's listed:** Forge opens only apps from those lists, so nothing the page asks for can
   start an arbitrary program.
-- **Browser tab:** the web version has no apps to open, so the screen does not appear. Add `?apps=demo`
-  to the address to try the screen with a made-up list.
+- **Browser tab:** the web version has no apps to open, so there is no phone in the world. Add
+  `?apps=demo-phone` (or `?apps=demo` for a computer) to the address to try it with a made-up list.
 - **iPhone:** Apple does not let apps list or open other apps this way, or replace the home screen.
 - **Not yet:** a live picture of your real screen on the screen in the world, and using apps without
   leaving Forge. Desktop first, with your permission.

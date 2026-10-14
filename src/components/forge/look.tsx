@@ -21,6 +21,15 @@ export function faceLook(yaw: number, pitch: number) {
 /** Held keys. The keyboard and the visor buttons write here. Tests replace the set. */
 export const pilotKeys = new Set<string>();
 
+/**
+ * The on-screen thumbstick (or a gamepad's left stick): x right, y forward, each -1..1. Added to
+ * the keys, so a half push walks at half speed.
+ */
+export const pilotStick = { x: 0, y: 0 };
+
+/** "Use" from the controller (E, the gamepad's A): pick up the phone, or pull it out. */
+export const INTERACT_EVENT = "forge:interact";
+
 export let pilotSpeed = 0;
 
 export function setPilotSpeed(speed: number) {

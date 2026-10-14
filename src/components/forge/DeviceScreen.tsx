@@ -1,10 +1,11 @@
 /**
- * The screen in the world that opens onto this phone or computer (device-apps.ts). Walk up to it
- * (or tap it) and your real apps are on it; open one and Forge steps aside. Come back to Forge any
- * time and you are where you were.
+ * Your phone (or computer) as a thing you carry in the world (device-apps.ts). Walk up to it and
+ * pick it up; pull it out and your real apps are on it; open one and Forge steps aside. Drop it
+ * anywhere, and summon it back to your hand when it is lost.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { countApps, deviceKind, ensureScreen, homeState, listApps, openApp, OPEN_DEVICE_EVENT, SCREEN_REACH, SCREEN_TAG, setHome, type DeviceApp, type DeviceKind, type HomeState } from "@/engine/device-apps";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { carryOf, countApps, deviceDistance, deviceKind, deviceOf, drop, ensureScreen, FLIGHT_MS, homeState, listApps, openApp, OPEN_DEVICE_EVENT, pickUp, pullOut, putAway, SCREEN_REACH, SCREEN_TAG, setHome, summonStep, type Carry, type DeviceApp, type DeviceKind, type HomeState } from "@/engine/device-apps";
+import { INTERACT_EVENT } from "./look";
 import { useForge } from "@/engine/store";
 
 const say = (body: string) => useForge.getState().note([{ tone: "engine", title: "Device", body }]);
@@ -50,7 +51,7 @@ function HomeRow() {
   );
 }
 
-function AppsSheet({ kind, onClose }: { kind: DeviceKind; onClose: () => void }) {
+function AppsSheet({ kind, onClose, onDrop }: { kind: DeviceKind; onClose: () => void; onDrop: () => void }) {
   const [apps, setApps] = useState<DeviceApp[] | null>(null);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -99,9 +100,14 @@ function AppsSheet({ kind, onClose }: { kind: DeviceKind; onClose: () => void })
             <h2>{kind === "phone" ? "Your phone" : "Your computer"}</h2>
             <p>Open an app and Forge steps aside. Come back to Forge any time; you will be right here.</p>
           </div>
-          <button type="button" className="btn btn-ghost" onClick={onClose} aria-label="Close">
-            Close
-          </button>
+          <div className="device-head-actions">
+            <button type="button" className="btn btn-ghost" onClick={onDrop}>
+              Drop
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={onClose}>
+              Put away
+            </button>
+          </div>
         </header>
         <input
           ref={search}
@@ -139,14 +145,81 @@ function AppsSheet({ kind, onClose }: { kind: DeviceKind; onClose: () => void })
   );
 }
 
+let flying = false;
+
+/** Fly the device back to your hand from wherever it is (device-apps.ts summonStep). */
+function summon(kind: DeviceKind) {
+  const device = deviceOf(useForge.getState());
+  if (!device || flying) return;
+  if (carryOf(device) !== "lying") return;
+  flying = true;
+  const from = { ...device.transform.position };
+  const start = performance.now();
+  const step = (now: number) => {
+    const t = (now - start) / FLIGHT_MS;
+    useForge.setState((s) => summonStep(s, from, t));
+    if (t < 1) requestAnimationFrame(step);
+    else {
+      flying = false;
+      say(`Your ${kind} flew back to your hand.`);
+    }
+  };
+  requestAnimationFrame(step);
+}
+
+/** The one thing to do with the device right now: pick it up, pull it out, put it away, or summon it. */
+function interact(kind: DeviceKind, near: boolean) {
+  const s = useForge.getState();
+  const carry = carryOf(deviceOf(s));
+  if (carry === "out") useForge.setState(putAway);
+  else if (carry === "pocket") useForge.setState(pullOut);
+  else if (near) useForge.setState((now) => pullOut(pickUp(now)));
+  else summon(kind);
+}
+
+type DeviceStatus = { kind: DeviceKind; carry: Carry; near: boolean } | null;
+
+const statusListeners = new Set<() => void>();
+let status: DeviceStatus = null;
+function setStatus(next: DeviceStatus) {
+  if (status?.kind === next?.kind && status?.carry === next?.carry && status?.near === next?.near) return;
+  status = next;
+  statusListeners.forEach((notify) => notify());
+}
+function useDeviceStatus(): DeviceStatus {
+  return useSyncExternalStore(
+    (notify) => {
+      statusListeners.add(notify);
+      return () => statusListeners.delete(notify);
+    },
+    () => status,
+    () => null,
+  );
+}
+
+/**
+ * The phone's button on the on-screen controller: Phone (pull it out), Put away, Pick up when you
+ * are next to it, or Summon phone when it is somewhere else.
+ */
+export function DeviceButton({ className }: { className?: string }) {
+  const now = useDeviceStatus();
+  if (!now) return null;
+  const name = now.kind === "phone" ? "phone" : "computer";
+  const label = now.carry === "out" ? "Put away" : now.carry === "pocket" ? (now.kind === "phone" ? "Phone" : "Computer") : now.near ? `Pick up ${name}` : `Summon ${name}`;
+  return (
+    <button type="button" className={`${className ?? ""} ${now.carry === "lying" && !now.near ? "is-summon" : ""}`} onClick={() => interact(now.kind, now.near)}>
+      {label}
+    </button>
+  );
+}
+
 export function DeviceScreen() {
   const [kind, setKind] = useState<DeviceKind | null>(null);
-  const [near, setNear] = useState(false);
-  const [open, setOpen] = useState(false);
-  const selectedId = useForge((s) => s.selectedId);
+  const carry = useForge((s) => carryOf(deviceOf(s)));
+  const near = useForge((s) => deviceDistance(s) < SCREEN_REACH);
   const selectedIsScreen = useForge((s) => (s.selectedId == null ? false : !!s.entities[s.selectedId]?.tags.includes(SCREEN_TAG)));
 
-  // Put this device's screen in the world, once we know what device this is.
+  // Put this device in the world, once we know what device this is.
   useEffect(() => {
     const found = deviceKind();
     setKind(found);
@@ -157,71 +230,78 @@ export function DeviceScreen() {
   }, []);
 
   // Keep it in the world: Reset, the lab tour, undo or a delete can rebuild the room without it.
+  // Then it is back on its stand.
   useEffect(() => {
     if (!kind) return;
     return useForge.subscribe((s) => {
-      if (!Object.values(s.entities).some((e) => e.tags.includes(SCREEN_TAG))) useForge.setState((now) => ensureScreen(now, kind));
+      if (!deviceOf(s)) useForge.setState((now) => ensureScreen(now, kind));
     });
   }, [kind]);
 
-  // The Phone / Computer button by the move keys opens it from anywhere.
+  useEffect(() => {
+    setStatus(kind ? { kind, carry, near } : null);
+  }, [kind, carry, near]);
+  useEffect(() => () => setStatus(null), []);
+
+  // The old Phone button, and anything else that asks for the device: bring it out, whatever it takes.
   useEffect(() => {
     if (!kind) return;
-    const show = () => setOpen(true);
+    const show = () => {
+      const c = carryOf(deviceOf(useForge.getState()));
+      if (c !== "out") interact(kind, deviceDistance(useForge.getState()) < SCREEN_REACH);
+    };
+    const use = () => interact(kind, deviceDistance(useForge.getState()) < SCREEN_REACH);
     window.addEventListener(OPEN_DEVICE_EVENT, show);
-    return () => window.removeEventListener(OPEN_DEVICE_EVENT, show);
+    window.addEventListener(INTERACT_EVENT, use);
+    return () => {
+      window.removeEventListener(OPEN_DEVICE_EVENT, show);
+      window.removeEventListener(INTERACT_EVENT, use);
+    };
   }, [kind]);
 
-  // Close enough to use it?
+  // Tapping it: pick it up and use it when you are next to it; otherwise say how to get it.
+  useEffect(() => {
+    if (!kind || !selectedIsScreen) return;
+    const s = useForge.getState();
+    s.select(null);
+    if (carryOf(deviceOf(s)) !== "lying") return;
+    if (deviceDistance(s) < SCREEN_REACH) interact(kind, true);
+    else say(`Your ${kind} is over there. Walk up to it to pick it up, or press Summon ${kind}.`);
+  }, [kind, selectedIsScreen]);
+
+  // E: pick it up, pull it out, put it away (P too, from anywhere).
   useEffect(() => {
     if (!kind) return;
-    const timer = window.setInterval(() => {
-      const s = useForge.getState();
-      const all = Object.values(s.entities);
-      const me = all.find((e) => e.tags.includes("architect"));
-      const screen = all.find((e) => e.tags.includes(SCREEN_TAG));
-      if (!me || !screen) return setNear(false);
-      const a = me.transform.position;
-      const b = screen.transform.position;
-      setNear(Math.hypot(a.x - b.x, a.z - b.z) < SCREEN_REACH);
-    }, 250);
-    return () => window.clearInterval(timer);
-  }, [kind]);
-
-  // Tapping the screen opens it.
-  useEffect(() => {
-    if (selectedIsScreen) setOpen(true);
-  }, [selectedIsScreen, selectedId]);
-
-  // E opens it when you are near.
-  useEffect(() => {
-    if (!kind || !near) return;
     const onKey = (event: KeyboardEvent) => {
       const tag = (event.target as HTMLElement | null)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || event.code !== "KeyE" || open) return;
-      // Keep the E itself out of the search box that opens with the screen.
-      event.preventDefault();
-      setOpen(true);
+      if (tag === "INPUT" || tag === "TEXTAREA" || event.repeat) return;
+      const c = carryOf(deviceOf(useForge.getState()));
+      const close = deviceDistance(useForge.getState()) < SCREEN_REACH;
+      if (event.code === "KeyP" || (event.code === "KeyE" && (c !== "lying" || close))) {
+        // Keep the key itself out of the search box that opens with the apps.
+        event.preventDefault();
+        interact(kind, close);
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [kind, near, open]);
+  }, [kind]);
 
-  const close = useCallback(() => {
-    setOpen(false);
-    const s = useForge.getState();
-    if (s.selectedId != null && s.entities[s.selectedId]?.tags.includes(SCREEN_TAG)) s.select(null);
+  const close = useCallback(() => useForge.setState(putAway), []);
+  const leave = useCallback(() => {
+    useForge.setState(drop);
+    say("Left it here. Summon it back any time.");
   }, []);
 
   if (!kind) return null;
   return (
     <>
-      {near && !open ? (
-        <button type="button" className="device-prompt" onClick={() => setOpen(true)}>
-          Use your {kind} <kbd>E</kbd>
+      {near && carry === "lying" ? (
+        <button type="button" className="device-prompt" onClick={() => interact(kind, true)}>
+          Pick up your {kind} <kbd>E</kbd>
         </button>
       ) : null}
-      {open ? <AppsSheet kind={kind} onClose={close} /> : null}
+      {carry === "out" ? <AppsSheet kind={kind} onClose={close} onDrop={leave} /> : null}
     </>
   );
 }
