@@ -78,6 +78,18 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
      is checked by fixtures before anything runs.
   Only open-weight models can be pooled. Personal requests stay on your own devices.
 
+  Sizing, for planning (flagship phones, top memory tier):
+  - Phones share one memory between processor and graphics (no separate VRAM). Of 16–24 GB, a model can count on
+    about 12–16 GB per phone; Android keeps the rest and kills apps that take too much.
+  - Ten such phones: about 240 GB on paper, 120–160 GB usable. That holds a 70B model at 4-bit (~40 GB) with room to
+    spare, or a ~200B-class model at 4-bit. The largest open frontier models (600B+, ~350–400 GB at 4-bit) need about
+    25–30 phones, which is a classroom.
+  - Prefer mixture-of-experts models. A dense model makes every phone read its whole slice for every token, one phone
+    after another: ten phones is roughly 2 s per token. A mixture-of-experts model reads only its active experts, so
+    the same room gets a few tokens per second.
+  - Plan for heat (throttling after minutes at full load), power (plugged in), and dropouts (keep spare phones holding
+    a copy of each slice so the chain does not stall when one leaves).
+
 ## How to work here
 
 - Checks before every push: `npm run lint`, `npm run typecheck`, `npm run test:engine`.
