@@ -5,10 +5,31 @@
  * (immediate, shifted, extended), logical (immediate and shifted), bitfield moves, mul/div/mulh,
  * conditional select and compare, every branch form, loads and stores (unsigned offset, unscaled,
  * pre/post-index, register offset, literal, pairs), adr/adrp, svc and the hint space.
- * SIMD/FP, exclusives, atomics and system registers are gaps. Encodings follow the Arm ARM (DDI 0487).
+ * Also: SIMD/FP loads and stores of every size, the Advanced SIMD and scalar floating-point
+ * instructions glibc's baseline code uses (arm-simd.ts), exclusive and ordered loads and stores (one
+ * thread, so a store-exclusive always succeeds), and the system registers a program may read
+ * (tpidr_el0, fpcr/fpsr, dczid_el0, ctr_el0, the counter). LSE atomics, SVE, MTE and SME are gaps:
+ * the guest is told it has FP and Advanced SIMD only (AT_HWCAP), so libc never selects them.
+ * Encodings follow the Arm ARM (DDI 0487).
  */
-import { imm, M64, mask, reg, SINK, T0, T1, T2, u64, type Cond, type Ea, type Insn, type Op, type Src, type W } from "./ir.ts";
+
+/** ARM vector register n (v0..v31) as a vector number for XMM(): 0..15, then 17..32 (16 is the temp). */
+export const V = (n: number) => (n < 16 ? n : n + 1);
+
+/** System registers a program may read, by their MRS encoding (op0:op1:CRn:CRm:op2). */
+const SYSREG = {
+  tpidr: 0xde82,
+  fpcr: 0xda20,
+  fpsr: 0xda21,
+  dczid: 0xd807,
+  ctr: 0xd801,
+  cntvct: 0xdf02,
+  cntfrq: 0xdf00,
+  midr: 0xc000,
+} as const;
+import { imm, M64, mask, reg, SINK, T0, T1, T2, T3, TP, u64, XMM, type Cond, type Ea, type Insn, type Op, type Src, type W } from "./ir.ts";
 import type { Decoded, Fetch } from "./x86.ts";
+import { decodeSimd } from "./arm-simd.ts";
 
 const SP = 31;
 const LR = 30;
@@ -88,6 +109,30 @@ export function decodeArm(fetch: Fetch, pc: bigint): Decoded {
       out = reg(tmp);
     }
     return out;
+  };
+
+  /**
+   * SIMD/FP register vt loaded from or stored to ea, `size` bytes (1..16). A load writes the low
+   * bytes and clears the rest of the 128-bit register, as on the CPU.
+   */
+  const vload = (vt: number, ea: Ea, size: number) => {
+    const lo = XMM(V(vt));
+    if (size === 16) {
+      ops.push({ k: "lea", d: T3, ea, w: 64 });
+      ops.push({ k: "load", d: lo, ea: { base: T3, index: null, scale: 1, disp: 0n }, size: 8, signed: false, w: 64 });
+      ops.push({ k: "load", d: lo + 1, ea: { base: T3, index: null, scale: 1, disp: 8n }, size: 8, signed: false, w: 64 });
+    } else {
+      ops.push({ k: "load", d: lo, ea, size: size as 1 | 2 | 4 | 8, signed: false, w: 64 });
+      ops.push({ k: "mov", d: lo + 1, s: imm(0), w: 64 });
+    }
+  };
+  const vstore = (vt: number, ea: Ea, size: number) => {
+    const lo = XMM(V(vt));
+    if (size === 16) {
+      ops.push({ k: "lea", d: T3, ea, w: 64 });
+      ops.push({ k: "store", s: reg(lo), ea: { base: T3, index: null, scale: 1, disp: 0n }, size: 8 });
+      ops.push({ k: "store", s: reg(lo + 1), ea: { base: T3, index: null, scale: 1, disp: 8n }, size: 8 });
+    } else ops.push({ k: "store", s: reg(lo), ea, size: size as 1 | 2 | 4 | 8 });
   };
 
   // ---------- hints, barriers, system ----------
@@ -249,9 +294,21 @@ export function decodeArm(fetch: Fetch, pc: bigint): Decoded {
   }
   if ((word & 0x1f800000) >>> 0 === 0x13800000) {
     // extr; ror (immediate) is extr with rn == rm
-    if (rn !== rm) return fail("extr with two sources is not in the map");
-    text = "ror";
-    ops.push({ k: "alu", op: "ror", d: D(rd), a: R(rn), b: imm(bits(word, 15, 10)), w: W_, f: "none" });
+    const lsb = bits(word, 15, 10);
+    if (((word >>> 22) & 1) !== sf || (!sf && lsb > 31)) return fail("invalid extr");
+    if (rn === rm) {
+      text = "ror";
+      ops.push({ k: "alu", op: "ror", d: D(rd), a: R(rn), b: imm(lsb), w: W_, f: "none" });
+      return done();
+    }
+    text = "extr";
+    if (lsb === 0) ops.push({ k: "mov", d: D(rd), s: R(rm), w: W_ });
+    else {
+      // (rn:rm) >> lsb, the low W bits
+      ops.push({ k: "alu", op: "shr", d: T0, a: R(rm), b: imm(lsb), w: W_, f: "none" });
+      ops.push({ k: "alu", op: "shl", d: T1, a: R(rn), b: imm(W_ - lsb), w: W_, f: "none" });
+      ops.push({ k: "alu", op: "or", d: D(rd), a: reg(T0), b: reg(T1), w: W_, f: "none" });
+    }
     return done();
   }
 
@@ -320,6 +377,74 @@ export function decodeArm(fetch: Fetch, pc: bigint): Decoded {
     }
     return fail("3-source op is not in the map");
   }
+  if ((word & 0x7fff0000) >>> 0 === 0x5ac00000) {
+    // rbit, rev16, rev32/rev, clz, cls
+    const opcode = bits(word, 15, 10);
+    const src = R(rn);
+    const d = D(rd);
+    const swapBytes = (from: Src, n: number, into: number) => {
+      // reverse the bytes of each n-byte group of `from` into register `into`
+      ops.push({ k: "mov", d: into, s: imm(0), w: 64 });
+      for (let i = 0; i < W_ / 8; i += 1) {
+        const group = Math.floor(i / n) * n;
+        const to = group + (n - 1 - (i - group));
+        ops.push({ k: "alu", op: "shr", d: T1, a: from, b: imm(8 * i), w: 64, f: "none" });
+        ops.push({ k: "alu", op: "and", d: T1, a: reg(T1), b: imm(0xff), w: 64, f: "none" });
+        if (to) ops.push({ k: "alu", op: "shl", d: T1, a: reg(T1), b: imm(8 * to), w: 64, f: "none" });
+        ops.push({ k: "alu", op: "or", d: into, a: reg(into), b: reg(T1), w: 64, f: "none" });
+      }
+    };
+    if (opcode === 0) {
+      text = "rbit";
+      ops.push({ k: "mov", d: T0, s: imm(0), w: 64 });
+      ops.push({ k: "mov", d: T2, s: src, w: 64 });
+      for (let i = 0; i < W_; i += 1) {
+        ops.push({ k: "alu", op: "shr", d: T1, a: reg(T2), b: imm(i), w: 64, f: "none" });
+        ops.push({ k: "alu", op: "and", d: T1, a: reg(T1), b: imm(1), w: 64, f: "none" });
+        ops.push({ k: "alu", op: "shl", d: T1, a: reg(T1), b: imm(W_ - 1 - i), w: 64, f: "none" });
+        ops.push({ k: "alu", op: "or", d: T0, a: reg(T0), b: reg(T1), w: 64, f: "none" });
+      }
+      ops.push({ k: "mov", d, s: reg(T0), w: W_ });
+    } else if (opcode === 1 || opcode === 2 || (opcode === 3 && sf)) {
+      const n = opcode === 1 ? 2 : opcode === 2 ? 4 : 8;
+      text = opcode === 1 ? "rev16" : opcode === 2 && sf ? "rev32" : "rev";
+      ops.push({ k: "mov", d: T2, s: src, w: W_ });
+      swapBytes(reg(T2), Math.min(n, W_ / 8), T0);
+      ops.push({ k: "mov", d, s: reg(T0), w: W_ });
+    } else if (opcode === 4) {
+      text = "clz";
+      ops.push({ k: "alu", op: "clz", d, a: src, b: imm(0), w: W_, f: "none" });
+    } else if (opcode === 5) {
+      // cls: bits after the sign bit that equal it = clz((x ^ (x << 1)) | 1)
+      text = "cls";
+      ops.push({ k: "alu", op: "shl", d: T0, a: src, b: imm(1), w: W_, f: "none" });
+      ops.push({ k: "alu", op: "xor", d: T0, a: reg(T0), b: src, w: W_, f: "none" });
+      ops.push({ k: "alu", op: "or", d: T0, a: reg(T0), b: imm(1), w: W_, f: "none" });
+      ops.push({ k: "alu", op: "clz", d, a: reg(T0), b: imm(0), w: W_, f: "none" });
+    } else return fail("1-source op is not in the map");
+    return done();
+  }
+  if ((word & 0x1fe0fc00) >>> 0 === 0x1a000000) {
+    // adc, adcs, sbc, sbcs. The guest IR keeps the x86 carry, so ARM's carry (C xor K) is moved in first.
+    const sub = ((word >>> 30) & 1) === 1;
+    const setf = ((word >>> 29) & 1) === 1;
+    text = `${sub ? "sbc" : "adc"}${setf ? "s" : ""}`;
+    if (setf) {
+      ops.push({ k: "set", d: T3, c: sub ? "cc" : "cs", w: 64 }); // carry in as x86 wants it: borrow for sbb
+      ops.push({ k: "setflag", flag: "c", v: reg(T3), bit: 0, when: null });
+      ops.push({ k: "alu", op: sub ? "sbb" : "adc", d: D(rd), a: R(rn), b: R(rm), w: W_, f: "arith" });
+    } else {
+      ops.push({ k: "set", d: T3, c: "cs", w: 64 });
+      let b = R(rm);
+      if (sub) {
+        ops.push({ k: "alu", op: "xor", d: T0, a: b, b: imm(-1), w: W_, f: "none" });
+        b = reg(T0);
+      }
+      ops.push({ k: "alu", op: "add", d: T1, a: R(rn), b, w: W_, f: "none" });
+      ops.push({ k: "alu", op: "add", d: D(rd), a: reg(T1), b: reg(T3), w: W_, f: "none" });
+    }
+    return done();
+  }
   if ((word & 0x7fe00000) >>> 0 === 0x1ac00000) {
     const opcode = bits(word, 15, 10);
     const table: Record<number, "udiv" | "sdiv" | "shl" | "shr" | "sar" | "ror"> = { 2: "udiv", 3: "sdiv", 8: "shl", 9: "shr", 10: "sar", 11: "ror" };
@@ -354,10 +479,15 @@ export function decodeArm(fetch: Fetch, pc: bigint): Decoded {
   // ---------- loads and stores ----------
   if ((word & 0x3b000000) >>> 0 === 0x18000000) {
     // literal
-    if ((word >>> 26) & 1) return fail("SIMD/FP literal load is not in the map");
     const opc = word >>> 30;
     const addr = u64(pc + BigInt(sext(bits(word, 23, 5), 19) * 4));
     const ea: Ea = { base: null, index: null, scale: 1, disp: addr };
+    if ((word >>> 26) & 1) {
+      if (opc === 3) return fail("invalid SIMD/FP literal load");
+      text = "ldr";
+      vload(rd, ea, [4, 8, 16][opc]);
+      return done();
+    }
     text = "ldr";
     if (opc === 0) ops.push({ k: "load", d: D(rd), ea, size: 4, signed: false, w: 64 });
     else if (opc === 1) ops.push({ k: "load", d: D(rd), ea, size: 8, signed: false, w: 64 });
@@ -367,10 +497,29 @@ export function decodeArm(fetch: Fetch, pc: bigint): Decoded {
   }
   if ((word & 0x3a000000) >>> 0 === 0x28000000) {
     // load/store pair
-    if ((word >>> 26) & 1) return fail("SIMD/FP pair is not in the map");
     const opc = word >>> 30;
     const mode = bits(word, 24, 23); // 0 non-temporal, 1 post, 2 offset, 3 pre
     const load = ((word >>> 22) & 1) === 1;
+    if ((word >>> 26) & 1) {
+      if (opc === 3) return fail("invalid SIMD/FP pair");
+      const size = [4, 8, 16][opc];
+      const off = BigInt(sext(bits(word, 21, 15), 7) * size);
+      const rt2 = bits(word, 14, 10);
+      const base = rn === 31 ? SP : rn;
+      text = load ? "ldp" : "stp";
+      ops.push({ k: "lea", d: T2, ea: { base, index: null, scale: 1, disp: mode === 1 ? 0n : u64(off) }, w: 64 });
+      const at = (k: number): Ea => ({ base: T2, index: null, scale: 1, disp: BigInt(k * size) });
+      if (load) {
+        vload(rd, at(0), size);
+        vload(rt2, at(1), size);
+      } else {
+        vstore(rd, at(0), size);
+        vstore(rt2, at(1), size);
+      }
+      if (mode === 1) ops.push({ k: "alu", op: "add", d: base, a: reg(base), b: imm(off), w: 64, f: "none" });
+      if (mode === 3) ops.push({ k: "mov", d: base, s: reg(T2), w: 64 });
+      return done();
+    }
     if (opc === 3 || (opc === 1 && !load)) return fail("invalid pair");
     const size = (opc === 2 ? 8 : 4) as 4 | 8;
     const off = BigInt(sext(bits(word, 21, 15), 7) * size);
@@ -397,10 +546,12 @@ export function decodeArm(fetch: Fetch, pc: bigint): Decoded {
     return done();
   }
   if ((word & 0x3b000000) >>> 0 === 0x39000000 || (word & 0x3b200000) >>> 0 === 0x38000000 || (word & 0x3b200c00) >>> 0 === 0x38200800) {
-    if ((word >>> 26) & 1) return fail("SIMD/FP load/store is not in the map");
-    const sizeLog = word >>> 30;
-    const size = (1 << sizeLog) as 1 | 2 | 4 | 8;
+    const simd = ((word >>> 26) & 1) === 1;
     const opc = bits(word, 23, 22);
+    // SIMD/FP: size 0 with opc<1> set is a 128-bit q register; otherwise 1 << size bytes.
+    const sizeLog = simd && word >>> 30 === 0 && opc & 2 ? 4 : word >>> 30;
+    if (simd && sizeLog !== 4 && opc & 2) return fail("invalid SIMD/FP load/store");
+    const size = (1 << sizeLog) as 1 | 2 | 4 | 8;
     const base = rn === 31 ? SP : rn;
     const unsignedOff = (word & 0x3b000000) >>> 0 === 0x39000000;
     const regOff = !unsignedOff && (word & 0x3b200c00) >>> 0 === 0x38200800;
@@ -413,7 +564,10 @@ export function decodeArm(fetch: Fetch, pc: bigint): Decoded {
       const s = (word >>> 12) & 1;
       const idx = option === 3 || option === 7 ? R(rm) : extended(R(rm), option, 0, T1);
       if (!("r" in idx)) ea = { base, index: null, scale: 1, disp: 0n };
-      else ea = { base, index: idx.r, scale: (s ? size : 1) as 1 | 2 | 4 | 8, disp: 0n };
+      else if (s && sizeLog === 4) {
+        ops.push({ k: "alu", op: "shl", d: T1, a: idx, b: imm(4), w: 64, f: "none" });
+        ea = { base, index: T1, scale: 1, disp: 0n };
+      } else ea = { base, index: idx.r, scale: (s ? size : 1) as 1 | 2 | 4 | 8, disp: 0n };
     } else {
       const imm9 = BigInt(sext(bits(word, 20, 12), 9));
       const mode = bits(word, 11, 10);
@@ -424,6 +578,17 @@ export function decodeArm(fetch: Fetch, pc: bigint): Decoded {
     if (writeback) {
       ops.push({ k: "lea", d: T2, ea, w: 64 });
       ea = { base: T2, index: null, scale: 1, disp: 0n };
+    }
+    if (simd) {
+      const load = (opc & 1) === 1;
+      text = load ? "ldr" : "str";
+      if (load) vload(rd, ea, 1 << sizeLog);
+      else vstore(rd, ea, 1 << sizeLog);
+      if (writeback) {
+        if (writeback.mode === "pre") ops.push({ k: "mov", d: base, s: reg(T2), w: 64 });
+        else ops.push({ k: "alu", op: "add", d: base, a: reg(base), b: imm(writeback.off), w: 64, f: "none" });
+      }
+      return done();
     }
     if (opc === 0) {
       text = "str";
@@ -452,8 +617,78 @@ export function decodeArm(fetch: Fetch, pc: bigint): Decoded {
     return done();
   }
 
-  if ((word & 0x3f000000) >>> 0 === 0x08000000) return fail("exclusive/atomic access is not in the map");
-  if ((word & 0x0e000000) >>> 0 === 0x0e000000 || (word & 0x0e000000) >>> 0 === 0x0c000000) return fail("SIMD/FP is not in the map");
+  if ((word & 0x3f000000) >>> 0 === 0x08000000) {
+    // Exclusive and ordered loads and stores. One thread runs, so a store-exclusive always succeeds
+    // (status 0) and acquire/release ordering needs nothing extra.
+    const size = (1 << (word >>> 30)) as 1 | 2 | 4 | 8;
+    const o2 = (word >>> 23) & 1;
+    const load = ((word >>> 22) & 1) === 1;
+    const o1 = (word >>> 21) & 1;
+    const rs = rm;
+    const rt2 = bits(word, 14, 10);
+    const base = rn === 31 ? SP : rn;
+    const ea: Ea = { base, index: null, scale: 1, disp: 0n };
+    if (o1 === 1) {
+      if (o2 === 1) return fail("compare-and-swap (LSE) is not in the map");
+      if (size < 4) return fail("invalid exclusive pair");
+      // ldxp / stxp
+      if (load) {
+        text = "ldxp";
+        ops.push({ k: "lea", d: T2, ea, w: 64 });
+        ops.push({ k: "load", d: T0, ea: { base: T2, index: null, scale: 1, disp: 0n }, size, signed: false, w: 64 });
+        ops.push({ k: "load", d: T1, ea: { base: T2, index: null, scale: 1, disp: BigInt(size) }, size, signed: false, w: 64 });
+        ops.push({ k: "mov", d: D(rd), s: reg(T0), w: 64 });
+        ops.push({ k: "mov", d: D(rt2), s: reg(T1), w: 64 });
+      } else {
+        text = "stxp";
+        ops.push({ k: "lea", d: T2, ea, w: 64 });
+        ops.push({ k: "store", s: R(rd), ea: { base: T2, index: null, scale: 1, disp: 0n }, size });
+        ops.push({ k: "store", s: R(rt2), ea: { base: T2, index: null, scale: 1, disp: BigInt(size) }, size });
+        ops.push({ k: "mov", d: D(rs), s: imm(0), w: 32 });
+      }
+      return done();
+    }
+    if (load) {
+      text = o2 ? "ldar" : "ldxr";
+      ops.push({ k: "load", d: T0, ea, size, signed: false, w: 64 });
+      ops.push({ k: "mov", d: D(rd), s: reg(T0), w: 64 });
+    } else {
+      text = o2 ? "stlr" : "stxr";
+      ops.push({ k: "store", s: R(rd), ea, size });
+      if (!o2) ops.push({ k: "mov", d: D(rs), s: imm(0), w: 32 }); // the exclusive store succeeded
+    }
+    return done();
+  }
+  if ((word & 0x0e000000) >>> 0 === 0x0e000000 || (word & 0x0e000000) >>> 0 === 0x0c000000) {
+    const why = decodeSimd(word, pc, ops, R, D);
+    if (typeof why === "string") return fail(why);
+    text = why.text;
+    return done();
+  }
+  if ((word & 0xffd00000) >>> 0 === 0xd5100000 && (word >>> 20) & 1) {
+    // mrs (L = 1) / msr (L = 0), register form
+    const key = bits(word, 20, 5);
+    const read = ((word >>> 21) & 1) === 1;
+    const rt = bits(word, 4, 0);
+    if (read) {
+      text = "mrs";
+      const d = D(rt);
+      if (key === SYSREG.tpidr) ops.push({ k: "mov", d, s: reg(TP), w: 64 });
+      else if (key === SYSREG.fpcr || key === SYSREG.fpsr) ops.push({ k: "mov", d, s: imm(0), w: 64 }); // round to nearest, no traps, no flags
+      else if (key === SYSREG.dczid) ops.push({ k: "mov", d, s: imm(0x10), w: 64 }); // DZP: dc zva is not offered
+      else if (key === SYSREG.ctr) ops.push({ k: "mov", d, s: imm(0x8444c004), w: 64 }); // 64-byte cache lines
+      else if (key === SYSREG.cntfrq) ops.push({ k: "mov", d, s: imm(1_000_000_000), w: 64 });
+      else if (key === SYSREG.cntvct) ops.push({ k: "mov", d, s: imm(0), w: 64 }); // a fixed clock, like clock_gettime
+      else return fail("system register is not offered to programs");
+      return done();
+    }
+    text = "msr";
+    if (key === SYSREG.tpidr) ops.push({ k: "mov", d: TP, s: R(rt), w: 64 });
+    else if (key === SYSREG.fpcr || key === SYSREG.fpsr) {
+      /* rounding stays nearest-even; nothing to keep */
+    } else return fail("system register is not offered to programs");
+    return done();
+  }
   if ((word & 0xffc00000) >>> 0 === 0xd5000000 || (word & 0xfff00000) >>> 0 === 0xd5300000 || (word & 0xfff00000) >>> 0 === 0xd5100000) return fail("system register access is not in the map");
   return fail("instruction is not in the map");
 }

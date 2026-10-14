@@ -13,6 +13,7 @@ import {
   type Welcome,
 } from "./island.ts";
 import { verifyEntry, type IslandEntry, type SyncReply, type View } from "./island-content.ts";
+import type { MoveInput } from "./prediction.ts";
 
 export type PortalResult =
   | { status: "open"; host: SignedManifest; grant: Capability[]; session: string | null }
@@ -115,11 +116,11 @@ export async function enterIsland(
 }
 
 /** One live update from the host: send where we look, get back what changed in view. */
-export async function syncIsland(base: string, session: string, view: View, timeoutMs = 4000): Promise<SyncReply | { error: string }> {
+export async function syncIsland(base: string, session: string, view: View, timeoutMs = 4000, inputs?: MoveInput[]): Promise<SyncReply | { error: string }> {
   try {
     const res = await fetchWithin(
       `${base}/island/sync`,
-      { method: "POST", headers: { "content-type": "application/json", authorization: `Forge ${session}` }, body: JSON.stringify({ view }) },
+      { method: "POST", headers: { "content-type": "application/json", authorization: `Forge ${session}` }, body: JSON.stringify(inputs ? { view, inputs } : { view }) },
       timeoutMs,
     );
     const body = (await res.json()) as SyncReply | { reason: string };

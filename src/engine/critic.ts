@@ -1,5 +1,6 @@
 import wasmUrl from "@wllama/wllama/esm/wasm/wllama.wasm?url";
 import { residentById, DEFAULT_RESIDENT_ID } from "./resident-catalog";
+import { modelCacheManager } from "./model-cache";
 
 type ProgressFn = (progress: number, label: string) => void;
 
@@ -54,10 +55,10 @@ export function ensureCritic(onProgress: ProgressFn): Promise<void> {
   abort = controller;
   inflight = (async () => {
     onProgress(0, "Loading the critic runtime");
-    const { Wllama } = await import("@wllama/wllama");
+    const { Wllama, CacheManager } = await import("@wllama/wllama");
     if (mine !== ticket) return;
     onProgress(0, "Asking Hugging Face for the critic");
-    const next = new Wllama({ default: wasmUrl }) as unknown as Engine;
+    const next = new Wllama({ default: wasmUrl }, { cacheManager: modelCacheManager(CacheManager) }) as unknown as Engine;
     engine = next;
     let full = false;
     const stall = window.setTimeout(() => {

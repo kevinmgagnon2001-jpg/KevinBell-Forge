@@ -438,7 +438,7 @@ export function dispatchTool(world: World, name: string, args: Record<string, st
     const safeShape = shape === "column" || shape === "ring" || shape === "slab" ? shape : "blob";
     const title = (args.title ?? "Asset").trim().slice(0, 42) || "Asset";
     let id = parseU64(args.id);
-    let entities = { ...world.entities };
+    const entities = { ...world.entities };
     let nextId = world.nextId;
     if (id == null || !entities[id]) {
       const spawned = seatOffCenter(

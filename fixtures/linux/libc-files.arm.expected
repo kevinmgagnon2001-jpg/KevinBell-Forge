@@ -1,0 +1,12 @@
+report size 121
+after seek: 5
+lines=5 words=26
+longest (47): Every island keeps its own small tree of files,
+row 1:   1.25
+row 2:   2.50
+row 3:   3.75
+end of report
+135 bytes
+remove tmp: 0
+open removed: no errno 2
+open missing for read: no errno 2

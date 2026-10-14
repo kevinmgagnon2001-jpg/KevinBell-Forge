@@ -1,0 +1,76 @@
+mkdir d: 0
+mkdir d again: -17
+mkdir d/sub: 0
+mkdir under missing: -2
+mkdir under a file: -20
+open d: 1
+d is a directory: 1
+create relative to d: 1
+read ../in.txt from d: 5
+create in missing directory: -2
+open file as directory: -20
+open directory for writing: -21
+path through a file: -20
+read a directory: -21
+relative to a file fd: -20
+small buffer: -22
+d: ./ ../ a.txt* b.txt* sub/
+entries: 5
+d:
+listed again without rewinding: 0
+rewind: 0
+d: ./ ../ a.txt* b.txt* sub/
+entries after rewind: 5
+d/sub: ./ ../ c.txt*
+getdents64 on a file: -20
+rmdir non-empty: -39
+unlink a directory: -21
+rmdir a file: -20
+unlink relative to d: 0
+unlink sub/c.txt: 0
+rmdir d/sub: 0
+rmdir d/sub again: -2
+d: ./ ../ a.txt*
+mkdir d/empty: 0
+dup is the next descriptor: 1
+shared offset: 8
+dup3 to 10: 10
+close-on-exec on 10: 1
+close-on-exec on the original: 0
+clear close-on-exec: 0
+close-on-exec cleared: 0
+dup3 onto itself: -22
+dup3 of a bad descriptor: -9
+F_DUPFD from 20: 20
+F_DUPFD from 20 again: 21
+F_DUPFD_CLOEXEC: 5
+access mode: 2
+set append: 0
+append shared by dup: 1026
+fcntl on a bad descriptor: -9
+close 21: 0
+close 21 again: -9
+stdout back: 1
+log size: 64
+one two three four
+stdout into log: 1
+this line goes to log.txt
+pipe2: 0
+pipe ends are the lowest free: 1
+pipe is a fifo: 1
+write into the pipe: 10
+read 4: 4
+read the rest: 6
+seek on a pipe: -29
+write to the read end: -9
+read the write end: -9
+read end flags: 0
+write end flags: 1
+read after both writers wrote: 6
+abcdef
+read with no writers left: 0
+pipe2 close-on-exec: 2
+write with no reader: -32
+close stdin: 0
+read closed stdin: -9
+next open takes descriptor 0: 0

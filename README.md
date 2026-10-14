@@ -12,6 +12,7 @@ Open **[Releases](../../releases)** on your phone and tap the newest `Forge-…-
 npm install
 npm run dev              # the web app at http://localhost:8080
 npm run test:engine      # engine tests (hardware-checked x86 and ARM translation, sandbox, islands)
+npm run lint && npm run typecheck
 npm run cli:build        # the `forge` command-line tool -> bin/forge
 ```
 
@@ -29,4 +30,5 @@ npm run cli:build        # the `forge` command-line tool -> bin/forge
 - `src/engine/`: the skill registry, script sandbox, islands and portals, pooled inference and file intake
 - `src-tauri/`: the native desktop and Android host (Rust, wasmtime)
 - `.github/workflows/android.yml`: builds and publishes the Android APK
+- `NEXT.md`: where the last session stopped and what comes next
 - `PATCH_NOTES.md` and `Forge-Handoff.pdf`: history and the roadmap

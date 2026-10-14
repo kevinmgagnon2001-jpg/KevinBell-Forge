@@ -1,0 +1,57 @@
+# Checks on every push and pull request: the web app and engine, and the native desktop host.
+# Android builds stay in android.yml (tags and manual runs only; they take much longer).
+
+name: Checks
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web app and engine
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: .github/scripts/step.sh "npm ci" npm ci --no-audit --no-fund
+      - run: .github/scripts/step.sh "Lint" npm run lint
+      - run: .github/scripts/step.sh "Typecheck" npm run typecheck
+      - run: .github/scripts/step.sh "Engine tests" npm run test:engine
+      # The x87 soft-float against the runner's real x87, every rounding and precision mode
+      - run: .github/scripts/step.sh "x87 soft-float vs the CPU" sh -c 'cc -O1 -o "$RUNNER_TEMP/f80-check" src/engine/guest/f80/f80-check.c && "$RUNNER_TEMP/f80-check" 300000' 
+      - run: .github/scripts/step.sh "Web build" npm run build
+
+  desktop:
+    name: Desktop host (Rust, wasmtime)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: System libraries for the Tauri window
+        run: |
+          sudo apt-get update -qq
+          .github/scripts/step.sh "Install webkit2gtk" sudo apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libayatana-appindicator3-dev
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - run: .github/scripts/step.sh "npm ci" npm ci --no-audit --no-fund
+      # The host embeds the built web interface at compile time, so build it first.
+      - run: .github/scripts/step.sh "Desktop web build" npm run build:desktop
+      - run: .github/scripts/step.sh "Rust tests" cargo test --manifest-path src-tauri/Cargo.toml --locked
+      # Real Linux fixtures through the page's protocol code and the native runner in wasmtime.
+      - run: .github/scripts/step.sh "Native guest tests" npm run test:native

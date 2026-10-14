@@ -1,0 +1,133 @@
+# Builds the Forge desktop installers on GitHub's servers and attaches them to the GitHub Release.
+#
+#   Push a tag like v0.6.1  -> installers on the "Forge v0.6.1" Release (next to the Android APK).
+#   Actions tab -> "Desktop installers" -> "Run workflow" -> test builds on the run page. Pushes that
+#   change src-tauri/ or this workflow also make test builds.
+#
+#   Linux x86-64 and ARM64: .deb and .AppImage. Both are opened on a virtual display first, and
+#   screenshots are kept on the run page; nothing is published if the window does not stay up.
+#   Windows x86-64: .msi and setup .exe.   macOS (Apple silicon): .dmg.
+#
+# The installers are not code-signed yet, so Windows SmartScreen and macOS Gatekeeper ask before
+# the first launch (see docs/DESKTOP.md).
+
+name: Desktop installers
+
+on:
+  push:
+    tags: ["v*"]
+    # Also on branch pushes that change the desktop app or how it is packaged (tags ignore paths).
+    branches: ["**"]
+    paths: ["src-tauri/**", ".github/workflows/desktop.yml", ".github/scripts/desktop-smoke.sh"]
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to attach the installers to the Release
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Linux x86-64, os: ubuntu-24.04, bundles: "deb,appimage", smoke: true }
+          - { name: Linux ARM64, os: ubuntu-24.04-arm, bundles: "deb,appimage", smoke: true }
+          - { name: Windows x86-64, os: windows-latest, bundles: "msi,nsis", smoke: false }
+          - { name: macOS Apple silicon, os: macos-14, bundles: "dmg", smoke: false }
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Version from the tag
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+            jq --arg v "$VERSION" '.version = $v' src-tauri/tauri.conf.json > conf.tmp && mv conf.tmp src-tauri/tauri.conf.json
+          fi
+          jq -r .version src-tauri/tauri.conf.json
+
+      - name: System libraries for the Tauri window
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          .github/scripts/step.sh "Install webkit2gtk" sudo apt-get install -y -qq libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev \
+            libayatana-appindicator3-dev patchelf xvfb imagemagick
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: release
+
+      - name: Install JavaScript dependencies
+        shell: bash
+        run: .github/scripts/step.sh "npm ci" npm ci --no-audit --no-fund
+
+      - name: Build the app's web interface
+        shell: bash
+        run: .github/scripts/step.sh "Desktop web build" npm run build:desktop
+
+      - name: Build the installers
+        shell: bash
+        # The web interface was built above, so skip Tauri's own beforeBuildCommand.
+        run: .github/scripts/step.sh "tauri build" npx tauri build --bundles ${{ matrix.bundles }} --config '{"build":{"beforeBuildCommand":""}}'
+
+      - name: Open the app and take screenshots
+        if: matrix.smoke
+        run: .github/scripts/step.sh "Desktop smoke test" .github/scripts/desktop-smoke.sh src-tauri/target/release/forge desktop-smoke
+
+      - name: Keep the screenshots
+        if: always() && matrix.smoke
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-smoke-${{ runner.arch }}
+          path: desktop-smoke
+          retention-days: 14
+
+      - name: Collect the installers
+        id: collect
+        shell: bash
+        run: |
+          mkdir -p installers
+          B=src-tauri/target/release/bundle
+          find "$B" -maxdepth 2 -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \) \
+            -exec cp {} installers/ \;
+          ls -l installers
+          [ -n "$(ls installers)" ] || { echo "::error::No installer was produced"; find "$B" -maxdepth 3; exit 1; }
+
+      - name: Keep the installers on the run page
+        uses: actions/upload-artifact@v4
+        with:
+          name: forge-desktop-${{ runner.os }}-${{ runner.arch }}
+          path: installers
+
+  release:
+    name: Attach to the Release
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: forge-desktop-*
+          path: installers
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Forge ${{ github.ref_name }}
+          files: installers/*
+          append_body: true
+          body: |
+
+            **Desktop:** `.deb` or `.AppImage` for Linux (`amd64`/`x86_64` for PCs, `arm64`/`aarch64` for ARM machines), `.msi` or `-setup.exe` for Windows, `.dmg` for Macs with Apple silicon. Not code-signed yet: Windows and macOS ask once before the first launch.

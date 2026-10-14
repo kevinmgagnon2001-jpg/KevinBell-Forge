@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
+import { liveVisits } from "@/engine/live-visit";
 import { useForge } from "@/engine/store";
 import { ensureAvatar, restoreLab } from "@/engine/manifold";
 import { pilotKeys, pointerClaim, setPilotSpeed, useLook, lookPose, faceLook } from "./look";
@@ -182,8 +183,19 @@ export function Pilot() {
       const vz = face.z * gas + right.z * strafe;
       const moving = Math.hypot(vx, vz);
       setPilotSpeed(moving * SPEED);
-      const x = p.x + vx * SPEED * dt;
-      const z = p.z + vz * SPEED * dt;
+      let x = p.x + vx * SPEED * dt;
+      let z = p.z + vz * SPEED * dt;
+      // On a visited island its host decides where you are: walk with prediction (prediction.ts), so it
+      // still moves on this frame, and let the host correct it.
+      const visit = [...liveVisits].find((v) => v.contains(p));
+      for (const v of liveVisits) if (v !== visit && v.predictor) v.leave();
+      if (visit) {
+        const walker = visit.predictor ?? visit.walk({ position: p, yaw: yaw - (mode === "third" ? turn * TURN * dt : 0) });
+        walker.input(gas, strafe, yaw - walker.predicted.yaw, dt);
+        const shown = visit.toLocal(walker.shown().position);
+        x = shown.x;
+        z = shown.z;
+      }
       const y = Math.max(MIN_Y, p.y + lift * SPEED * dt);
       pose.x = x;
       pose.y = y;
@@ -194,7 +206,8 @@ export function Pilot() {
       const yawStr = String(Math.round(yaw * 1000) / 1000);
       const speedStr = String(Math.round(moving * SPEED * 100) / 100);
       const moved = Math.hypot(x - p.x, y - p.y, z - p.z) > 1e-5 || yawStr !== (avatar.customData.yaw || "0") || speedStr !== (avatar.customData.speed || "0");
-      if (!moved) return state;
+      const gliding = [...liveVisits].some((v) => v.others(state).size > 0);
+      if (!moved && !gliding) return state;
       const helm = Object.values(state.entities).find((entity) => entity.tags.includes("helm"));
       const nextAvatar = {
         ...avatar,
@@ -202,6 +215,13 @@ export function Pilot() {
         customData: { ...avatar.customData, yaw: yawStr, speed: speedStr },
       };
       const entities = { ...state.entities, [avatar.id]: nextAvatar };
+      // Other visitors on visited islands glide between the host's snapshots.
+      for (const v of liveVisits) {
+        for (const [id, at] of v.others(state)) {
+          const e = entities[id];
+          if (e) entities[id] = { ...e, transform: { ...e.transform, position: at } };
+        }
+      }
       if (helm) {
         entities[helm.id] = {
           ...helm,

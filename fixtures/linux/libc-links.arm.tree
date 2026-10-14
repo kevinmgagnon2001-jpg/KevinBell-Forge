@@ -1,0 +1,24 @@
+f /data-copy.txt 48
+shared contents
+appended through the other name
+
+l /ghost gone.txt
+f /gone.txt 14
+now it exists
+
+f /in.txt 135
+Forge reads files now.
+Every island keeps its own small tree of files,
+and a program sees only that tree.
+
+The last line has no newline
+l /notes in.txt
+d /releases
+d /releases/v1
+f /releases/v1/app.conf 10
+version=1
+
+d /releases/v2
+f /releases/v2/app.conf 10
+version=2
+

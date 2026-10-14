@@ -1,0 +1,16 @@
+d /d
+f /d/a.txt 6
+alpha
+
+d /d/empty
+f /in.txt 135
+Forge reads files now.
+Every island keeps its own small tree of files,
+and a program sees only that tree.
+
+The last line has no newline
+f /log.txt 64
+one two three four
+stdout into log: 1
+this line goes to log.txt
+

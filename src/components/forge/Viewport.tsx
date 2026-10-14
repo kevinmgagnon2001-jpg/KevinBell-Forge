@@ -2,7 +2,7 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MutableRefObject, type ReactNode } from "react";
 import type { Group, Vector3Tuple } from "three";
-import { CanvasTexture, Matrix4, Object3D, Plane, Quaternion, Raycaster, SRGBColorSpace, Vector2, Vector3, type Texture } from "three";
+import { BoxGeometry, CanvasTexture, EdgesGeometry, Matrix4, Object3D, Plane, Quaternion, Raycaster, SRGBColorSpace, Vector2, Vector3, type Texture } from "three";
 import type { Mesh } from "three";
 import { clusterDag, selectCut } from "@/engine/cluster-lod";
 import type { Entity, Vec3 } from "@/engine/types";
@@ -494,6 +494,9 @@ function LabConsole() {
   );
 }
 
+// Box outline for the selected or gazed body: the 12 edges only, so flat panels show no diagonal seams.
+const OUTLINE_EDGES = new EdgesGeometry(new BoxGeometry(1, 1, 1));
+
 function entityTone(entity: Entity): string {
   return entity.customData.color || scenePalette.steel[entity.id % scenePalette.steel.length] || scenePalette.steel[0];
 }
@@ -884,10 +887,9 @@ function EntityNode({
       </group>
       {entity.physics ? <VelocityMark velocity={entity.physics.velocity} /> : null}
       {(selected || gazed) && !entity.tags.includes("floor") ? (
-        <mesh raycast={() => null} scale={[s.x * 1.08, s.y * 1.08, s.z * 1.08]} quaternion={quat}>
-          <boxGeometry args={[1, 1, 1]} />
-          <meshBasicMaterial color={gazed && !selected ? "#7ee0c8" : scenePalette.mark} wireframe transparent opacity={0.95} />
-        </mesh>
+        <lineSegments raycast={() => null} geometry={OUTLINE_EDGES} dispose={null} scale={[s.x * 1.08, s.y * 1.08, s.z * 1.08]} quaternion={quat}>
+          <lineBasicMaterial color={gazed && !selected ? "#7ee0c8" : scenePalette.mark} transparent opacity={0.95} />
+        </lineSegments>
       ) : null}
     </group>
   );
@@ -961,7 +963,9 @@ function GazeLock() {
       break;
     }
     setGazeLock(meshId ?? pointId);
-  }, 1);
+    // Default priority on purpose: any positive priority tells react-three-fiber that this hook
+    // renders the frame itself, which switched off automatic rendering and left the view blank.
+  });
   return null;
 }
 

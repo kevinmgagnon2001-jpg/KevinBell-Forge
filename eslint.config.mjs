@@ -10,6 +10,10 @@ export default tseslint.config(
   {
     ignores: [
       "dist/**",
+      // Build output and generated native projects.
+      "src-tauri/frontend/**",
+      "src-tauri/target/**",
+      "src-tauri/gen/**",
       ".output/**",
       ".vercel/**",
       ".nitro/**",

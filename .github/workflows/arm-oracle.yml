@@ -1,0 +1,40 @@
+# ARM64 hardware oracle (work item N6): on a real ARM64 machine, build the glibc fixtures natively,
+# record what the CPU prints, and check Forge's translation of the same binaries against it.
+# The binaries and recordings are kept on the run page (artifact "arm-oracle") so they can be
+# committed to fixtures/linux/ and checked on every machine.
+
+name: ARM64 oracle
+
+on:
+  push:
+    paths: ["fixtures/linux/**", "src/engine/guest/**", "scripts/arm-oracle.ts", ".github/workflows/arm-oracle.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: arm-oracle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  oracle:
+    name: glibc programs on ARM64 hardware vs Forge
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: .github/scripts/step.sh "npm ci" npm ci --no-audit --no-fund
+      - name: Build and run on the ARM64 CPU
+        run: .github/scripts/step.sh "Build on ARM64" sh fixtures/linux/build-arm.sh arm-oracle
+      - name: Keep the binaries and recordings
+        uses: actions/upload-artifact@v4
+        with:
+          name: arm-oracle
+          path: arm-oracle
+      - name: Forge vs the ARM64 CPU
+        # A report while ARM64 glibc support is being built: differences are listed, not fatal yet.
+        continue-on-error: true
+        run: |
+          node --experimental-strip-types scripts/arm-oracle.ts arm-oracle libc-demo libc-float libc-files libc-dirs libc-mapio libc-links libc-threads libc-spin neon | tee arm-oracle/forge-report.txt

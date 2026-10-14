@@ -36,6 +36,7 @@ pub mod sandbox {
 }
 
 pub mod guest;
+pub mod model_store;
 
 /// Native runner for lifted Linux programs (work item N1). The page lifts and lowers; this runs.
 pub mod native_guest {
@@ -106,10 +107,42 @@ pub mod native_guest {
         live: Mutex<HashMap<u32, Session>>,
     }
 
+    /// Compiled machine code per WebAssembly function, kept for the life of the app. When the page
+    /// lifts more of a program and swaps in a new module, every function that did not change comes
+    /// from here instead of being compiled again (guest/wasm.ts keeps unchanged chunks byte-identical),
+    /// and running the same program twice compiles almost nothing.
+    #[derive(Debug, Default)]
+    struct CompileCache {
+        entries: Mutex<(HashMap<Vec<u8>, Vec<u8>>, usize)>,
+    }
+
+    const COMPILE_CACHE_BYTES: usize = 256 * 1024 * 1024;
+
+    impl wasmtime::CacheStore for CompileCache {
+        fn get(&self, key: &[u8]) -> Option<std::borrow::Cow<'_, [u8]>> {
+            let entries = self.entries.lock().ok()?;
+            entries.0.get(key).cloned().map(std::borrow::Cow::Owned)
+        }
+        fn insert(&self, key: &[u8], value: Vec<u8>) -> bool {
+            let Ok(mut entries) = self.entries.lock() else { return false };
+            if entries.1 + key.len() + value.len() > COMPILE_CACHE_BYTES {
+                // Simple and bounded: start over rather than track recency.
+                entries.0.clear();
+                entries.1 = 0;
+            }
+            entries.1 += key.len() + value.len();
+            entries.0.insert(key.to_vec(), value);
+            true
+        }
+    }
+
     impl Default for GuestSessions {
         fn default() -> Self {
             let mut config = Config::new();
             config.consume_fuel(true);
+            config
+                .enable_incremental_compilation(std::sync::Arc::new(CompileCache::default()))
+                .expect("incremental compilation cache");
             GuestSessions {
                 engine: Engine::new(&config).expect("wasmtime engine"),
                 next: AtomicU32::new(1),
@@ -134,6 +167,8 @@ pub mod native_guest {
         pub syscalls: BTreeMap<String, u32>,
         pub unsupported: Vec<String>,
         pub fuel_used: i64,
+        /// The program's file tree, sent once it has finished (exit, stop or trap).
+        pub files: Option<BTreeMap<String, Vec<u8>>>,
     }
 
     impl GuestSessions {
@@ -147,6 +182,7 @@ pub mod native_guest {
             mmap_top: u64,
             stdin: Vec<u8>,
             fuel: i64,
+            files: BTreeMap<String, Vec<u8>>,
         ) -> Result<u32, String> {
             let arch = Arch::parse(arch).ok_or("arch must be x86_64 or aarch64")?;
             let mut vm = WasmVm::new(&self.engine, module)?;
@@ -162,7 +198,7 @@ pub mod native_guest {
                 return Err("bad heap bounds".into());
             }
             let id = self.next.fetch_add(1, Ordering::Relaxed);
-            let session = Session { vm, shim: Shim::new(arch, brk_base, mmap_top, stdin), budget: fuel.max(0), start_budget: fuel.max(0) };
+            let session = Session { vm, shim: Shim::new(arch, brk_base, mmap_top, stdin, files), budget: fuel.max(0), start_budget: fuel.max(0) };
             self.live.lock().map_err(|_| "session lock poisoned")?.insert(id, session);
             Ok(id)
         }
@@ -174,10 +210,11 @@ pub mod native_guest {
             let (status, code, pc, fault, detail) = match event {
                 Event::Exit(c) => ("exit", 0, 0, 0, format!("exited with code {c}")),
                 Event::NeedsCode(pc) => ("needs-code", guest::stop::UNMAPPED, pc, 0, String::new()),
-                Event::Stopped { code, pc, fault } => ("stopped", code, pc, fault, guest::stop::name(code).to_string()),
+                Event::Stopped { code, pc, fault } => ("stopped", code, pc, fault, s.shim.halt.clone().unwrap_or_else(|| guest::stop::name(code).to_string())),
                 Event::Yield => ("running", 0, 0, 0, String::new()),
                 Event::Trap(e) => ("trap", -1, 0, 0, e),
             };
+            let finished = !matches!(status, "running" | "needs-code");
             Ok(Resume {
                 status: status.into(),
                 code,
@@ -185,11 +222,12 @@ pub mod native_guest {
                 pc,
                 fault,
                 exit_code: s.shim.exit_code,
-                stdout: std::mem::take(&mut s.shim.stdout),
-                stderr: std::mem::take(&mut s.shim.stderr),
+                stdout: std::mem::take(&mut s.shim.files.stdout),
+                stderr: std::mem::take(&mut s.shim.files.stderr),
                 syscalls: s.shim.counts.clone(),
                 unsupported: s.shim.unsupported.iter().cloned().collect(),
                 fuel_used: s.start_budget - s.budget,
+                files: finished.then(|| s.shim.files.snapshot()),
             })
         }
 
@@ -216,7 +254,7 @@ pub mod native_guest {
     }
 }
 
-/// `invoke("guest_start", { module, arch, chunks, brkBase, mmapTop, stdin, fuel })` -> session id
+/// `invoke("guest_start", { module, arch, chunks, brkBase, mmapTop, stdin, fuel, files })` -> session id
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 fn guest_start(
@@ -228,8 +266,9 @@ fn guest_start(
     mmap_top: u64,
     stdin: Vec<u8>,
     fuel: i64,
+    files: Option<std::collections::BTreeMap<String, Vec<u8>>>,
 ) -> Result<u32, String> {
-    sessions.start(&module, &arch, chunks, brk_base, mmap_top, stdin, fuel)
+    sessions.start(&module, &arch, chunks, brk_base, mmap_top, stdin, fuel, files.unwrap_or_default())
 }
 
 /// `invoke("guest_resume", { id, maxEvents })`
@@ -238,10 +277,27 @@ fn guest_resume(sessions: tauri::State<'_, native_guest::GuestSessions>, id: u32
     sessions.resume(id, max_events)
 }
 
-/// `invoke("guest_swap", { id, module })`
+/// `invoke("guest_swap", moduleBytes, { headers: { "forge-session": id } })`: the module travels as raw
+/// bytes (a glibc program's module is megabytes; as a JSON number array it was three times that and slow
+/// to encode and parse). `invoke("guest_swap", { id, module })` is still accepted.
 #[tauri::command]
-fn guest_swap(sessions: tauri::State<'_, native_guest::GuestSessions>, id: u32, module: Vec<u8>) -> Result<(), String> {
-    sessions.swap(id, &module)
+fn guest_swap(sessions: tauri::State<'_, native_guest::GuestSessions>, request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    match request.body() {
+        tauri::ipc::InvokeBody::Raw(module) => {
+            let id = request
+                .headers()
+                .get("forge-session")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<u32>().ok())
+                .ok_or("guest_swap needs a forge-session header")?;
+            sessions.swap(id, module)
+        }
+        tauri::ipc::InvokeBody::Json(args) => {
+            let id = args.get("id").and_then(|v| v.as_u64()).ok_or("guest_swap needs an id")? as u32;
+            let module: Vec<u8> = serde_json::from_value(args.get("module").cloned().unwrap_or_default()).map_err(|e| e.to_string())?;
+            sessions.swap(id, &module)
+        }
+    }
 }
 
 /// `invoke("guest_end", { id })`
@@ -262,11 +318,78 @@ fn host_info() -> (String, String) {
     (std::env::consts::OS.to_string(), std::env::consts::ARCH.to_string())
 }
 
+// ---------- model weights on disk (model_store.rs; page side: src/engine/model-cache.ts) ----------
+
+/// `invoke("model_store_list")` -> [[key, size], ...]
+#[tauri::command]
+async fn model_store_list(store: tauri::State<'_, model_store::ModelStore>) -> Result<Vec<(String, u64)>, String> {
+    store.list()
+}
+
+/// `invoke("model_store_size", { key })` -> size, or -1
+#[tauri::command]
+async fn model_store_size(store: tauri::State<'_, model_store::ModelStore>, key: String) -> Result<i64, String> {
+    store.size(&key)
+}
+
+/// `invoke("model_store_read", { key, offset, len })` -> raw bytes (an ArrayBuffer in the page)
+#[tauri::command]
+async fn model_store_read(store: tauri::State<'_, model_store::ModelStore>, key: String, offset: u64, len: u64) -> Result<tauri::ipc::Response, String> {
+    store.read(&key, offset, len).map(tauri::ipc::Response::new)
+}
+
+/// `invoke("model_store_write", bytes, { headers: { "forge-key": hex(utf8(key)), "forge-offset": n } })`
+#[tauri::command]
+async fn model_store_write(store: tauri::State<'_, model_store::ModelStore>, request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let tauri::ipc::InvokeBody::Raw(data) = request.body() else { return Err("model_store_write takes raw bytes".into()) };
+    let header = |name: &str| request.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_string).ok_or(format!("missing {name} header"));
+    let hex = header("forge-key")?;
+    let bytes = (0..hex.len())
+        .step_by(2)
+        .map(|i| hex.get(i..i + 2).and_then(|h| u8::from_str_radix(h, 16).ok()))
+        .collect::<Option<Vec<u8>>>()
+        .ok_or("forge-key must be hex")?;
+    let key = String::from_utf8(bytes).map_err(|e| e.to_string())?;
+    let offset: u64 = header("forge-offset")?.parse().map_err(|_| "forge-offset must be a number")?;
+    store.write(&key, offset, data)
+}
+
+/// `invoke("model_store_commit", { key })`
+#[tauri::command]
+async fn model_store_commit(store: tauri::State<'_, model_store::ModelStore>, key: String) -> Result<(), String> {
+    store.commit(&key)
+}
+
+/// `invoke("model_store_delete", { key })`
+#[tauri::command]
+async fn model_store_delete(store: tauri::State<'_, model_store::ModelStore>, key: String) -> Result<(), String> {
+    store.delete(&key)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(native_guest::GuestSessions::default())
-        .invoke_handler(tauri::generate_handler![run_wasm, host_info, guest_start, guest_resume, guest_swap, guest_end])
+        .setup(|app| {
+            use tauri::Manager;
+            let dir = app.path().app_data_dir()?.join("models");
+            app.manage(model_store::ModelStore::new(dir));
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            run_wasm,
+            host_info,
+            guest_start,
+            guest_resume,
+            guest_swap,
+            guest_end,
+            model_store_list,
+            model_store_size,
+            model_store_read,
+            model_store_write,
+            model_store_commit,
+            model_store_delete
+        ])
         .run(tauri::generate_context!())
         .expect("error while running the Forge host");
 }
@@ -274,6 +397,7 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::sandbox::run_i32;
+    use tauri::Manager;
 
     /// Produced by src/engine/wasm-backend.ts from: mov x0, 9 ; add x0, x0, 2 ; ret
     const SAMPLE: &[u8] = &[
@@ -290,5 +414,90 @@ mod tests {
     #[test]
     fn junk_is_refused() {
         assert!(run_i32(&[0, 1, 2, 3], "run", 0, 1_000_000).is_err());
+    }
+
+    /// The real guest_swap command, called the way the page calls it: raw bytes, session in a header.
+    #[test]
+    fn guest_swap_takes_raw_bytes_with_the_session_in_a_header() {
+        use tauri::ipc::{CallbackFn, InvokeBody};
+        use tauri::webview::InvokeRequest;
+        let app = tauri::test::mock_builder()
+            .manage(super::native_guest::GuestSessions::default())
+            .invoke_handler(tauri::generate_handler![super::guest_swap])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
+        // A minimal guest module: the shape the runner needs (exported memory and run()).
+        let module = br#"(module (memory (export "mem") 1 1) (func (export "run") (result i32) i32.const 9))"#;
+        let sessions = app.state::<super::native_guest::GuestSessions>();
+        let id = sessions.start(module, "x86_64", vec![], 0x2000, 0x8000, vec![], 1000, Default::default()).unwrap();
+        let call = |session: Option<String>| {
+            let mut headers = tauri::http::HeaderMap::new();
+            if let Some(v) = session {
+                headers.insert("forge-session", v.parse().unwrap());
+            }
+            tauri::test::get_ipc_response(
+                &webview,
+                InvokeRequest {
+                    cmd: "guest_swap".into(),
+                    callback: CallbackFn(0),
+                    error: CallbackFn(1),
+                    url: "tauri://localhost".parse().unwrap(),
+                    body: InvokeBody::Raw(module.to_vec()),
+                    headers,
+                    invoke_key: tauri::test::INVOKE_KEY.into(),
+                },
+            )
+        };
+        assert!(call(Some(id.to_string())).is_ok());
+        assert_eq!(call(None).unwrap_err(), serde_json::json!("guest_swap needs a forge-session header"));
+        assert_eq!(call(Some("999".into())).unwrap_err(), serde_json::json!("no such guest session"));
+    }
+
+    /// The model store commands, called the way src/engine/model-cache.ts calls them.
+    #[test]
+    fn model_weights_are_written_in_pieces_and_read_back() {
+        use tauri::ipc::{CallbackFn, InvokeBody, InvokeResponseBody};
+        use tauri::webview::InvokeRequest;
+        let dir = std::env::temp_dir().join(format!("forge-model-ipc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let app = tauri::test::mock_builder()
+            .manage(super::model_store::ModelStore::new(&dir))
+            .invoke_handler(tauri::generate_handler![super::model_store_write, super::model_store_commit, super::model_store_read, super::model_store_list])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
+        let call = |cmd: &str, body: InvokeBody, headers: &[(&'static str, String)]| {
+            let mut map = tauri::http::HeaderMap::new();
+            for (k, v) in headers {
+                map.insert(*k, v.parse().unwrap());
+            }
+            tauri::test::get_ipc_response(
+                &webview,
+                InvokeRequest {
+                    cmd: cmd.into(),
+                    callback: CallbackFn(0),
+                    error: CallbackFn(1),
+                    url: "tauri://localhost".parse().unwrap(),
+                    body,
+                    headers: map,
+                    invoke_key: tauri::test::INVOKE_KEY.into(),
+                },
+            )
+        };
+        let key = "hf/model.gguf";
+        let hex: String = key.bytes().map(|b| format!("{b:02x}")).collect();
+        for (offset, piece) in [(0u64, &b"GGUF"[..]), (4, &b"-weights"[..])] {
+            call("model_store_write", InvokeBody::Raw(piece.to_vec()), &[("forge-key", hex.clone()), ("forge-offset", offset.to_string())]).unwrap();
+        }
+        assert!(call("model_store_write", InvokeBody::Raw(vec![1]), &[("forge-key", "zz".into()), ("forge-offset", "0".into())]).is_err());
+        call("model_store_commit", InvokeBody::Json(serde_json::json!({ "key": key })), &[]).unwrap();
+        let list = call("model_store_list", InvokeBody::Json(serde_json::json!({})), &[]).unwrap();
+        assert_eq!(list.deserialize::<Vec<(String, u64)>>().unwrap(), vec![(key.to_string(), 12)]);
+        match call("model_store_read", InvokeBody::Json(serde_json::json!({ "key": key, "offset": 4, "len": 100 })), &[]).unwrap() {
+            InvokeResponseBody::Raw(bytes) => assert_eq!(bytes, b"-weights"),
+            other => panic!("expected raw bytes, got {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

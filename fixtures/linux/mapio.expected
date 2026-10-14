@@ -1,0 +1,96 @@
+in.txt size: 135
+map in.txt: 1
+mapped start: "Forge reads files no"
+mapped end: "no newline"
+bytes after the end of file are zero: 1
+munmap: 0
+offset not page aligned: -22
+length zero: -22
+bad descriptor: -9
+neither shared nor private: -22
+shared writable on a read-only descriptor: -13
+map a write-only descriptor: -13
+map a directory: -19
+map a pipe: -19
+munmap not page aligned: -22
+munmap length zero: -22
+private copy: "PRIVATEeads "
+file after a private write: "Forge reads files now..Every island keeps its own small tree of files,.and a program sees only that tree...The last line has no newline"
+ftruncate to 5000: 0
+size: 5000
+map shared: 1
+shared start: "0123456789.."
+read() sees the store: "SHARED6789.."
+read() sees the second page: "second page"
+the mapping sees write(): "SHAREDwrite."
+msync: 0
+msync async: 0
+msync not aligned: -22
+msync both flags: -22
+ftruncate to 4100: 0
+second page after the cut: "seco......."
+ftruncate to 5000 again: 0
+second page after growing: "seco......."
+ftruncate a read-only descriptor: -22
+ftruncate to a negative length: -22
+truncate a directory: -21
+truncate a missing file: -2
+truncate by path: 0
+wo.txt: "write"
+after close: "SHAREDwrit-closed..............................................................................................................................................................................................................................................."
+munmap the second page: 0
+munmap the first page: 0
+after munmap: "SHAREDwrit-closed...+..........................................................................................................................................................................................................................................."
+MAP_FIXED lands where asked: 1
+pages around the fixed map: "a"
+fixed page: "Forge"
+page after: "c"
+MAP_FIXED not aligned: -22
+rename a.txt to c.txt: 0
+a.txt: -2
+c.txt: "alpha"
+rename over an existing file: 0
+b.txt: "alpha"
+the replaced file, still open: "bravo"
+RENAME_NOREPLACE onto a file: -17
+RENAME_NOREPLACE to a new name: 0
+RENAME_EXCHANGE: 0
+b.txt: "charlie"
+d.txt: "alpha"
+RENAME_EXCHANGE with a missing name: -2
+both flags: -22
+unknown flag: -22
+missing source: -2
+into a missing directory: -2
+through a file: -20
+a file over a directory: -21
+a directory over a file: -20
+a directory over a non-empty one: -39
+a directory into itself: -22
+a name onto itself: 0
+a directory onto itself: 0
+rename dot: -16
+rename onto dot dot: -16
+trailing slash on a file: -20
+a directory over an empty one: 0
+the old name is gone: -2
+open directory follows the rename: "x-ray"
+rename relative to it: 0
+empty/inner/x2.txt: "x-ray"
+a directory with a trailing slash: 0
+swap a file and a directory: 0
+inner2 now: "alpha"
+d.txt/x2.txt now: "x-ray"
+empty pipe, file, directory, bad, negative: 4 0 4 5 321 32 0
+after a write: 5 1 4 5 321 32 0
+no events asked: 0 0
+writer closed, data left: 1 17
+writer closed, drained: 1 16
+reader closed: 1 12
+select: empty pipe and a file: 3 r=32 w=48 e=0
+select: after a write: 1 r=8 w=0 e=0
+select: only read set: 1 r=8 w=-1 e=-1
+select: a closed descriptor: -9 r=1099511627776 w=-1 e=-1
+select: nfds below the descriptor: 0 r=0 w=-1 e=-1
+select: negative nfds: -22
+ppoll: bad timeout: -22

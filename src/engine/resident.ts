@@ -1,6 +1,7 @@
 import wasmUrl from "@wllama/wllama/esm/wasm/wllama.wasm?url";
 import { residentById, type ResidentId } from "./resident-catalog";
 import { FORGE_TOOLS, TOOL_GRAMMAR, type ResidentToolCall } from "./resident-parse";
+import { modelCacheManager } from "./model-cache";
 
 type ProgressFn = (progress: number, label: string, bytes?: { loaded: number; total: number }) => void;
 
@@ -64,6 +65,24 @@ export function releaseResident(): void {
   if (current) void current.exit().catch(() => undefined);
 }
 
+/** True when the connection is metered (mobile data, or the user asked to save data). */
+export function meteredConnection(): boolean {
+  const connection = (globalThis.navigator as { connection?: { type?: string; saveData?: boolean } } | undefined)?.connection;
+  return Boolean(connection && (connection.saveData || connection.type === "cellular"));
+}
+
+/** Whether this model's weights are already stored on the device (no download needed to start it). */
+export async function residentCached(id: ResidentId): Promise<boolean> {
+  try {
+    const { CacheManager } = await import("@wllama/wllama");
+    const entries = (await (modelCacheManager(CacheManager) as unknown as { list(): Promise<{ name: string }[]> }).list()) ?? [];
+    const file = residentById(id).file;
+    return entries.some((entry) => entry.name.endsWith(file));
+  } catch {
+    return false;
+  }
+}
+
 export function ensureResident(id: ResidentId, onProgress: ProgressFn): Promise<void> {
   if (typeof window === "undefined") return Promise.reject(new Error("In-situ models run in the page"));
   if (residentReady(id)) return Promise.resolve();
@@ -75,10 +94,10 @@ export function ensureResident(id: ResidentId, onProgress: ProgressFn): Promise<
   abort = controller;
   inflight = (async () => {
     onProgress(0, "Loading the runtime");
-    const { Wllama } = await import("@wllama/wllama");
+    const { Wllama, CacheManager } = await import("@wllama/wllama");
     if (mine !== ticket) return;
     onProgress(0, "Asking Hugging Face for the weights");
-    const next = new Wllama({ default: wasmUrl }) as unknown as Engine;
+    const next = new Wllama({ default: wasmUrl }, { cacheManager: modelCacheManager(CacheManager) }) as unknown as Engine;
     engine = next;
     currentId = id;
     const heavy = spec.id === "spark-x2.5-4b";

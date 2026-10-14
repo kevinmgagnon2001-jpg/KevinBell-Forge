@@ -23,12 +23,14 @@ function fakeDesktop() {
     const inst = new WebAssembly.Instance(m, {});
     return { run: inst.exports.run as () => number, mem: new Uint8Array((inst.exports.mem as WebAssembly.Memory).buffer) };
   };
-  const invoke = async (cmd: string, a: Record<string, any> = {}) => {
+  const invoke = async (cmd: string, body: Record<string, any> | Uint8Array = {}, options?: { headers?: Record<string, string> }) => {
+    // guest_swap sends the module as raw bytes with the session in a header, as Tauri delivers it.
+    const a: Record<string, any> = body instanceof Uint8Array ? { id: Number(options?.headers?.["forge-session"]), module: Array.from(body) } : body;
     if (cmd === "guest_start") {
       const vm = instantiate(a.module);
       for (const [addr, bytes] of a.chunks as [number, number[]][]) vm.mem.set(bytes, addr);
       const id = next++;
-      sessions.set(id, { ...vm, shim: new LinuxShim(a.arch, BigInt(a.brkBase), BigInt(a.mmapTop), Uint8Array.from(a.stdin)), budget: a.fuel, start: a.fuel });
+      sessions.set(id, { ...vm, shim: new LinuxShim(a.arch, BigInt(a.brkBase), BigInt(a.mmapTop), Uint8Array.from(a.stdin), Object.fromEntries(Object.entries(a.files ?? {}).map(([k, v]) => [k, Uint8Array.from(v as number[])]))), budget: a.fuel, start: a.fuel });
       return id;
     }
     const s = sessions.get(a.id)!;
@@ -44,8 +46,7 @@ function fakeDesktop() {
     if (cmd !== "guest_resume") throw new Error(cmd);
     const state = new GuestState(s.mem);
     const reply = (status: string, code = 0, pc = 0n, fault = 0n) => {
-      const out = { status, code, detail: "", pc: Number(pc), fault: Number(fault), exitCode: s.shim.exitCode, stdout: Array.from(s.shim.stdout.bytes()), stderr: [], syscalls: { ...s.shim.counts }, unsupported: [...s.shim.unsupported], fuelUsed: s.start - s.budget };
-      (s.shim as unknown as { stdout: { bytes: () => Uint8Array } }).stdout = new (s.shim.stdout.constructor as any)();
+      const out = { status, code, detail: "", pc: Number(pc), fault: Number(fault), exitCode: s.shim.exitCode, stdout: Array.from(s.shim.stdout.take()), stderr: [], syscalls: { ...s.shim.counts }, unsupported: [...s.shim.unsupported], fuelUsed: s.start - s.budget, files: status === "running" || status === "needs-code" ? null : Object.fromEntries(Object.entries(s.shim.files.snapshot()).map(([k, v]) => [k, Array.from(v)])) };
       return out;
     };
     for (let e = 0; e < a.maxEvents; e += 1) {
@@ -80,6 +81,21 @@ test("desktop path: the C workload runs through the native protocol, lifting mor
       assert.equal(report.exitCode, 7);
     }
     assert.ok(fake.swaps() > 0, "indirect calls made the page lift more code and swap the module");
+  } finally {
+    delete (globalThis as any).__TAURI_INTERNALS__;
+  }
+});
+
+test("desktop path: files go to the host with the program and the final tree comes back", async () => {
+  const fake = fakeDesktop();
+  (globalThis as any).__TAURI_INTERNALS__ = { invoke: fake.invoke };
+  try {
+    const at = (name: string) => new URL(`../../../fixtures/linux/${name}`, import.meta.url);
+    const report = await runLinuxHosted(new Uint8Array(readFileSync(at("files-aarch64.elf"))), { files: { "in.txt": new Uint8Array(readFileSync(at("files-in.txt"))) } });
+    assert.equal(report.ok, true, report.detail);
+    assert.equal(report.stdout, readFileSync(at("files.expected"), "utf8"));
+    assert.deepEqual(Object.keys(report.files), ["/in.txt", "/out.txt"]);
+    assert.equal(new TextDecoder().decode(report.files["/out.txt"]), readFileSync(at("files.out.txt"), "utf8"));
   } finally {
     delete (globalThis as any).__TAURI_INTERNALS__;
   }

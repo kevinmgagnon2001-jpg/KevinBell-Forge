@@ -161,3 +161,315 @@ Tests: `npm run test:engine` (107 pass) and `rustc --edition 2021 --test src-tau
 - docs/ANDROID.md: how to get it on a phone, signing, known gaps.
 - Not yet run: the Android compile itself (no SDK or crates in the build sandbox). YAML, shell steps
   and the signing round-trip were checked offline.
+
+## Refinement pass (ninth pass)
+- The 3D world was never drawn. The gaze raycaster in Viewport.tsx registered `useFrame(..., 1)`; in
+  react-three-fiber any positive priority means "this hook renders the frame itself", so automatic rendering
+  stopped and the canvas stayed blank on every device (the frame loop ran, `gl.render` never did). It now uses
+  the default priority. Checked in a browser: about 25 draw calls a frame, the lab, exhibits and avatar on
+  screen, and W+A turns the body left, W+D right.
+- package-lock.json is back in sync with package.json (@tauri-apps/cli and esbuild were missing), so the
+  Android workflow now installs with `npm ci`.
+- The Android build has completed on GitHub (Actions run #5); docs/ANDROID.md no longer says it never ran.
+  `npm run build:desktop` (the desktop and Android web build) also runs cleanly.
+- Lint errors fixed (0 errors): `const` where nothing reassigns, an expression-statement push/splice in the
+  x86 movss/movsd decoder replaced by the equivalent single push, unused constants and the unused
+  `ManifoldShell` component removed.
+- Phone layout (<= 600px): the view is taller (64dvh); the second readout line that sat on top of the HUD is
+  hidden; the texture arc is scaled to 78% so it clears the view buttons and the look pad; Find room sits above
+  the look pad instead of squeezing the move row; toolbar and quick-intent buttons keep their labels on one line.
+- Selection and gaze outlines draw the box's 12 edges instead of a wireframe, so flat panels (the terminal
+  screen) no longer show a diagonal seam. The manifold banner sits below the HUD readout instead of over it.
+- Desktop: the controls hint moved to the left, above the move keys, so it no longer covers the texture arc.
+
+## Desktop host compiled, files for guests (tenth pass)
+- The desktop host (src-tauri) compiled for the first time on a desktop target: Tauri 2.12 and wasmtime
+  49.0.2, no warnings. wasmtime is pinned to 49 and src-tauri/Cargo.lock is committed. Dependencies are
+  optimised in dev builds (`[profile.dev.package."*"]`), since unoptimised wasmtime made `desktop:dev` crawl.
+- N1 acceptance: scripts/native-guest.test.ts (`npm run test:native`) runs the page's own protocol code
+  (runLinuxHosted) against the real Rust guest runner and real wasmtime, through a small stdin/stdout
+  bridge (src-tauri/examples/guest_bridge.rs). hello, all 8 workload builds (gcc and clang, x86-64 and
+  AArch64), the glibc fixtures and the new file fixtures print exactly what the CPU prints.
+- Native compile speed. wasmtime compiles ahead of time, and Cranelift slowed sharply on the 16 KiB-per-function
+  modules (a static glibc program: 34 functions up to 400 KB, about 28 s per compile, re-done on every swap).
+  Now: the desktop path lowers 1 KiB of guest code per function (about 6 s for the first compile), and the
+  guest engine keeps an incremental compilation cache. Chunk functions are byte-identical when their code did
+  not change (chunks aligned to absolute addresses; the store-into-code range moved from constants in every
+  function to the CPU-state page at codeLo/codeHi), so a swap recompiles only what changed: about 1.5 s
+  instead of 6.5 s. The browser keeps 16 KiB functions (V8 compiles lazily).
+- N7, files for guests: a capability-scoped, in-memory file tree per program (LinuxOptions.files; the tree as
+  the program left it comes back as report.files). open/openat, close, read/write on files, lseek,
+  fstat/newfstatat (both struct stat layouts), access/faccessat, unlink/unlinkat. Relative paths resolve
+  against "/", ".." stops at the root, nothing outside the tree can be named. Limits: 64 MB, 4096 files,
+  256 descriptors. TypeScript (src/engine/guest/files.ts) and Rust (guest.rs, mod files) implement the same
+  rules; the desktop host takes the tree in guest_start and returns it when the program finishes.
+  - Fixtures checked against the real CPU, files left behind included: fixtures/linux/files.c (raw system
+    calls, x86-64 and AArch64) and libc-files.c (glibc stdio: fopen, fgets, fprintf, fseek, ftell, fscanf,
+    remove). Rebuild with fixtures/linux/build.sh.
+  - Standard streams are unchanged (fstat on 0-2 still answers ENOENT, so libc buffers as before).
+  - The Rust table now knows rseq (ENOSYS, as the page does) instead of listing it as unsupported.
+- The desktop window opens (x86-64 Linux, on a virtual display) and shows the world. In it, the local model
+  failed at once with "No supported storage backend found": wllama keeps weights in the Origin Private File
+  System, which the desktop WebView does not offer. src/engine/model-cache.ts keeps wllama's storage where it
+  exists and otherwise holds the weights in memory for the session (they download again next launch).
+- Module swaps travel as raw bytes (Tauri's binary IPC body, session id in a forge-session header) instead
+  of a JSON number array three times the size; a glibc program's swap went from about 18 MB of text to 6 MB.
+  A test calls the real guest_swap command through Tauri's mock runtime.
+- CI: .github/workflows/checks.yml runs lint, typecheck, engine tests and the web build, plus the desktop
+  host's cargo tests and the native guest tests, on every push.
+- Tests: 113 engine tests, 9 Rust tests, 4 native guest tests.
+
+## Still not done
+- The window was opened on x86-64 Linux only (not ARM, not macOS/Windows), and no installer has been built yet (work item 3).
+- Model weights in the desktop app live in memory only; a Tauri-side file store would keep them across launches.
+- guest_start still sends its module and memory image as JSON (once per run); only swaps go as raw bytes.
+- Files cannot be mapped (file-backed mmap) and cannot be renamed yet (see the next pass for directories,
+  dup and pipes).
+
+## Directories, descriptors and pipes for guests (N7, second part)
+Tests: `npm run test:engine` (118 pass), `rustc --edition 2021 --test src-tauri/src/guest.rs` (8 pass),
+`npm run test:native` (5 pass).
+
+- Directories are real now: the host's tree implies them, programs make them (mkdir, mkdirat) and remove
+  them (rmdir, unlinkat with AT_REMOVEDIR; ENOTEMPTY, ENOTDIR and EBUSY as Linux answers). open/openat on a
+  directory gives a directory descriptor (O_DIRECTORY on both architectures; AArch64's bit is translated),
+  getdents64 lists it (".", "..", then entries by name, DT_DIR/DT_REG), and lseek rewinds it.
+- Paths are walked like Linux walks them: openat, newfstatat, faccessat, mkdirat and unlinkat resolve
+  relative to a directory descriptor; every component before the last must be a directory (ENOTDIR through
+  a file, ENOENT through a missing one); creating a file in a missing directory fails.
+- Descriptors share open file descriptions: dup, dup2, dup3 and fcntl (F_DUPFD, F_DUPFD_CLOEXEC, F_GETFD,
+  F_SETFD, F_GETFL, F_SETFL for O_APPEND) behave as on Linux, dup'd descriptors share one offset, and
+  close-on-exec stays with the descriptor. The standard streams live in the same table, so dup3(fd, 1)
+  sends stdout into a file and closing 0, 1 or 2 really closes it.
+- pipe and pipe2: 64 KiB, bytes in order, end of file once every write end is closed, EPIPE once every read
+  end is. A program has one thread, so a read of an empty pipe that still has a writer, or a write to a
+  full one, answers EAGAIN where Linux would wait forever.
+- The report's tree lists directories as "path/" with no contents, and a host tree may pass empty
+  directories the same way.
+- Same rules in TypeScript (src/engine/guest/files.ts) and Rust (guest.rs, mod files).
+- Fixtures checked against the real CPU, tree left behind included: fixtures/linux/dirs.c (raw system
+  calls, x86-64 and AArch64) and libc-dirs.c (glibc: mkdir, opendir/readdir, stat, rmdir, remove, dup2,
+  pipe + fdopen, fcntl). build.sh records each tree as dirs.tree / libc-dirs.tree.
+
+## Still not done
+- File-backed mmap, rename, symbolic links, poll/select, and more than one thread or process.
+
+## ARM64 glibc programs, phone and desktop shipping (N6, work items 1 and 3)
+Tests: `npm run test:engine` (123 pass), Rust guest tests (8 pass), `npm run test:native` (6 pass),
+model store tests (2 Rust, 1 mock-IPC, 1 page side).
+
+- N6, ARM64 glibc: an ARM64 hardware oracle (.github/workflows/arm-oracle.yml on GitHub's ARM64
+  runners, fixtures/linux/build-arm.sh, scripts/arm-oracle.ts) builds glibc programs natively and
+  records what the ARM64 CPU prints. libc-demo, libc-float, libc-files and libc-dirs now print exactly
+  that, files left behind included, on the interpreter, WebAssembly, the tiered engine and wasmtime.
+  - src/engine/guest/arm-simd.ts: Advanced SIMD and scalar floating point (see its header for the list).
+  - arm.ts: SIMD/FP loads and stores, exclusive and ordered accesses, mrs/msr of the registers a program
+    may read, rbit/rev/clz/cls, two-source extr, adc/sbc with ARM's carry.
+  - IR: 32 ARM vector registers (state page: registers now start at 0x400, NREG 106), more vector ops,
+    and ARM floating-point rules (default NaN, NaN order, operand negation before NaN handling,
+    saturating conversions in five rounding modes, NZCV compares, exact fused multiply-add).
+    WebAssembly gets helper functions for them, including an exact 128-bit-integer fma.
+  - AT_HWCAP tells ARM64 programs they have FP and Advanced SIMD only; libc then never picks SVE, LSE
+    atomics or MTE code, which stay gaps.
+  - fixtures/linux/neon.c: 7,184 lines covering every decoded form over special and random inputs,
+    recorded on ARM64 hardware; all match. src/engine/guest/arm-fp.test.ts compares the WebAssembly
+    helpers with the reference over tens of thousands more operands (it catches seeded bugs).
+- Android: every build is installed and launched on an Android emulator before a Release can go out
+  (.github/scripts/android-smoke.sh; screenshots and the page console on the run page). The first run
+  showed the page under the status and gesture bars; src-tauri/android/MainActivity.kt pads it.
+  On mobile data the 242 MB model no longer downloads by itself unless already stored.
+- Desktop installers (.github/workflows/desktop.yml, docs/DESKTOP.md): .deb and .AppImage for Linux
+  x86-64 and ARM64 (both opened on a virtual display, screenshots kept), .msi/.exe for Windows, .dmg
+  for Apple silicon. Work item 1's "window on x86 and ARM" is met on Linux.
+- Desktop model weights are kept on disk (src-tauri/src/model_store.rs) when the WebView has no OPFS.
+
+## Still not done
+- Installers are not code-signed; Windows and macOS builds are not launched in CI.
+- ARM64: SVE, LSE atomics, MTE and ld2/ld3/ld4 are gaps; half-precision floating point too.
+- Files: mmap of files, rename, symbolic links, poll/select, threads and processes.
+
+## Mapped files, renames and readiness for guests (N7, third part)
+Tests: `npm run test:engine` (127 pass), `rustc --edition 2021 --test src-tauri/src/guest.rs` (9 pass),
+`npm run test:native` (7 pass).
+
+- File-backed mmap. MAP_PRIVATE gives the program its own copy. With MAP_SHARED, stores reach the file and
+  writes to the file show up in the mapping. Guest memory is one flat array, so the shim imitates the page
+  cache. At every system call, bytes the program changed in a shared view go to the file (only inside the
+  file, as on Linux), and every shared view then reloads the file as it stands. A file cut under a mapping
+  reads as zeros past its new end. munmap splits mappings. msync checks its arguments; the stores have
+  already landed by then. MAP_FIXED is honoured, for anonymous memory too. Errors come in Linux's order:
+  EINVAL for the offset, EBADF, EINVAL for the length and the type, then EACCES, then ENODEV for
+  directories, pipes and the standard streams.
+- ftruncate and truncate. pread64 and pwrite64 leave the offset alone; pwrite on an O_APPEND file still
+  appends, as on Linux.
+- rename, renameat and renameat2 (RENAME_NOREPLACE, RENAME_EXCHANGE). They move files and whole
+  directories, replace files and empty directories, and refuse a directory moved into itself (EINVAL),
+  "." and ".." (EBUSY), a directory over a file (ENOTDIR) and a file over a directory (EISDIR). A
+  directory descriptor follows its directory when it is renamed. One open on a directory that was
+  replaced or removed finds nothing and can create nothing (ENOENT); rmdir now behaves the same way.
+- poll, ppoll, select and pselect6 report readiness as Linux does. Files, directories and the standard
+  streams are always ready. A pipe's read end gives POLLIN when it holds data and POLLHUP when no writer is
+  left; its write end gives POLLOUT when there is room and POLLERR when no reader is left. A closed
+  descriptor gives POLLNVAL in poll and EBADF in select. Timeouts are range-checked. A program has one
+  thread and the clock is fixed, so nothing becomes ready by waiting: the answer is the readiness now,
+  whatever the timeout.
+- Same rules in TypeScript (files.ts, linux.ts) and Rust (guest.rs).
+- Fixtures checked against the real CPU, tree left behind included: fixtures/linux/mapio.c (raw system
+  calls, x86-64 and AArch64) and libc-mapio.c (glibc: an mmap word count, a record table edited through a
+  shared mapping, pread/pwrite, an atomic save by rename, renameat2, poll and select on a pipe).
+  libc-mapio was also built and recorded on ARM64 hardware by the arm-oracle workflow (libc-mapio.arm.*)
+  and matches there, through the engines and wasmtime.
+
+## Still not done
+- A private mapping does not see later writes to pages it has not touched yet (Linux shares them until
+  the first store). Two shared views of one file agree at every system call, not between two stores with
+  no call in between.
+- A shared mapping costs a compare of its whole length at every system call.
+- Processes (fork, exec); see the threads section below.
+
+## Symbolic and hard links for guests (N7, fourth part)
+Tests: `npm run test:engine` (128 pass), Rust guest tests (10 pass), `npm run test:native` (7 pass).
+
+- symlink/symlinkat, readlink/readlinkat, stat/lstat (and newfstatat with AT_SYMLINK_NOFOLLOW), link/linkat
+  (AT_SYMLINK_FOLLOW), getcwd ("/": the working directory is the tree's root).
+- Path walks follow links the way Linux does: relative targets from the link's own directory, absolute ones
+  from the tree's root, ".." after a link to a directory goes to that directory's parent, ELOOP after 40
+  links, a trailing "/" follows the last link and makes a file an error (ENOTDIR). O_NOFOLLOW gives ELOOP on
+  a link; O_CREAT through a dangling link creates its target; O_CREAT|O_EXCL on a link gives EEXIST.
+- unlink, rmdir and rename act on the link itself; getdents64 reports DT_LNK; st_nlink counts hard links,
+  and a file's bytes stop counting toward the tree's limit once its last name is gone. rename between two
+  names of one file does nothing, as on Linux.
+- A tree (from the host, or in the report) holds a link as "path@" whose contents are the target. Recorded
+  trees list one as "l /path target".
+- Same rules in TypeScript and Rust. Fixtures recorded on the real CPU: links.c (raw system calls, both
+  architectures) and libc-links.c (glibc: a "current" release link swapped with rename, realpath, readdir
+  types, hard links). The ARM64 oracle builds libc-links too.
+
+## Threads for guests (N7, fifth part)
+Tests: `npm run test:engine` (130 pass), Rust guest tests (11 pass), `npm run test:native` (8 pass).
+
+- clone with CLONE_VM | CLONE_THREAD (SETTLS, PARENT_SETTID, CHILD_SETTID, CHILD_CLEARTID), futex (WAIT,
+  WAKE, WAIT_BITSET, WAKE_BITSET, REQUEUE, CMP_REQUEUE), sched_yield, gettid per thread, set_tid_address.
+  clone3 answers ENOSYS, and glibc falls back to clone.
+- The shim runs one thread at a time and switches only at system calls: when the running thread waits on a
+  futex, yields or exits. A waiting thread's pc, flags and registers are kept aside and put back into the
+  state page when it runs again, so the interpreter, WebAssembly, the tiered engine and wasmtime run threads
+  without any change. Switching only at system calls also makes atomic instructions atomic.
+- Time passes only when no thread can run: then the first thread waiting with a timeout gets ETIMEDOUT.
+  When every thread waits with no timeout, the program stops with stop "deadlock" and says so, where Linux
+  would hang.
+- A thread's exit clears its CLONE_CHILD_CLEARTID word and wakes one waiter (pthread_join); exit_group ends
+  every thread; the program ends when its last thread exits.
+- libc-threads.c (glibc pthreads: workers with a mutex-protected counter, a barrier, pthread_once,
+  thread-local storage, a producer and consumer on a condition variable, a small-stack thread, a detached
+  thread still running when main returns) matches the x86-64 CPU on every engine and through wasmtime.
+- A thread can also lose the CPU when its slice of fuel (a million instructions) runs out, so threads that
+  wait by spinning, with no system call in the loop, get through. libc-spin.c (an atomic ping-pong and a
+  spinlock) checks it. Switches stay deterministic: the same program always interleaves the same way.
+
+## Still not done
+- Processes: fork/vfork (clone without CLONE_VM), exec, wait4, signals between threads (tgkill).
+
+## Client-side prediction (work item 13)
+Tests: `npm run test:engine` (137 pass; src/engine/prediction.test.ts).
+
+- src/engine/prediction.ts: one movement rule (`step`) that host and visitor both run, in the pilot's frame
+  and at its walking speed, with inputs clamped so bigger numbers do not mean faster walking. `HostMover`
+  applies each visitor input once, in order (repeats and stragglers ignored). `Predictor` moves the
+  visitor on the frame the key is pressed, resends every unacknowledged input with each packet, replays
+  them on top of each host reply, ignores replies that were overtaken, and glides away corrections
+  instead of snapping. `Interpolator` plays other players back 100 ms in the past, so uneven packets
+  still give smooth motion.
+- IslandHost.sync takes the visitor's inputs (needs "input") and walks the visitor itself, against walls
+  (entities tagged "wall" or "solid") only it may know about; the reply says the last input applied and
+  where that left the visitor. island-node.ts and syncIsland pass inputs through.
+- Measured in the test at 150 ms each way: the avatar moves on the same frame; with no walls the host
+  agrees exactly (largest correction 0) even with 25% packet loss and jitter; with a wall only the host
+  knows, the avatar never moves more than 0.25 m in one frame and ends where the host says. Two visitors
+  on one host each stay under their byte budget.
+
+## Still not done
+- Done below (pilot on visited islands).
+
+## Adjacency, live (work item 9)
+Tests: `npm run test:engine` (139 pass; src/engine/live-visit.test.ts), plus a browser run (below).
+
+- src/engine/live-visit.ts: LiveVisit keeps a visited island in step with its host. Each round reports
+  the architect's position and gaze (converted to the host's coordinates) and folds the host's changes
+  into the local copy: new entities appear, changed ones move, gone ones leave, with stable local ids.
+  Other visitors' presence markers come with them, so two players see each other. After 5 missed rounds,
+  or a refused session, the host's half of the world is removed. A round returns a change to apply to
+  the world as it is when the answer lands, not a stale copy. walk() hands back a Predictor.
+- The first round of a predicted walk tells the host where the walk started (and the yaw), so host and
+  visitor agree from the first input.
+- Proxies (low-detail stand-ins) keep a presence marker's visitor id, so a far-away visitor is still known.
+- Bridge.tsx: after a portal visit the app runs a round every 150 ms; when the host stops, the log says
+  so and the island disappears.
+- A typed forge:// address now places its portal without the local model (and while it is still loading).
+- Checked in Chromium against a real island node: type the address, walk into the portal, "Inside Plaza"
+  (28 bodies), about 4 syncs a second, stop the node, "Plaza left: the host stopped answering" (15 bodies).
+- Two machines on one network are still to try (work item 4).
+
+## Walking on a visited island (work items 9 and 13 together)
+- While the architect stands inside a visited island's footprint (from its entities, with a margin), the
+  pilot sends its keys to that island's Predictor and draws the avatar where the prediction says: it moves
+  on the same frame, and the host, which walks the visitor from the same inputs, has the last word.
+  Stepping off returns to plain local walking; stepping back on starts a new numbered walk, and the host
+  restarts from there.
+- Checked in Chromium against a real island node: walking onto the island switches the sync requests to
+  carrying inputs (seq, forward, strafe, turn, dt) with the walk number; walking off switches back.- Other visitors' markers no longer jump at each sync: LiveVisit keeps a track of their snapshots
+  (prediction.ts Interpolator, 150 ms behind, no extrapolation from snapshots under 30 ms apart) and the
+  pilot moves them every frame; merging a sync leaves their position to the track.
+
+## Real libraries: SSE2 integer, pushf/popf, big programs (work item N8, first part)
+Tests: `npm run test:engine` (143 pass; new: x86-simd.test.ts, the sse2 and zlib fixtures), `npm run test:native`.
+
+Real static programs found the gaps: zlib (pinsrw), OpenSSL (packuswb, pushfq) and sqlite (x87).
+- The rest of SSE2 integer: packsswb/packssdw/packuswb, saturating add/sub (signed and unsigned, 8 and 16
+  bit), pavgb/pavgw, pmullw/pmulhw/pmulhuw, pmuludq, pmaddwd, psadbw, shifts by an xmm count
+  (psll/psrl/psra w/d/q; counts at or past the lane width zero or sign-fill, as on the CPU), pextrw,
+  pinsrw. New vector IR ops with reference semantics (ir.ts vecValue) and WebAssembly lowering (mostly
+  single wasm SIMD instructions: narrow, add_sat, avgr, dot; psadbw and the high multiplies as short
+  sequences). x86-simd.test.ts drives each lowering directly against the reference over special and
+  random lanes (it catches a seeded bug); fixtures/linux/sse2.c (3,840 results) matches the CPU on every
+  engine and through wasmtime.
+- pushfq/popfq (a new setflags op: CF, PF, ZF, SF, OF), cld.
+- Lifting is a budget now, not a limit: the up-front walk adds at most 250,000 instructions and the rest
+  is lifted when first reached (up to 3,000,000 per program). A static OpenSSL (5.8 MB) and sqlite load.
+- zlib-demo.c (zlib 1.3: compress, uncompress, crc32, adler32 over 200 KB) matches the CPU. A static
+  OpenSSL program (SHA-1/256/512, AES-256-CBC, AES-128-GCM, ChaCha20) matches it too, in 55 s.
+
+## Still not done
+- Big programs are slow: every relift rebuilds the whole WebAssembly module.
+- Packed SSE floating point (addps, mulpd, cvtdq2ps...), SSE3 and later: cpuid says SSE2 only, so
+  libraries do not pick those paths.
+
+## x87 floating point, exactly (work item N8, second part)
+Tests: `npm run test:engine` (147 pass), `npm run test:native`, and in CI the soft-float against the runner's x87.
+
+- src/engine/guest/f80/f80.c: 80-bit extended precision in software. add, sub, mul, div, sqrt, round to
+  integer, fscale, fprem/fprem1 (with quotient bits), compare, fxam classes, conversions to and from f32,
+  f64 and integers; all four rounding modes and the three precision-control settings; x87 NaN rules
+  (quiet beats signalling, then the larger significand), unsupported encodings giving the indefinite NaN,
+  denormals and pseudo-denormals. Plain C with 64-bit integers only.
+- f80-check.c runs it natively against the real x87: 40 million checks, 0 mismatches. CI runs 300,000
+  cases on every push.
+- scripts/build-f80.mjs compiles it to WebAssembly (17 functions, 19.5 KB), refuses any body that touches
+  memory, globals or tables or calls anything, and writes f80-wasm.ts with the source's SHA-256 (a test
+  checks it is current). Every lowered guest module embeds these functions; the interpreter runs the
+  same ones through a small module of its own. So the browser, the interpreter and wasmtime compute the
+  same bits, and the guest module still has no imports.
+- IR: one new op, f80call (a named soft-float function on IR values), and x87 registers: ST(0)..ST(7) as
+  significand and sign-exponent, control word (0x37f at start), status word (C0..C3 and TOP) and which
+  stack slots hold values (NREG 125, same in guest.rs). The stack is kept in order: a push moves every
+  slot down and a pop moves them up, so register numbers stay fixed.
+- Decoded: fld/fst/fstp (m32, m64, m80, st(i)), fild/fist/fistp/fisttp (m16, m32, m64), the arithmetic in
+  all its forms (memory, st(0) op st(i), st(i) op st(0), the popping ones), fcom/fucom/fcomp/fucompp/
+  fcompp/ftst, fcomi/fucomi/fcomip/fucomip, fxch, fchs, fabs, fxam, the constants, fsqrt, frndint,
+  fscale, fprem/fprem1, fcmov, fldcw/fnstcw, fnstsw ax and m16, fnstenv/fldenv, fninit, fnclex, ffree,
+  fwait; also sahf, lahf, clc, stc, cmc and 8/16-bit rol/ror.
+- fixtures/linux/x87.c (3,522 results as raw bits, all rounding modes) and rotate.c match the CPU on every
+  engine and through wasmtime. sqlite (sqlite-demo.c: 2,000 rows, an index, aggregates, printf) prints
+  exactly what the CPU prints.
+- Not done: transcendental x87 instructions (fsin, fcos, fptan, fpatan, f2xm1, fyl2x...; glibc's long
+  double libm uses some), fsave/frstor, fbld/fbstp, x87 exception flags (everything acts masked).

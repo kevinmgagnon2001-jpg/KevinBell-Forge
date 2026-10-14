@@ -13,6 +13,8 @@ export type Program = {
   gaps: Map<bigint, Gap>;
   /** Executable ranges [lo, hi). Lifting never leaves them. */
   text: [bigint, bigint][];
+  /** The span holding lifted instructions [lo, hi), kept current by lift (codeExtent). */
+  span?: [bigint, bigint];
 };
 
 export function newProgram(arch: GuestArch, text: [bigint, bigint][]): Program {
@@ -23,7 +25,16 @@ export function inText(program: Program, pc: bigint): boolean {
   return program.text.some(([lo, hi]) => pc >= lo && pc < hi);
 }
 
-export function lift(program: Program, fetch: Fetch, roots: bigint[], limit = 200_000): { added: number } {
+/** Most instructions one program may hold in its map (memory for the map and the lowered module). */
+export const MAX_INSNS = 3_000_000;
+
+/**
+ * Lift from `roots` until the work runs out or `budget` instructions were added. Big programs (a static
+ * OpenSSL is about a million instructions) are not lifted whole up front: what the budget leaves out is
+ * lifted the first time the machine reaches it (relift). Returns how many were added and whether
+ * the budget, or MAX_INSNS, cut the walk short.
+ */
+export function lift(program: Program, fetch: Fetch, roots: bigint[], budget = 250_000): { added: number; truncated: boolean } {
   const decode = program.arch === "x86_64" ? decodeX86 : decodeArm;
   const work = [...roots];
   let added = 0;
@@ -36,18 +47,20 @@ export function lift(program: Program, fetch: Fetch, roots: bigint[], limit = 20
       program.gaps.set(pc, { pc, bytes: "", reason: "misaligned arm instruction address" });
       continue;
     }
-    if (program.insns.size >= limit) throw new Error("program is larger than the lifter limit");
+    if (added >= budget || program.insns.size >= MAX_INSNS) return { added, truncated: true };
     const result = decode(textFetch, pc);
     if ("gap" in result) {
       program.gaps.set(pc, result.gap);
       continue;
     }
     program.insns.set(pc, result.insn);
+    const end = pc + BigInt(result.insn.len);
+    program.span = program.span ? [pc < program.span[0] ? pc : program.span[0], end > program.span[1] ? end : program.span[1]] : [pc, end];
     added += 1;
     for (const t of result.targets) work.push(t);
     if (result.insn.fall) work.push(result.insn.next);
   }
-  return { added };
+  return { added, truncated: false };
 }
 
 /**
@@ -55,6 +68,7 @@ export function lift(program: Program, fetch: Fetch, roots: bigint[], limit = 20
  * translation stale, so both engines stop with "self-modifying code" instead.
  */
 export function codeExtent(program: Program): [bigint, bigint][] {
+  if (program.span && program.insns.size) return [program.span];
   let lo = -1n;
   let hi = -1n;
   for (const insn of program.insns.values()) {

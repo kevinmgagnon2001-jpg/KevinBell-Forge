@@ -1,0 +1,18 @@
+mkdir work: 0
+mkdir work again: -1 errno 17
+work: file-0.txt(12) file-1.txt(24) file-2.txt(36) file-3.txt(48) file-4.txt(60) logs/(0)
+work/logs:
+stat work: 0 dir 1
+rmdir work: -1 errno 39
+rmdir work/logs: 0
+work: file-1.txt(24) file-3.txt(48)
+read back: captured 42
+pipe: 0
+got msg 0
+got msg 1
+got msg 2
+cloexec 1
+dup at 30
+read via dup: 10
+offset of original: 10
+work: file-1.txt(24) file-3.txt(48) stdout.txt(12)

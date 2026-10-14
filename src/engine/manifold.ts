@@ -579,7 +579,7 @@ function boardOf(world: World): Entity | undefined {
 }
 
 function rngNext(state: number): { roll: number; state: number } {
-  let x = (state + 0x6d2b79f5) >>> 0;
+  const x = (state + 0x6d2b79f5) >>> 0;
   let t = Math.imul(x ^ (x >>> 15), x | 1);
   t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
   return { roll: ((t ^ (t >>> 14)) >>> 0) / 4294967296, state: x };
@@ -712,7 +712,7 @@ export function playTetris(world: World, move: string): World {
   const originX = Number(board.customData.originX) || 5.55;
   const originZ = Number(board.customData.originZ) || 1.35;
   const entities = { ...world.entities };
-  let nextId = world.nextId;
+  const nextId = world.nextId;
   const live = liveCells(entities);
   if (!live.length) {
     const drawn = takePiece(board.customData.bag || "", Number(board.customData.seed) || 1);

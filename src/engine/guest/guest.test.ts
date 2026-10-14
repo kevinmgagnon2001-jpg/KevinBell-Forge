@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import test from "node:test";
 import { decodeArm } from "./arm.ts";
 import { describeOp, Stop } from "./ir.ts";
 import { runLinux } from "./linux.ts";
 import { decodeX86 } from "./x86.ts";
+import { parseRecordedTree } from "../../../scripts/fixture-tree.ts";
 
 const fixture = (name: string) => new Uint8Array(readFileSync(new URL(`../../../fixtures/linux/${name}`, import.meta.url)));
 const text = (name: string) => readFileSync(new URL(`../../../fixtures/linux/${name}`, import.meta.url), "utf8");
@@ -43,9 +44,11 @@ test("unknown machine code is reported as a gap and never executed", () => {
   const d = decodeX86(bytesFetch([0x0f, 0x31]), 0n);
   assert.ok("gap" in d);
   assert.match(d.gap.reason, /not in the map/);
-  // ARM: a SIMD add is a gap
-  const a = decodeArm(bytesFetch([0x20, 0x84, 0xa2, 0x4e]), 0n);
-  assert.ok("gap" in a);
+  // ARM: SVE (ptrue p0.b) and LSE atomics (casal) are gaps; the guest is told it has neither
+  for (const bytes of [[0xe0, 0xe3, 0x18, 0x25], [0x41, 0xfc, 0xe0, 0xc8]]) {
+    const a = decodeArm(bytesFetch(bytes), 0n);
+    assert.ok("gap" in a, bytes.join(","));
+  }
 });
 
 test("a program that reaches a gap stops there with evidence; nothing after it runs", () => {
@@ -132,4 +135,135 @@ test("ordinary glibc programs (static): printf, malloc, qsort, strings, TLS, SSE
     assert.equal(fp.ok, true, `${engine}: ${fp.detail}`);
     assert.equal(fp.stdout, floatOut, engine);
   }
+});
+
+test("files: raw system calls on x86-64 and AArch64, and glibc stdio, match real hardware, files left behind included", () => {
+  const input = fixture("files-in.txt");
+  const runs = [
+    { file: "files-x86_64.elf", out: "files.expected", code: Number(text("files.exitcode").trim()), tree: { "/in.txt": text("files-in.txt"), "/out.txt": text("files.out.txt") } },
+    { file: "files-aarch64.elf", out: "files.expected", code: Number(text("files.exitcode").trim()), tree: { "/in.txt": text("files-in.txt"), "/out.txt": text("files.out.txt") } },
+    { file: "libc-files-x86_64.elf", out: "libc-files.expected", code: 0, tree: { "/in.txt": text("files-in.txt"), "/report.txt": text("libc-files.report.txt") } },
+  ];
+  for (const run of runs) {
+    for (const engine of ["tiered", "interpreter", "wasm"] as const) {
+      const report = runLinux(fixture(run.file), { engine, files: { "in.txt": input } });
+      assert.equal(report.ok, true, `${run.file} ${engine}: ${report.detail}`);
+      assert.equal(report.stdout, text(run.out), `${run.file} ${engine}`);
+      assert.equal(report.exitCode, run.code);
+      assert.deepEqual(report.unsupportedSyscalls, []);
+      const tree = Object.fromEntries(Object.entries(report.files).map(([k, v]) => [k, new TextDecoder().decode(v)]));
+      assert.deepEqual(tree, run.tree, `${run.file} ${engine}`);
+    }
+  }
+});
+
+test("directories, dup, fcntl and pipes: raw system calls on x86-64 and AArch64, and glibc, match real hardware", () => {
+  const input = fixture("files-in.txt");
+  const runs = [
+    { file: "dirs-x86_64.elf", name: "dirs" },
+    { file: "dirs-aarch64.elf", name: "dirs" },
+    { file: "libc-dirs-x86_64.elf", name: "libc-dirs" },
+  ];
+  for (const run of runs) {
+    for (const engine of ["tiered", "interpreter", "wasm"] as const) {
+      const report = runLinux(fixture(run.file), { engine, files: { "in.txt": input } });
+      assert.equal(report.ok, true, `${run.file} ${engine}: ${report.detail}`);
+      assert.equal(report.stdout, text(`${run.name}.expected`), `${run.file} ${engine}`);
+      assert.equal(report.exitCode, Number(text(`${run.name}.exitcode`).trim()));
+      assert.deepEqual(report.unsupportedSyscalls, []);
+      const tree = Object.fromEntries(Object.entries(report.files).map(([k, v]) => [k, new TextDecoder().decode(v)]));
+      assert.deepEqual(tree, parseRecordedTree(text(`${run.name}.tree`)), `${run.file} ${engine}`);
+    }
+  }
+});
+
+test("mapped files, renames, truncation, poll/select and links: raw system calls on x86-64 and AArch64, and glibc, match real hardware", () => {
+  const input = fixture("files-in.txt");
+  const runs = [
+    { file: "mapio-x86_64.elf", name: "mapio" },
+    { file: "mapio-aarch64.elf", name: "mapio" },
+    { file: "libc-mapio-x86_64.elf", name: "libc-mapio" },
+    { file: "links-x86_64.elf", name: "links" },
+    { file: "links-aarch64.elf", name: "links" },
+    { file: "libc-links-x86_64.elf", name: "libc-links" },
+  ];
+  for (const run of runs) {
+    for (const engine of ["tiered", "interpreter", "wasm"] as const) {
+      const report = runLinux(fixture(run.file), { engine, files: { "in.txt": input } });
+      assert.equal(report.ok, true, `${run.file} ${engine}: ${report.detail}`);
+      assert.equal(report.stdout, text(`${run.name}.expected`), `${run.file} ${engine}`);
+      assert.equal(report.exitCode, Number(text(`${run.name}.exitcode`).trim()));
+      assert.deepEqual(report.unsupportedSyscalls, []);
+      const tree = Object.fromEntries(Object.entries(report.files).map(([k, v]) => [k, new TextDecoder().decode(v)]));
+      assert.deepEqual(tree, parseRecordedTree(text(`${run.name}.tree`)), `${run.file} ${engine}`);
+    }
+  }
+});
+
+test("threads: glibc pthreads (spinning, condition variable, barrier, once, TLS, join) match real hardware on every engine", () => {
+  for (const engine of ["tiered", "interpreter", "wasm"] as const) {
+    const report = runLinux(fixture("libc-threads-x86_64.elf"), { engine });
+    assert.equal(report.ok, true, `${engine}: ${report.detail}`);
+    assert.equal(report.stdout, text("libc-threads.expected"), engine);
+    assert.equal(report.exitCode, Number(text("libc-threads.exitcode").trim()));
+    // Threads that wait by spinning: only switching when a slice of fuel runs out gets them through.
+    const spin = runLinux(fixture("libc-spin-x86_64.elf"), { engine });
+    assert.equal(spin.ok, true, `spin ${engine}: ${spin.detail}`);
+    assert.equal(spin.stdout, text("libc-spin.expected"), engine);
+    assert.deepEqual(report.unsupportedSyscalls, []);
+    assert.ok(report.syscalls.clone >= 7 && report.syscalls.futex > 0, engine);
+  }
+});
+
+test("SSE2 integer instructions match the x86-64 CPU on every engine, and zlib runs as on the CPU", () => {
+  for (const engine of ["tiered", "interpreter", "wasm"] as const) {
+    const report = runLinux(fixture("sse2-x86_64.elf"), { engine });
+    assert.equal(report.ok, true, `${engine}: ${report.detail}`);
+    assert.equal(report.stdout, text("sse2.expected"), engine);
+  }
+  const zlib = runLinux(fixture("zlib-demo-x86_64.elf"), { memBytes: 64 * 1024 * 1024 });
+  assert.equal(zlib.ok, true, zlib.detail);
+  assert.equal(zlib.stdout, text("zlib-demo.expected"));
+});
+
+test("x87: 80-bit arithmetic, conversions, compares and rounding modes, and 8/16-bit rotates, match the x86-64 CPU on every engine", () => {
+  for (const engine of ["tiered", "interpreter", "wasm"] as const) {
+    for (const name of ["x87", "rotate"]) {
+      const report = runLinux(fixture(`${name}-x86_64.elf`), { engine });
+      assert.equal(report.ok, true, `${name} ${engine}: ${report.detail}`);
+      assert.equal(report.stdout, text(`${name}.expected`), `${name} ${engine}`);
+    }
+  }
+});
+
+test("sqlite (a real program that formats numbers with long double) runs as on the CPU", () => {
+  const report = runLinux(fixture("sqlite-demo-x86_64.elf"), { memBytes: 64 * 1024 * 1024 });
+  assert.equal(report.ok, true, report.detail);
+  assert.equal(report.stdout, text("sqlite-demo.expected"));
+});
+
+test("ARM64 glibc programs and the NEON/FP instruction corpus (built and run on ARM64 hardware) match the CPU on every engine", () => {
+  const input = fixture("files-in.txt");
+  for (const name of ["libc-demo", "libc-float", "libc-files", "libc-dirs", "libc-mapio", "libc-links", "libc-threads", "libc-spin", "neon"]) {
+    const withTree = existsSync(new URL(`../../../fixtures/linux/${name}.arm.tree`, import.meta.url));
+    for (const engine of ["tiered", "interpreter", "wasm"] as const) {
+      const report = runLinux(fixture(`${name}-aarch64.elf`), { engine, stdin: "abc", files: withTree ? { "in.txt": input } : undefined });
+      assert.equal(report.ok, true, `${name} ${engine}: ${report.detail}`);
+      assert.equal(report.stdout, text(`${name}.arm.expected`), `${name} ${engine}`);
+      assert.equal(report.exitCode, Number(text(`${name}.arm.exitcode`).trim()));
+      assert.deepEqual(report.unsupportedSyscalls, []);
+      if (withTree) {
+        const tree = Object.fromEntries(Object.entries(report.files).map(([k, v]) => [k, new TextDecoder().decode(v)]));
+        assert.deepEqual(tree, parseRecordedTree(text(`${name}.arm.tree`)), `${name} ${engine}`);
+      }
+    }
+  }
+});
+
+test("files: a program sees only its own tree", () => {
+  // With an empty tree, in.txt does not exist even though the program asks for it.
+  const report = runLinux(fixture("files-x86_64.elf"), { files: {} });
+  assert.equal(report.ok, true);
+  assert.match(report.stdout, /^open in\.txt: 0\nin\.txt size: -9\n/);
+  assert.deepEqual(Object.keys(report.files), ["/out.txt"]);
 });

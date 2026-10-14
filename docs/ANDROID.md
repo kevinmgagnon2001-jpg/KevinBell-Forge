@@ -65,7 +65,7 @@ npm run android:build   # release APK under src-tauri/gen/android/app/build/outp
 
 ## Known gaps on phones
 
-- **First real build happens on GitHub.** The build was written and checked offline: the YAML, the shell steps and the signing logic were verified, but the Android compile itself has not run yet. If the first run fails, the log names the step; hand that log back.
+- **Verified on GitHub, not locally.** The full pipeline (tests, web build, Android compile, signing) has completed on GitHub's runners. If a run fails, the log names the step; hand that log back.
 - **wasmtime on Android.** The native runtime officially supports 64-bit ARM, but it has not been tested on a phone. If it misbehaves, the app still has the in-page WebAssembly engine.
-- **Touch controls.** The 3D world was built for mouse and keyboard. On-screen joystick and look controls are the next phone work item.
+- **Touch controls.** On-screen move keys and a drag-to-look pad are in place. They have been checked at phone size in a browser, not yet on a physical phone.
 - **Taking over the phone** (default launcher, SMS passthrough, shell levels 1–2) is later work.

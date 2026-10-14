@@ -1,0 +1,8 @@
+count(*)=2000 sum(score)=99900.0 avg(score)=49.95 max(name)=item999 
+name=item1027 score=99.9 
+name=item27 score=99.9 
+name=item1054 score=99.8 
+name=item54 score=99.8 
+name=item1081 score=99.7 
+printf('%.3f', stddev)=28.867 
+sqlite 3.45.1

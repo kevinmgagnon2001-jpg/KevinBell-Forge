@@ -1,0 +1,71 @@
+symlink to in.txt: 0
+symlink again: -17
+dangling symlink: 0
+symlink to a directory: 0
+relative to its own directory: 0
+a loop: 0
+empty target: -2
+in a missing directory: -2
+readlink l1: "in.txt"
+readlink short buffer: "in."
+readlink size 0: -22
+readlink a file: -22
+readlink missing: -2
+readlink through a link to a directory: "../in.txt"
+stat l1: f 135 1
+lstat l1: l 6 1
+stat dangling: -2
+lstat dangling: l 11 1
+stat dl: d 4096
+lstat dl: l 1 1
+lstat dl/: d 4096
+stat loop: -40
+read through l1: "Forge reads files no"
+read d/up: "Forge reads files no"
+read dl/up: "Forge reads files no"
+read dl/x.txt: "x-ray"
+read dl/../in.txt: "Forge reads files no"
+O_NOFOLLOW on a link: -40
+O_NOFOLLOW through a link to a directory: 1
+open a loop: -40
+open through a loop: -40
+open dangling: -2
+O_CREAT|O_EXCL on dangling: -17
+O_CREAT through dangling creates the target: 1
+nowhere.txt: "made"
+open empty target: -2
+access through l1: 0
+access a loop: -40
+mkdir over a link: -17
+mkdir through a link: 0
+O_DIRECTORY on dl: 1
+O_DIRECTORY on l1: -20
+truncate through a link: 0
+nowhere.txt after: "ma"
+d: sub/ up@ x.txt*
+rmdir a link to a directory: -20
+unlink dl/ (trailing slash): -20
+rename a link: 0
+moved link resolves from its new place: -2
+rename d/up down a level: 0
+d/sub/up now: -2
+unlink the loop: 0
+unlink empty: -2
+unlink dl: 0
+d still there: d 4096
+link f.txt g.txt: 0
+stat f.txt: f 5 2
+f.txt after writing g.txt: "first+more"
+link onto an existing name: -17
+link a directory: -1
+link a missing file: -2
+link into a missing directory: -2
+link a symlink: 0
+lstat hard-to-link: l 11 2
+link with AT_SYMLINK_FOLLOW: 0
+lstat hard-to-target: f 2 2
+bad flag: -22
+unlink f.txt: 0
+stat g.txt: f 10 1
+rename g.txt onto its own hard link: 0
+g.txt still there: f 10 2

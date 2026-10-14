@@ -914,7 +914,7 @@
 
   .manifold-banner {
     position: absolute;
-    top: 0.75rem;
+    top: 2.4rem;
     left: 0.75rem;
     z-index: 3;
     display: flex;
@@ -1026,6 +1026,13 @@
   .hud {
     flex-direction: column;
     gap: 0.25rem;
+  }
+
+  /* Scrolling toolbars: keep each button on one line instead of squeezing its label. */
+  .top-actions > *,
+  .chips > * {
+    flex-shrink: 0;
+    white-space: nowrap;
   }
 }
 
@@ -1387,14 +1394,14 @@
 
 .visor-hint {
   position: absolute;
-  right: 0.9rem;
-  bottom: 9.2rem;
+  left: 0.9rem;
+  bottom: 8.6rem;
   max-width: min(16rem, 46vw);
   margin: 0;
   color: #c8c4bc;
   font-size: 0.72rem;
   line-height: 1.35;
-  text-align: right;
+  text-align: left;
   text-shadow: 0 1px 2px rgb(0 0 0 / 70%);
 }
 
@@ -1474,4 +1481,55 @@
   font-size: 0.95rem;
   line-height: 1.45;
   text-align: center;
+}
+
+@media (max-width: 600px) {
+  .app:not(.is-immersive) {
+    grid-template-rows: auto 64dvh auto auto;
+  }
+
+  /* The readout already names what is in the crosshair; the second line only collided with it. */
+  .visor-read,
+  .hud-readout span:last-child {
+    display: none;
+  }
+
+  /* The quiet banner only repeats the readout; a busy one (loading, failure) sits below the view buttons. */
+  .manifold-banner {
+    top: 6.2rem;
+  }
+
+  .manifold-banner.is-quiet {
+    display: none;
+  }
+
+  /* Smaller arc so it clears the view buttons above and the look pad below. */
+  .tex-deck {
+    transform: scale(0.78);
+  }
+
+  .tex-deck-note {
+    bottom: 8.6rem;
+  }
+
+  .dpad .visor-key {
+    min-width: 56px;
+    white-space: nowrap;
+  }
+
+  /* Sits above the look pad so the bottom row is only the move keys and the pad. */
+  .steer-home {
+    position: absolute;
+    right: 0;
+    bottom: 6.75rem;
+    min-height: 40px;
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  .look-pad {
+    flex-shrink: 0;
+    width: 6.25rem;
+    height: 6.25rem;
+  }
 }
