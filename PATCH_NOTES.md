@@ -603,3 +603,24 @@ your real apps; opening one steps Forge aside, and opening Forge again brings yo
   - search, then Enter or a tap opens the app and logs it;
   - Escape closes the sheet;
   - no overflow, and the prompt is clear of the touch controls.
+
+## Releases by label, and "update available" in the apps
+- .github/workflows/release.yml: a pull request merged into main with the label "release" (or
+  "[release]" in its title) is tagged with the next version and released. "release:minor" and
+  "release:major" bump the other numbers, and there is a manual "Run workflow" too.
+  - scripts/next-version.mjs works out the tag from existing v1.2.3 tags only (tested,
+    src/engine/next-version.test.ts).
+  - A tag pushed by a workflow starts no workflows, so release.yml calls android.yml and desktop.yml
+    directly: they gained `workflow_call` with a `tag` input. Hand-made tags still start them as
+    before.
+- android.yml now adds its notes to the Release instead of replacing them, so the desktop
+  instructions stay.
+- src/engine/updates.ts and UpdateBanner.tsx: on start and every 6 hours the Android and desktop apps
+  compare their version with GitHub's latest Release.
+  - They offer the right file for the device: APK, setup .exe, .dmg, or the x86-64 or ARM AppImage.
+  - Before the files are attached, the notice points at the release page.
+  - "Later" hides that version. The web version never shows the notice.
+  - Checked against the real v0.6.1 Release, and in Chromium with ?update=demo at 1400x900 and 390x844.
+- Only links to Forge's own releases can be opened: open_release_link in apps.rs (tested) and
+  ForgeApps.openReleaseLink on Android.
+- Still not done: desktop self-install (Tauri updater) needs an update-signing key from the owner.

@@ -23,6 +23,12 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
+  # release.yml calls this with the tag it just made (a tag pushed by a workflow starts no workflows).
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
 
 permissions:
   contents: write # needed to create the Release and upload the APK
@@ -48,11 +54,17 @@ jobs:
       ANDROID_TARGETS: "aarch64 x86_64"
     steps:
       - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.tag || github.ref }}
 
       - name: Version from the tag
         id: version
+        env:
+          CALLED_TAG: ${{ inputs.tag || '' }}
         run: |
-          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+          if [[ -n "$CALLED_TAG" ]]; then
+            VERSION="${CALLED_TAG#v}"
+          elif [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             VERSION="${GITHUB_REF_NAME#v}"
           else
             VERSION="$(jq -r .version src-tauri/tauri.conf.json)"
@@ -234,7 +246,7 @@ jobs:
   release:
     name: Publish the Release
     needs: [apk, smoke]
-    if: github.ref_type == 'tag'
+    if: inputs.tag || github.ref_type == 'tag'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
@@ -243,9 +255,13 @@ jobs:
       - name: Publish the Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
           name: Forge v${{ needs.apk.outputs.version }}
           files: ${{ needs.apk.outputs.apk }}
+          # Added to the notes, not in place of them: the desktop installers add theirs too.
+          append_body: true
           body: |
+
             **Android:** open this page on your phone, tap `${{ needs.apk.outputs.apk }}` below, and allow installs from your browser when Android asks (once).
             ${{ needs.apk.outputs.permanent == 'true' && 'Installs over the previous version; your data is kept.' || 'Signed with a one-off key: if an older Forge is installed, uninstall it first.' }}
             Signing certificate SHA-256: `${{ needs.apk.outputs.fingerprint }}`

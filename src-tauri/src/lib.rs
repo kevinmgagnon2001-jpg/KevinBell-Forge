@@ -387,6 +387,13 @@ async fn apps_open(window: tauri::WebviewWindow, id: String) -> Result<(), Strin
     Ok(())
 }
 
+/// `invoke("open_release_link", { url })`: a newer Forge to download, in the system's browser.
+/// Only links to Forge's own releases are opened (apps.rs).
+#[tauri::command]
+fn open_release_link(url: String) -> Result<(), String> {
+    apps::open_link(&url)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -411,7 +418,8 @@ pub fn run() {
             model_store_commit,
             model_store_delete,
             apps_list,
-            apps_open
+            apps_open,
+            open_release_link
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Forge host");
