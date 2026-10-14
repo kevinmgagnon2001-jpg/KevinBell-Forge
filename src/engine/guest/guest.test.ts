@@ -200,12 +200,16 @@ test("mapped files, renames, truncation, poll/select and links: raw system calls
   }
 });
 
-test("threads: glibc pthreads (mutex, condition variable, barrier, once, TLS, join) match real hardware on every engine", () => {
+test("threads: glibc pthreads (spinning, condition variable, barrier, once, TLS, join) match real hardware on every engine", () => {
   for (const engine of ["tiered", "interpreter", "wasm"] as const) {
     const report = runLinux(fixture("libc-threads-x86_64.elf"), { engine });
     assert.equal(report.ok, true, `${engine}: ${report.detail}`);
     assert.equal(report.stdout, text("libc-threads.expected"), engine);
     assert.equal(report.exitCode, Number(text("libc-threads.exitcode").trim()));
+    // Threads that wait by spinning: only switching when a slice of fuel runs out gets them through.
+    const spin = runLinux(fixture("libc-spin-x86_64.elf"), { engine });
+    assert.equal(spin.ok, true, `spin ${engine}: ${spin.detail}`);
+    assert.equal(spin.stdout, text("libc-spin.expected"), engine);
     assert.deepEqual(report.unsupportedSyscalls, []);
     assert.ok(report.syscalls.clone >= 7 && report.syscalls.futex > 0, engine);
   }

@@ -1629,6 +1629,18 @@ impl Shim {
         true
     }
 
+    /// A slice of fuel ran out between two instructions: let the next ready thread run, so a thread that
+    /// waits by spinning cannot hold the others up (see `preempt` in linux.ts). No register changes.
+    pub fn preempt(&mut self, mem: &mut [u8]) {
+        let n = self.threads.len();
+        if let Some(i) = (1..n).map(|k| (self.cur + k) % n).find(|&i| self.threads[i].wait.is_none()) {
+            self.threads[self.cur].ctx = Some(Self::save_ctx(mem));
+            self.cur = i;
+            let ctx = self.threads[i].ctx.take().unwrap_or_default();
+            Self::load_ctx(mem, &ctx);
+        }
+    }
+
     /// Wake up to `count` waiters on `addr` whose bitset meets `bitset`, oldest first; move up to
     /// `move_count` more to `move_to`.
     fn wake(&mut self, addr: u64, count: u64, bitset: u32, move_to: Option<u64>, move_count: u64) -> i64 {
@@ -2138,6 +2150,7 @@ pub fn drive(vm: &mut dyn Vm, shim: &mut Shim, budget: &mut i64, slice: i64, max
                     let m = vm.mem();
                     return Event::Stopped { code, pc: pc(m), fault: 0 };
                 }
+                shim.preempt(vm.mem()); // between slices, another thread gets a turn
                 return Event::Yield;
             }
             stop::UNMAPPED => return Event::NeedsCode(pc(vm.mem())),

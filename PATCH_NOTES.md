@@ -363,7 +363,9 @@ Tests: `npm run test:engine` (130 pass), Rust guest tests (11 pass), `npm run te
 - libc-threads.c (glibc pthreads: workers with a mutex-protected counter, a barrier, pthread_once,
   thread-local storage, a producer and consumer on a condition variable, a small-stack thread, a detached
   thread still running when main returns) matches the x86-64 CPU on every engine and through wasmtime.
+- A thread can also lose the CPU when its slice of fuel (a million instructions) runs out, so threads that
+  wait by spinning, with no system call in the loop, get through. libc-spin.c (an atomic ping-pong and a
+  spinlock) checks it. Switches stay deterministic: the same program always interleaves the same way.
 
 ## Still not done
-- A thread that spins without system calls is never interrupted; the others wait until it makes one.
 - Processes: fork/vfork (clone without CLONE_VM), exec, wait4, signals between threads (tgkill).

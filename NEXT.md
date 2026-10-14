@@ -22,8 +22,8 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
 ## Next, most important first
 
 1. Code-sign the installers (needs the owner's certificates as secrets), and open the Windows/macOS builds in CI if possible.
-2. N7 leftovers: processes (fork/vfork, exec, wait4), signals (tgkill), and preempting a thread that spins
-   without system calls (switch threads at fuel-slice ends). Threads and links are done.
+2. N7 leftovers: processes (fork/vfork, exec, wait4), signals (tgkill). Threads (with preemption at fuel-slice
+   ends) and links are done.
    A private mapping does not yet see later writes to pages it has not touched (Linux shares them until the first store).
 3. Adjacency (work item 9) and replication over a real transport with client-side prediction (13).
 4. Portal test between two real machines (item 4): needs the owner's devices on one network.

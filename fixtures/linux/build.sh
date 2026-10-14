@@ -86,3 +86,5 @@ ls -l links-*.elf libc-links-*.elf
 gcc -static -O2 -no-pie -s -pthread libc-threads.c -o libc-threads-x86_64.elf
 ./libc-threads-x86_64.elf > libc-threads.expected; echo $? > libc-threads.exitcode
 ls -l libc-threads-*.elf
+gcc -static -O2 -no-pie -s -pthread libc-spin.c -o libc-spin-x86_64.elf
+./libc-spin-x86_64.elf > libc-spin.expected; echo $? > libc-spin.exitcode

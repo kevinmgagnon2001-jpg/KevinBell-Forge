@@ -443,6 +443,28 @@ export class LinuxShim {
     return true;
   }
 
+  /** More than one thread: the run loop hands out fuel in slices and calls `preempt` between them. */
+  get threaded(): boolean {
+    return this.threads.length > 1;
+  }
+
+  /**
+   * A slice of fuel ran out between two instructions: let the next ready thread run, so a thread that
+   * waits by spinning (no system call in the loop) cannot hold the others up. No register changes.
+   */
+  preempt(state: GuestState) {
+    const n = this.threads.length;
+    for (let k = 1; k < n; k += 1) {
+      const i = (this.cur + k) % n;
+      if (this.threads[i].wait !== null) continue;
+      this.threads[this.cur].ctx = this.saveCtx(state.mem);
+      this.cur = i;
+      this.loadCtx(state.mem, this.threads[i].ctx!);
+      this.threads[i].ctx = null;
+      return;
+    }
+  }
+
   /** Wake up to `count` threads waiting on `addr` whose bitset meets `bitset`, oldest first. */
   private wake(addr: bigint, count: number, bitset = 0xffffffff, moveTo: bigint | null = null, moveCount = 0): number {
     let woken = 0;
@@ -1059,10 +1081,19 @@ export function runLinux(bytes: Uint8Array, options: LinuxOptions = {}): LinuxRe
   for (let events = 0; events < maxEvents; events += 1) {
     if (mode === "wasm") {
       wasm ??= buildWasm();
+      // With threads, fuel goes out in slices so a spinning thread gives the others a turn.
+      const total = state.fuel;
+      const slice = shim.threaded && total > SLICE ? SLICE : total;
+      state.fuel = slice;
       stop = wasm.run();
+      state.fuel = total - (slice - state.fuel);
+      if (stop === Stop.fuel && state.fuel > 0n) {
+        shim.preempt(state);
+        continue;
+      }
     } else {
       const total = state.fuel;
-      const slice = engineKind === "interpreter" || total < SLICE ? total : SLICE;
+      const slice = (engineKind === "interpreter" && !shim.threaded) || total < SLICE ? total : SLICE;
       state.fuel = slice;
       interp ??= new Interpreter(program, state);
       stop = interp.run();
@@ -1071,6 +1102,7 @@ export function runLinux(bytes: Uint8Array, options: LinuxOptions = {}): LinuxRe
       interpRan += used;
       if (stop === Stop.fuel && state.fuel > 0n) {
         if (engineKind !== "interpreter" && interpRan >= tierAt) mode = "wasm";
+        shim.preempt(state);
         continue;
       }
     }

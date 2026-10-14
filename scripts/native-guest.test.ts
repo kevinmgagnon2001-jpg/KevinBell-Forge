@@ -134,6 +134,9 @@ test("threads: glibc pthreads through wasmtime", { skip }, async () => {
   assert.equal(report.ok, true, report.detail);
   assert.equal(report.stdout, text("libc-threads.expected"));
   assert.deepEqual(report.unsupportedSyscalls, []);
+  const spin = await runLinuxHosted(fixture("libc-spin-x86_64.elf"), {});
+  assert.equal(spin.ok, true, spin.detail);
+  assert.equal(spin.stdout, text("libc-spin.expected"));
 });
 
 test("ARM64 glibc programs and the NEON/FP corpus, through wasmtime", { skip }, async () => {
