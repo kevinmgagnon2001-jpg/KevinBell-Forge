@@ -696,3 +696,29 @@ and mountains around it, under a late-afternoon sky.
   - a half push on the stick gives half speed (1.1 vs 2.7 m/s), and letting go stops you;
   - no console errors.
   Not tried with a real game controller or on a real phone yet.
+
+## Forge on Android updates itself
+- Forge suggests, once, letting it update itself. **Allow updates** opens Android's *Install unknown
+  apps* switch for Forge; **Not now** stops asking.
+- With that on, a new Release downloads by itself, with progress in the update bar. Forge checks the
+  file before installing:
+  - it is Forge (`dev.forge.app`);
+  - it is newer than the installed copy;
+  - it is signed with the same key, with a clear message if not.
+- Then Android's PackageInstaller installs it. Android asks the first time. After that Forge is the
+  installer of record, so on Android 12+ (`setRequireUserAction(USER_ACTION_NOT_REQUIRED)`) updates
+  need no tap. Forge installs when you leave Forge, or now with **Update now**.
+  - MainActivity.kt: `updateState`, `allowUpdates`, `downloadUpdate` (only Forge's own release
+    downloads, at most 400 MB), `installUpdate`, and a receiver for the installer's answer. Progress
+    reaches the page through `window.__forgeUpdate`.
+  - scripts/android-manifest.mjs adds REQUEST_INSTALL_PACKAGES and
+    UPDATE_PACKAGES_WITHOUT_USER_ACTION (tested).
+  - src/engine/updates.ts: `nextUpdateStep` decides suggest / download / install / wait (tested), and
+    `?update=demo-android` pretends to be such a phone in a browser.
+  - UpdateBanner.tsx: the suggestion, progress, Update now, Try again and Download instead.
+- Google Play Protect is left alone: it is Android's own check. docs/ANDROID.md explains the
+  legitimate ways to stop its prompts (Play internal testing, developer verification).
+- Checked in Chromium at 390x844 with `?update=demo-android`: suggestion, then Allow, the download
+  runs by itself, Update now, installing, installed. No console errors. The Kotlin is not compiled
+  here; the next Android build compiles it, and the emulator test must pass before a Release goes
+  out. Not tried on a real phone yet.

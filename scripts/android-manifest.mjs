@@ -12,6 +12,10 @@
 //                                 made a second MainActivity, and Tauri draws its world in only one:
 //                                 the second was a black screen.)
 //   launchMode singleTask         Only ever one MainActivity, which HomeActivity brings back.
+//   install permissions           Forge can install its own updates (MainActivity.kt, update section):
+//                                 REQUEST_INSTALL_PACKAGES, which the person still has to allow once
+//                                 ("Install unknown apps"), and UPDATE_PACKAGES_WITHOUT_USER_ACTION, so
+//                                 on Android 12+ later updates need no tap once Forge installed one.
 //
 //   node scripts/android-manifest.mjs path/to/AndroidManifest.xml
 import { readFileSync, writeFileSync } from "node:fs";
@@ -31,6 +35,13 @@ export function patchManifest(xml) {
     if (at < 0) throw new Error("no <application> in the manifest");
     const lineStart = out.lastIndexOf("\n", at) + 1;
     out = out.slice(0, lineStart) + queries + out.slice(lineStart);
+  }
+
+  for (const permission of ["android.permission.REQUEST_INSTALL_PACKAGES", "android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION"]) {
+    if (out.includes(`"${permission}"`)) continue;
+    const at = out.indexOf("<application");
+    const lineStart = out.lastIndexOf("\n", at) + 1;
+    out = out.slice(0, lineStart) + `    <uses-permission android:name="${permission}" />\n` + out.slice(lineStart);
   }
 
   const main = /<activity\b[^>]*android:name="\.MainActivity"[^>]*>/.exec(out);

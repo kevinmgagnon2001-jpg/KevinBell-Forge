@@ -57,6 +57,10 @@ test("the Android manifest gains launcher queries and a home-screen entry that s
   const main = /<activity\b[^>]*android:name="\.MainActivity"[\s\S]*?<\/activity>/.exec(out)?.[0] ?? "";
   assert.doesNotMatch(main, /category.HOME/);
   assert.match(main, /launchMode="singleTask"/);
+  // Forge may install its own updates (the person still allows it once in Android's settings).
+  assert.match(out, /<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" \/>/);
+  assert.match(out, /<uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" \/>/);
+  assert.ok(out.indexOf("REQUEST_INSTALL_PACKAGES") < out.indexOf("<application"));
   // Running it twice changes nothing more.
   assert.equal(patchManifest(out), out);
   // A MainActivity without a launch mode gets one.
