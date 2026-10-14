@@ -9,3 +9,4 @@ src-tauri/gen/
 *.jks
 *.keystore
 forge-android-signing*
+screenshots/
