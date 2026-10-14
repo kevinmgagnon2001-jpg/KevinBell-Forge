@@ -10,6 +10,8 @@
 // It also gives the page `window.ForgeAndroid` (ForgeApps below): the apps on this phone, for the
 // screen in Forge's world (src/engine/device-apps.ts). Opening one starts it and Forge steps back;
 // open Forge again (or press Home, if Forge is the home screen) to carry on where you were.
+//
+// HomeActivity (below) is what Android starts as the home screen. It never draws anything.
 package dev.forge.app
 
 import android.app.Activity
@@ -61,12 +63,38 @@ class MainActivity : TauriActivity() {
 }
 
 /**
+ * Forge as the phone's home screen. Android starts the home screen in a task of its own, so if this
+ * were MainActivity (an alias of it, as before), pressing Home would make a second MainActivity next
+ * to the one already running. Tauri draws its world in only one of them: the other was a black
+ * screen. Instead this opens Forge exactly as its icon does, which brings back the running Forge
+ * (or starts it after a reboot), and closes. scripts/android-manifest.mjs declares it, disabled
+ * until the person turns it on in Forge.
+ */
+class HomeActivity : Activity() {
+  override fun onCreate(savedInstanceState: Bundle?) {
+    super.onCreate(savedInstanceState)
+    openForge()
+  }
+
+  private fun openForge() {
+    val forge = Intent(this, MainActivity::class.java)
+      .setAction(Intent.ACTION_MAIN)
+      .addCategory(Intent.CATEGORY_LAUNCHER)
+      .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+    startActivity(forge)
+    finish()
+    @Suppress("DEPRECATION")
+    overridePendingTransition(0, 0)
+  }
+}
+
+/**
  * What the page may ask of the phone, and nothing more: list the apps that have a launcher icon,
  * open one of them, and (only when the person asks) offer Forge as the home screen.
  */
 class ForgeApps(private val activity: Activity) {
   private val pm: PackageManager get() = activity.packageManager
-  private val homeAlias get() = ComponentName(activity.packageName, "${activity.packageName}.HomeAlias")
+  private val homeEntry get() = ComponentName(activity, HomeActivity::class.java)
   private val launcherIntent get() = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
 
   private fun launchable() = pm.queryIntentActivities(launcherIntent, 0)
@@ -120,7 +148,7 @@ class ForgeApps(private val activity: Activity) {
   fun homeState(): String {
     val home = pm.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), PackageManager.MATCH_DEFAULT_ONLY)
     if (home?.activityInfo?.packageName == activity.packageName) return "home"
-    return if (pm.getComponentEnabledSetting(homeAlias) == PackageManager.COMPONENT_ENABLED_STATE_ENABLED) "offered" else "off"
+    return if (pm.getComponentEnabledSetting(homeEntry) == PackageManager.COMPONENT_ENABLED_STATE_ENABLED) "offered" else "off"
   }
 
   /**
@@ -130,7 +158,7 @@ class ForgeApps(private val activity: Activity) {
   @JavascriptInterface
   fun setHome(on: Boolean) {
     val state = if (on) PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-    pm.setComponentEnabledSetting(homeAlias, state, PackageManager.DONT_KILL_APP)
+    pm.setComponentEnabledSetting(homeEntry, state, PackageManager.DONT_KILL_APP)
     activity.runOnUiThread {
       try {
         activity.startActivity(Intent(Settings.ACTION_HOME_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

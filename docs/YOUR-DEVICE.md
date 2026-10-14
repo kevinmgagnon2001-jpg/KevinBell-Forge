@@ -29,6 +29,10 @@ To go back, tap **Stop using Forge as home screen** and pick your old launcher.
 Installing Forge never changes your home screen on its own: Android lists Forge as a home screen
 only after you turn this on.
 
+If you turned this on in Forge 0.6.0 and got a black screen: that version started a second copy of
+Forge when you pressed Home. Update, then tap **Use Forge as home screen** again (the setting starts
+over after the update). Pressing Home now brings back the Forge that is already running.
+
 ## What it can and cannot do
 
 - **Linux:** apps come from the system's application list (including Flatpak and Snap).

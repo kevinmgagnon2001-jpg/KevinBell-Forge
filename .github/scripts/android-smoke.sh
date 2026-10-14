@@ -43,4 +43,27 @@ if [ "$APPS" -lt 1 ]; then
   echo "::error title=Android smoke test::the page sees no apps on the emulator; the <queries> entry may be missing"; exit 1
 fi
 echo "The page sees $APPS app(s) on the phone."
+
+# Forge as the home screen: turn it on the way the person does, press Home, and Forge must come back
+# as the same, single, running Forge. (It used to start a second copy that stayed black.)
+adb shell pm enable "$PKG/.HomeActivity" > /dev/null
+adb shell cmd package set-home-activity "$PKG/.HomeActivity" > /dev/null
+adb shell input keyevent KEYCODE_HOME
+sleep 3
+adb shell input keyevent KEYCODE_HOME
+sleep 10
+adb exec-out screencap -p > "$OUT/screen-home.png"
+adb shell dumpsys activity activities > "$OUT/activities.txt" 2>&1 || true
+MAINS="$(grep -oE "ActivityRecord\{[0-9a-f]+ u0 $PKG/\.MainActivity" "$OUT/activities.txt" | sort -u | wc -l | tr -d ' ')"
+HOME_PID="$(adb shell pidof "$PKG" | tr -d '\r')"
+if [ "${MAINS:-0}" -ne 1 ]; then
+  echo "::error title=Android smoke test::after pressing Home with Forge as the home screen there are ${MAINS:-0} Forge screens (want 1); see activities.txt and screen-home.png"; exit 1
+fi
+if ! grep -qE "ResumedActivity.*$PKG/\.MainActivity" "$OUT/activities.txt"; then
+  echo "::error title=Android smoke test::pressing Home with Forge as the home screen did not bring Forge to the front; see activities.txt and screen-home.png"; exit 1
+fi
+if [ "$HOME_PID" != "$PID" ]; then
+  echo "::error title=Android smoke test::Forge restarted when Home was pressed (pid $PID -> ${HOME_PID:-none}); see logcat.txt"; exit 1
+fi
+echo "Home brings back the running Forge."
 echo "Forge is running (pid $PID)."

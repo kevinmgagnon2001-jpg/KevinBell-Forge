@@ -42,17 +42,21 @@ const GENERATED = `<?xml version="1.0" encoding="utf-8"?>
 </manifest>
 `;
 
-test("the Android manifest gains launcher queries and a home-screen alias that starts disabled", () => {
+test("the Android manifest gains launcher queries and a home-screen entry that starts disabled", () => {
   const out = patchManifest(GENERATED);
   assert.match(out, /<queries>\s*<intent>\s*<action android:name="android.intent.action.MAIN" \/>\s*<category android:name="android.intent.category.LAUNCHER" \/>/);
   assert.ok(out.indexOf("<queries>") < out.indexOf("<application"), "queries sit outside <application>");
-  const alias = /<activity-alias[\s\S]*?<\/activity-alias>/.exec(out)?.[0] ?? "";
-  assert.match(alias, /android:name="\.HomeAlias"/);
-  assert.match(alias, /android:targetActivity="\.MainActivity"/);
-  assert.match(alias, /android:enabled="false"/);
-  assert.match(alias, /category.HOME/);
-  assert.ok(out.indexOf("</activity-alias>") < out.indexOf("</application>"));
-  assert.equal((out.match(/launchMode="singleTask"/g) ?? []).length, 1);
+  const home = /<activity\s+android:name="\.HomeActivity"[\s\S]*?<\/activity>/.exec(out)?.[0] ?? "";
+  assert.match(home, /android:enabled="false"/);
+  assert.match(home, /category.HOME/);
+  assert.match(home, /Theme.Translucent/);
+  assert.ok(out.indexOf(".HomeActivity") < out.indexOf("</application>"));
+  // The home screen is its own small activity, never MainActivity: Android starts home screens in a
+  // task of their own, and a second MainActivity there is a black screen (Tauri draws in only one).
+  assert.doesNotMatch(out, /activity-alias/);
+  const main = /<activity\b[^>]*android:name="\.MainActivity"[\s\S]*?<\/activity>/.exec(out)?.[0] ?? "";
+  assert.doesNotMatch(main, /category.HOME/);
+  assert.match(main, /launchMode="singleTask"/);
   // Running it twice changes nothing more.
   assert.equal(patchManifest(out), out);
   // A MainActivity without a launch mode gets one.

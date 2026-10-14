@@ -624,3 +624,17 @@ your real apps; opening one steps Forge aside, and opening Forge again brings yo
 - Only links to Forge's own releases can be opened: open_release_link in apps.rs (tested) and
   ForgeApps.openReleaseLink on Android.
 - Still not done: desktop self-install (Tauri updater) needs an update-signing key from the owner.
+
+## Forge as the home screen: no more black screen
+- With Forge chosen as the home screen, pressing Home showed a black screen. Android starts the home
+  screen in a task of its own, so the home entry (an alias of MainActivity) made a second
+  MainActivity beside the running one, and Tauri draws the world in only one of them.
+- The home entry is now HomeActivity (MainActivity.kt): it draws nothing, opens Forge exactly as its
+  icon does (bringing back the running Forge, or starting it after a reboot) and closes.
+  scripts/android-manifest.mjs declares it instead of the alias, still disabled until the person
+  turns it on. Its test now also checks that MainActivity itself is never a home screen.
+- android-smoke.sh turns Forge on as the home screen on the emulator, presses Home, and fails unless
+  there is still exactly one Forge screen, it is in front, and the process did not restart.
+- After updating, anyone who had turned it on taps "Use Forge as home screen" once more: the old
+  alias is gone, so Android forgets the choice.
+- Not checked on a real phone yet; the emulator check runs with the next Android build.
