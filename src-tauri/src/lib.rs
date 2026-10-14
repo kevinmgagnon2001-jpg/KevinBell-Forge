@@ -35,6 +35,7 @@ pub mod sandbox {
     }
 }
 
+pub mod apps;
 pub mod guest;
 pub mod model_store;
 
@@ -366,6 +367,26 @@ async fn model_store_delete(store: tauri::State<'_, model_store::ModelStore>, ke
     store.delete(&key)
 }
 
+// ---------- the apps on this computer, for the screen in the world (apps.rs; page: src/engine/device-apps.ts) ----------
+
+/// `invoke("apps_list")` -> [[id, name], ...]
+#[tauri::command]
+async fn apps_list() -> Vec<apps::App> {
+    tauri::async_runtime::spawn_blocking(apps::list).await.unwrap_or_default()
+}
+
+/// `invoke("apps_open", { id })`: open one of the listed apps, then Forge steps aside (minimizes).
+/// Opening Forge again brings you back to where you were.
+#[tauri::command]
+async fn apps_open(window: tauri::WebviewWindow, id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || apps::open(&id)).await.map_err(|e| e.to_string())??;
+    #[cfg(desktop)]
+    let _ = window.minimize();
+    #[cfg(not(desktop))]
+    let _ = window;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -388,7 +409,9 @@ pub fn run() {
             model_store_read,
             model_store_write,
             model_store_commit,
-            model_store_delete
+            model_store_delete,
+            apps_list,
+            apps_open
         ])
         .run(tauri::generate_context!())
         .expect("error while running the Forge host");

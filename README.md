@@ -6,6 +6,10 @@ Forge is a 3D engine you host yourself. It runs worlds in the browser, as a desk
 
 Open **[Releases](../../releases)** on your phone and tap the newest `Forge-…-android.apk`. Android asks once whether your browser may install apps; allow it. See [docs/ANDROID.md](docs/ANDROID.md).
 
+## Your phone or computer, inside Forge
+
+The lab has a screen that is your real phone or computer: open an app from it and Forge steps aside; open Forge again and you are where you were. On Android, Forge can also be your home screen. See [docs/YOUR-DEVICE.md](docs/YOUR-DEVICE.md).
+
 ## Run it from source
 
 ```sh

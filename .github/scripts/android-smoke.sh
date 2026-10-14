@@ -20,7 +20,7 @@ adb exec-out screencap -p > "$OUT/screen-60s.png"
 PID="$(adb shell pidof "$PKG" | tr -d '\r')"
 adb logcat -d > "$OUT/logcat.txt"
 # The page's console (WebView prints it under "chromium" / "Console"), Rust's output, and crashes.
-grep -E "chromium|Console|CONSOLE|RustStdoutStderr|Tauri|AndroidRuntime|FATAL|wasmtime" "$OUT/logcat.txt" > "$OUT/app-log.txt" || true
+grep -E "chromium|Console|CONSOLE|RustStdoutStderr|Tauri|AndroidRuntime|FATAL|wasmtime|ForgeApps" "$OUT/logcat.txt" > "$OUT/app-log.txt" || true
 adb shell dumpsys meminfo "$PKG" > "$OUT/meminfo.txt" 2>&1 || true
 echo "--- app log (last 80 lines) ---"; tail -n 80 "$OUT/app-log.txt"
 if grep -q "FATAL EXCEPTION" "$OUT/logcat.txt"; then
@@ -33,4 +33,14 @@ errors="$(grep -ciE "Uncaught|TypeError|ReferenceError|SyntaxError|Failed to loa
 if [ "${errors:-0}" -gt 0 ]; then
   echo "::warning title=Android smoke test::${errors} error line(s) in the page console; see app-log.txt"
 fi
+# The screen in Forge's world lists the phone's apps through MainActivity's bridge. The page asks it
+# how many there are once it has started (src/engine/device-apps.ts), and the bridge logs the answer.
+APPS="$(grep -oE "apps on this device: [0-9]+" "$OUT/app-log.txt" | tail -n 1 | grep -oE "[0-9]+$" || true)"
+if [ -z "$APPS" ]; then
+  echo "::error title=Android smoke test::the page never reported the phone's apps (window.ForgeAndroid missing?); see app-log.txt"; exit 1
+fi
+if [ "$APPS" -lt 1 ]; then
+  echo "::error title=Android smoke test::the page sees no apps on the emulator; the <queries> entry may be missing"; exit 1
+fi
+echo "The page sees $APPS app(s) on the phone."
 echo "Forge is running (pid $PID)."

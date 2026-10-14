@@ -561,3 +561,45 @@ Tests: `npm run test:engine` (147 pass), `npm run test:native`, and in CI the so
 - Mechanics move only their owner's avatar; acting on an island's world needs wider permissions.
 - Custom 3D models do not travel with a mechanic yet (built-in car, plane and hover looks only).
 - Not tried between two physical machines.
+
+## Your phone or computer, inside Forge (the screen as a doorway)
+Forge sits in front of the system it runs on rather than replacing it. A screen in the lab opens onto
+your real apps; opening one steps Forge aside, and opening Forge again brings you back where you were.
+- src/engine/device-apps.ts: one interface over the platforms:
+  - Android: `window.ForgeAndroid`;
+  - desktop: the Tauri commands `apps_list` and `apps_open`;
+  - browser: `?apps=demo` shows a made-up list for trying it.
+  It also builds the screen entity: one per device, kept out of the shared save so each linked device
+  has its own.
+- src/components/forge/DeviceScreen.tsx:
+  - the screen appears in the lab when there is a device behind Forge;
+  - near it, "Use your phone/computer" (E, or tap the button or the screen);
+  - a sheet of apps with search (Enter opens the first match), icons on Android, and Escape or the
+    backdrop to close;
+  - on Android, "Use Forge as home screen".
+- src-tauri/src/apps.rs (std only):
+  - Linux: XDG .desktop entries, including Flatpak and Snap exports. Exec lines are split with quotes
+    and escapes handled and field codes dropped.
+  - macOS: .app bundles opened with `open`.
+  - Windows: Start menu shortcuts opened through Explorer.
+  - open() accepts only ids from a fresh list(). Forge minimizes after opening an app.
+  - 5 tests, including a real .desktop entry found and run: `rustc --edition 2021 --test src-tauri/src/apps.rs`.
+- src-tauri/android/MainActivity.kt: ForgeApps, a JavaScript interface added before the page loads:
+  - countApps() and listApps() (labels and 96 px PNG icons);
+  - openApp(), which can only open apps with a launcher intent;
+  - homeState() and setHome(), which enable a HomeAlias and open Android's home setting.
+- scripts/android-manifest.mjs (run by android.yml after `tauri android init`):
+  - `<queries>` for launcher apps (Android 11+ package visibility);
+  - the disabled HomeAlias;
+  - launchMode singleTask.
+  It is tested against the shape Tauri generates (src/engine/android-manifest.test.ts).
+- android-smoke.sh now fails unless the page reaches the bridge and sees at least one app. Release
+  builds do not log the page console, so the bridge logs the count itself.
+- Checked in Chromium with the demo list, at 1400x900 and 390x844:
+  - no prompt at the start;
+  - walking up shows it;
+  - E (or a tap) opens the sheet with all 15 apps. The test found E being typed into the search box;
+    fixed;
+  - search, then Enter or a tap opens the app and logs it;
+  - Escape closes the sheet;
+  - no overflow, and the prompt is clear of the touch controls.

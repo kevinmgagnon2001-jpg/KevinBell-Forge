@@ -18,6 +18,10 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
   own rules, and the visitor predicts with the same one, so there are zero corrections. Others can keep a mechanic
   with its author credited, and islands can adopt one (`--mechanic`). Engine: `mechanic.ts`; app:
   `Mechanics.tsx`, `carry-browser.ts`, `movers.ts`. Guide: `docs/MECHANICS.md`.
+- **Your device inside Forge:** a screen in the lab opens your real apps (Android: launcher apps with icons, optional
+  "Forge as home screen"; desktop: installed applications). Forge steps aside and keeps its state. Engine:
+  `device-apps.ts`; app: `DeviceScreen.tsx`; native: `src-tauri/src/apps.rs`, `src-tauri/android/MainActivity.kt`
+  (ForgeApps), `scripts/android-manifest.mjs`. Guide: `docs/YOUR-DEVICE.md`.
 - **Desktop:** `.github/workflows/desktop.yml` builds installers for Linux x86-64/ARM64 (opened on a virtual display,
   screenshots kept), Windows and macOS (not opened). Not code-signed. Guide: `docs/DESKTOP.md`.
 - **Linux programs:** static x86-64 and ARM64 programs, glibc included, match real hardware on every engine.
@@ -29,6 +33,8 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
 
 ## Next, most important first
 
+1. Your device inside Forge, next: a live picture of the real screen on the in-world screen (desktop capture
+   with permission; Android MediaProjection), then input passed through on desktop.
 1. Carried mechanics, next: mechanics that act on an island's world (doors, tools), with per-island
    permissions; custom models that travel with a mechanic; try carrying between two physical machines.
 1. Linked devices, next: try it between the owner's phone and PC; run the home inside the desktop and Android apps
