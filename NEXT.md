@@ -61,6 +61,23 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
    x87 transcendentals. SSE2 integer and x87 arithmetic are done (zlib, OpenSSL, sqlite run). ARM ld2/ld3/ld4
    when a real program needs them.
 
+## Directions the owner wants (not started)
+
+- **Nearby mesh (classrooms, groups in one room).** Phones find each other over Bluetooth LE and carry data over
+  Wi-Fi Direct / Wi-Fi Aware or one shared hotspot: Android's Nearby Connections does exactly this (P2P_CLUSTER for
+  many-to-many). Build it once as a transport, then use it twice:
+  1. join an island hosted on a phone nearby, offline (shared worlds for a class, everyone's mechanics carried in);
+  2. run `pooled.ts` across the room's phones.
+  Local hops are a few milliseconds, so pipelined inference over 20–30 phones is usable where the internet version
+  is not. Limits: iPhones need a shared hotspot (Apple's nearby system does not talk to Android's); battery and heat
+  limit sessions; every device opts in visibly.
+- **A shared AI computer, with permission.** Grow pooled inference in steps:
+  1. one real small open model across your own linked devices;
+  2. friends and trusted groups;
+  3. an opt-in public pool for background work only (writing and improving skills and mechanics), since its output
+     is checked by fixtures before anything runs.
+  Only open-weight models can be pooled. Personal requests stay on your own devices.
+
 ## How to work here
 
 - Checks before every push: `npm run lint`, `npm run typecheck`, `npm run test:engine`.
