@@ -37,4 +37,4 @@ jobs:
         # A report while ARM64 glibc support is being built: differences are listed, not fatal yet.
         continue-on-error: true
         run: |
-          node --experimental-strip-types scripts/arm-oracle.ts arm-oracle libc-demo libc-float libc-files libc-dirs libc-mapio neon | tee arm-oracle/forge-report.txt
+          node --experimental-strip-types scripts/arm-oracle.ts arm-oracle libc-demo libc-float libc-files libc-dirs libc-mapio libc-links neon | tee arm-oracle/forge-report.txt

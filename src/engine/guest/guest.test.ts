@@ -177,12 +177,15 @@ test("directories, dup, fcntl and pipes: raw system calls on x86-64 and AArch64,
   }
 });
 
-test("mapped files, renames, truncation and poll/select: raw system calls on x86-64 and AArch64, and glibc, match real hardware", () => {
+test("mapped files, renames, truncation, poll/select and links: raw system calls on x86-64 and AArch64, and glibc, match real hardware", () => {
   const input = fixture("files-in.txt");
   const runs = [
     { file: "mapio-x86_64.elf", name: "mapio" },
     { file: "mapio-aarch64.elf", name: "mapio" },
     { file: "libc-mapio-x86_64.elf", name: "libc-mapio" },
+    { file: "links-x86_64.elf", name: "links" },
+    { file: "links-aarch64.elf", name: "links" },
+    { file: "libc-links-x86_64.elf", name: "libc-links" },
   ];
   for (const run of runs) {
     for (const engine of ["tiered", "interpreter", "wasm"] as const) {

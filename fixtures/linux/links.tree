@@ -1,0 +1,22 @@
+d /d
+l /d/l1 in.txt
+d /d/sub
+l /d/sub/up ../in.txt
+f /d/x.txt 5
+x-ray
+l /dangling nowhere.txt
+f /g.txt 10
+first+more
+f /g2.txt 10
+first+more
+l /hard-to-link nowhere.txt
+f /hard-to-target 2
+ma
+f /in.txt 135
+Forge reads files now.
+Every island keeps its own small tree of files,
+and a program sees only that tree.
+
+The last line has no newline
+f /nowhere.txt 2
+ma

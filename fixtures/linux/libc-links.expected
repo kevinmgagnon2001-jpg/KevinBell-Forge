@@ -1,0 +1,32 @@
+symlink current: 0
+current/app.conf: version=1
+readlink current: 11 releases/v1
+symlink current.new: 0
+rename over current: 0
+current/app.conf: version=2
+.: current@ in.txt releases/
+releases/v1: app.conf
+realpath: releases/v2/app.conf
+realpath of a missing file: (null) errno 2
+symlink notes: 0
+symlink ghost: 0
+symlink self: 0
+notes: stat 0 lstat 0 link 1 dir 0 size 135 nlink 1
+ghost: stat -1 lstat 0 link 1
+current: stat 0 lstat 0 link 1 dir 1 size 4096 nlink 0
+notes: Forge reads files now.
+open self: failed errno 40
+gone.txt: now it exists
+ghost: stat 0 lstat 0 link 1 dir 0 size 14 nlink 1
+link: 0
+data.txt: stat 0 lstat 0 link 0 dir 0 size 16 nlink 2
+unlink data.txt: 0
+data-copy.txt: stat 0 lstat 0 link 0 dir 0 size 48 nlink 1
+  | shared contents
+  | appended through the other name
+link a directory: -1 errno 1
+unlink current: 0
+unlink self: 0
+rmdir a link: -1 errno 20
+.: data-copy.txt ghost@ gone.txt in.txt notes@ releases/
+releases: v1/ v2/

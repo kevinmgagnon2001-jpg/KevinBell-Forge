@@ -13,6 +13,7 @@ gcc -static -O2 -s libc-float.c -o "$out/libc-float-aarch64.elf" -lm
 gcc -static -O2 -s libc-files.c -o "$out/libc-files-aarch64.elf"
 gcc -static -O2 -s libc-dirs.c -o "$out/libc-dirs-aarch64.elf"
 gcc -static -O2 -s libc-mapio.c -o "$out/libc-mapio-aarch64.elf"
+gcc -static -O2 -s libc-links.c -o "$out/libc-links-aarch64.elf"
 # every Advanced SIMD / FP / integer form Forge's ARM decoder handles, over special and random inputs
 gcc -static -O1 -s neon.c -o "$out/neon-aarch64.elf"
 set +e
@@ -21,10 +22,10 @@ for p in libc-demo libc-float neon; do
 done
 dump_tree() {
   (cd "$1" && find . -mindepth 1 \( -name prog -o -name stdout -o -name exitcode \) -prune -o -print | LC_ALL=C sort | while read -r p; do
-    if [ -d "$p" ]; then echo "d ${p#.}"; else echo "f ${p#.} $(wc -c < "$p")"; cat "$p"; echo; fi
+    if [ -L "$p" ]; then echo "l ${p#.} $(readlink "$p")"; elif [ -d "$p" ]; then echo "d ${p#.}"; else echo "f ${p#.} $(wc -c < "$p")"; cat "$p"; echo; fi
   done)
 }
-for p in libc-files libc-dirs libc-mapio; do
+for p in libc-files libc-dirs libc-mapio libc-links; do
   d="$(mktemp -d)"; cp files-in.txt "$d/in.txt"; cp "$out/$p-aarch64.elf" "$d/prog"
   (cd "$d" && ./prog < /dev/null > stdout; echo $? > exitcode)
   cp "$d/stdout" "$out/$p.arm.expected"; cp "$d/exitcode" "$out/$p.arm.exitcode"; dump_tree "$d" > "$out/$p.arm.tree"; rm -rf "$d"

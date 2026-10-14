@@ -52,7 +52,7 @@ clang --target=aarch64-linux-gnu -O2 $BASE -fuse-ld=lld dirs.c -o dirs-aarch64.e
 gcc -static -O2 -no-pie -s libc-dirs.c -o libc-dirs-x86_64.elf
 dump_tree() {
   (cd "$1" && find . -mindepth 1 \( -name prog -o -name stdout -o -name exitcode \) -prune -o -print | LC_ALL=C sort | while read -r p; do
-    if [ -d "$p" ]; then echo "d ${p#.}"; else echo "f ${p#.} $(wc -c < "$p")"; cat "$p"; echo; fi
+    if [ -L "$p" ]; then echo "l ${p#.} $(readlink "$p")"; elif [ -d "$p" ]; then echo "d ${p#.}"; else echo "f ${p#.} $(wc -c < "$p")"; cat "$p"; echo; fi
   done)
 }
 for prog in dirs libc-dirs; do
@@ -71,3 +71,13 @@ for prog in mapio libc-mapio; do
   cp "$d/stdout" $prog.expected; cp "$d/exitcode" $prog.exitcode; dump_tree "$d" > $prog.tree; rm -rf "$d"
 done
 ls -l mapio-*.elf libc-mapio-*.elf
+
+# Symbolic and hard links (N7, fourth part). Links appear in the tree as "l /path target".
+gcc -O2 $BASE -no-pie links.c -o links-x86_64.elf
+clang --target=aarch64-linux-gnu -O2 $BASE -fuse-ld=lld links.c -o links-aarch64.elf
+gcc -static -O2 -no-pie -s libc-links.c -o libc-links-x86_64.elf
+for prog in links libc-links; do
+  d="$(run_in_tree $prog-x86_64.elf)"
+  cp "$d/stdout" $prog.expected; cp "$d/exitcode" $prog.exitcode; dump_tree "$d" > $prog.tree; rm -rf "$d"
+done
+ls -l links-*.elf libc-links-*.elf

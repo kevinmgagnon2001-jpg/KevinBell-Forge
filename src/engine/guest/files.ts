@@ -25,6 +25,11 @@ export const O_DIRECTORY = 0x10000;
 export const O_CLOEXEC = 0x80000;
 export const AT_FDCWD = -100;
 export const AT_REMOVEDIR = 0x200;
+export const AT_SYMLINK_FOLLOW = 0x400;
+/** The x86-64 value. The shim translates AArch64's (0x8000) to this. */
+export const O_NOFOLLOW = 0x20000;
+/** Links followed in one path walk before ELOOP, as on Linux. */
+const MAX_LINK_HOPS = 40;
 export const RENAME_NOREPLACE = 1;
 export const RENAME_EXCHANGE = 2;
 export const POLLIN = 0x1;
@@ -56,6 +61,8 @@ const ENOSPC = -28n;
 const ESPIPE = -29n;
 const EPIPE = -32n;
 const ENOTEMPTY = -39n;
+const ELOOP = -40n;
+const EPERM = -1n;
 
 /** Largest total size of a tree, most descriptors open at once (besides the three standard ones), and the highest descriptor number + 1. */
 export const MAX_TREE_BYTES = 64 * 1024 * 1024;
@@ -150,12 +157,22 @@ type Desc =
 
 type Slot = { desc: Desc; cloexec: boolean };
 
-export type Stat = { kind: "file" | "dir" | "fifo"; size: number };
+export type Stat = { kind: "file" | "dir" | "fifo" | "link"; size: number; nlink?: number };
+
+/** A symbolic link. Hard links to it share the object. */
+class Link {
+  readonly target: string;
+  constructor(target: string) {
+    this.target = target;
+  }
+}
 
 export class GuestFiles {
   private tree = new Map<string, FileNode>();
   /** Every directory, root included: the ones the host's files sit in and the ones the program made. */
   private dirs = new Set<string>(["/"]);
+  /** Symbolic links: path -> link. */
+  private links = new Map<string, Link>();
   private fds = new Map<number, Slot>();
   private total = 0;
   private stdin: Uint8Array;
@@ -163,13 +180,22 @@ export class GuestFiles {
   readonly stdout = new ByteSink();
   readonly stderr = new ByteSink();
 
-  /** Paths ending in "/" are empty directories. */
+  /** Paths ending in "/" are empty directories; paths ending in "@" are symbolic links whose contents are the target. */
   constructor(files: Record<string, Uint8Array | string> = {}, stdin?: Uint8Array | string) {
     const enc = new TextEncoder();
     this.stdin = typeof stdin === "string" ? enc.encode(stdin) : stdin ?? new Uint8Array();
     for (const [path, data] of Object.entries(files)) {
       const key = normalizePath(path);
       if (key === "/") continue;
+      if (path.endsWith("@") && key.length > 2) {
+        const at = key.slice(0, -1);
+        const target = typeof data === "string" ? data : new TextDecoder().decode(data);
+        if (target && !this.tree.has(at) && !this.dirs.has(at)) {
+          this.addDir(parentOf(at));
+          this.links.set(at, new Link(target));
+        }
+        continue;
+      }
       if (path.endsWith("/")) {
         if (!this.tree.has(key)) this.addDir(key);
         continue;
@@ -197,10 +223,11 @@ export class GuestFiles {
 
   /**
    * Resolves a path the way Linux walks one: relative paths start at the directory descriptor (or the
-   * working directory, "/"), every component before the last must be a directory, and ".." stops at
-   * the root. Returns the absolute path, which may not exist yet.
+   * working directory, "/"), every component before the last must be a directory, symbolic links on
+   * the way are followed (the last one only with `follow`, or when the path ends in "/"), and ".."
+   * stops at the root. Returns the absolute path, which may not exist yet.
    */
-  private walk(dirfd: number, raw: string): string | bigint {
+  private walk(dirfd: number, raw: string, follow = false): string | bigint {
     let base = "/";
     if (!raw.startsWith("/") && dirfd !== AT_FDCWD) {
       const slot = this.fds.get(dirfd);
@@ -209,17 +236,51 @@ export class GuestFiles {
       base = slot.desc.path;
       if (!this.dirs.has(base)) return ENOENT; // removed while open: nothing can be found or made in it
     }
-    const parts = raw.split("/").filter((p) => p && p !== ".");
-    const stack = base === "/" ? [] : base.slice(1).split("/");
-    for (let i = 0; i < parts.length; i += 1) {
-      if (parts[i] === "..") stack.pop();
-      else stack.push(parts[i]);
-      if (i === parts.length - 1) break;
+    const slash = raw.endsWith("/");
+    const queue = raw.split("/").filter((p) => p && p !== ".");
+    let stack = base === "/" ? [] : base.slice(1).split("/");
+    let hops = 0;
+    while (queue.length) {
+      const part = queue.shift()!;
+      const last = queue.length === 0;
+      if (part === "..") stack.pop();
+      else if (part !== ".") stack.push(part);
       const at = "/" + stack.join("/");
-      if (this.tree.has(at)) return ENOTDIR;
+      const link = this.links.get(at);
+      if (link && (!last || follow || slash)) {
+        if (++hops > MAX_LINK_HOPS) return ELOOP;
+        stack.pop();
+        if (link.target.startsWith("/")) stack = [];
+        queue.unshift(...link.target.split("/").filter((p) => p && p !== "."));
+        continue;
+      }
+      if (last) break;
+      if (this.tree.has(at) || link) return ENOTDIR;
       if (!this.dirs.has(at)) return ENOENT;
     }
-    return "/" + stack.join("/");
+    const out = "/" + stack.join("/");
+    if (slash && this.tree.has(out)) return ENOTDIR; // "file/" names nothing
+    return out;
+  }
+
+  /** Is anything (file, directory or link) at this path? */
+  private exists(path: string): boolean {
+    return this.tree.has(path) || this.dirs.has(path) || this.links.has(path);
+  }
+
+  /** How many names a file or link has. */
+  private nlink(item: FileNode | Link): number {
+    let n = 0;
+    for (const v of item instanceof Link ? this.links.values() : this.tree.values()) if (v === item) n += 1;
+    return n;
+  }
+
+  /** Drop one name of a file; its bytes stop counting once no name is left. */
+  private dropName(path: string) {
+    const node = this.tree.get(path);
+    if (!node) return;
+    this.tree.delete(path);
+    if (!this.nlink(node)) this.total -= node.size;
   }
 
   private openCount(): number {
@@ -250,8 +311,11 @@ export class GuestFiles {
   }
 
   openAt(dirfd: number, raw: string, flags: number): bigint {
-    const path = this.walk(dirfd, raw);
+    // O_CREAT|O_EXCL never follows a link in the last place: the name itself must be new.
+    const exclusive = Boolean(flags & O_CREAT && flags & O_EXCL);
+    const path = this.walk(dirfd, raw, !(flags & O_NOFOLLOW) && !exclusive);
     if (typeof path !== "string") return path;
+    if (this.links.has(path)) return exclusive ? EEXIST : ELOOP;
     const acc = flags & O_ACCMODE;
     if (acc === O_ACCMODE) return EINVAL;
     const write = acc === O_WRONLY || acc === O_RDWR;
@@ -266,7 +330,7 @@ export class GuestFiles {
     if (node && flags & O_CREAT && flags & O_EXCL) return EEXIST;
     if (!node) {
       if (!(flags & O_CREAT)) return ENOENT;
-      if (this.tree.size + this.dirs.size >= MAX_FILES) return ENOSPC;
+      if (this.tree.size + this.dirs.size + this.links.size >= MAX_FILES) return ENOSPC;
       if (this.lowestFreeFd() < 0) return EMFILE;
       node = new FileNode(new Uint8Array());
       this.tree.set(path, node);
@@ -409,7 +473,7 @@ export class GuestFiles {
       case "pipe":
         return { kind: "fifo", size: 0 };
       case "file":
-        return { kind: "file", size: desc.node.size };
+        return { kind: "file", size: desc.node.size, nlink: this.nlink(desc.node) };
     }
   }
 
@@ -417,19 +481,22 @@ export class GuestFiles {
     return this.statAt(AT_FDCWD, path);
   }
 
-  statAt(dirfd: number, raw: string): Stat | bigint {
-    const path = this.walk(dirfd, raw);
+  /** stat, or lstat with follow = false. */
+  statAt(dirfd: number, raw: string, follow = true): Stat | bigint {
+    const path = this.walk(dirfd, raw, follow);
     if (typeof path !== "string") return path;
+    const link = this.links.get(path);
+    if (link) return { kind: "link", size: new TextEncoder().encode(link.target).length, nlink: this.nlink(link) };
     const node = this.tree.get(path);
-    if (node) return { kind: "file", size: node.size };
+    if (node) return { kind: "file", size: node.size, nlink: this.nlink(node) };
     return this.dirs.has(path) ? { kind: "dir", size: 4096 } : ENOENT;
   }
 
   mkdirAt(dirfd: number, raw: string): bigint {
     const path = this.walk(dirfd, raw);
     if (typeof path !== "string") return path;
-    if (this.dirs.has(path) || this.tree.has(path)) return EEXIST;
-    if (this.tree.size + this.dirs.size >= MAX_FILES) return ENOSPC;
+    if (this.exists(path)) return EEXIST;
+    if (this.tree.size + this.dirs.size + this.links.size >= MAX_FILES) return ENOSPC;
     this.dirs.add(path);
     return 0n;
   }
@@ -438,38 +505,44 @@ export class GuestFiles {
     return this.unlinkAt(AT_FDCWD, path, 0);
   }
 
-  /** unlink, or rmdir with AT_REMOVEDIR. */
+  /** unlink, or rmdir with AT_REMOVEDIR. Both act on a link itself, never on what it points at. */
   unlinkAt(dirfd: number, raw: string, flags: number): bigint {
-    const path = this.walk(dirfd, raw);
+    const slash = /[^/]\/+$/.test(raw);
+    const path = this.walk(dirfd, slash ? raw.replace(/\/+$/, "") : raw);
     if (typeof path !== "string") return path;
     const node = this.tree.get(path);
+    const link = this.links.has(path);
     if (flags & AT_REMOVEDIR) {
       if (path === "/") return EBUSY;
-      if (node) return ENOTDIR;
+      if (node || link) return ENOTDIR;
       if (!this.dirs.has(path)) return ENOENT;
-      const prefix = path + "/";
-      for (const key of this.tree.keys()) if (key.startsWith(prefix)) return ENOTEMPTY;
-      for (const key of this.dirs) if (key.startsWith(prefix)) return ENOTEMPTY;
+      if (this.entries(path).length > 2) return ENOTEMPTY;
       this.dirs.delete(path);
       return 0n;
     }
-    if (!node) return this.dirs.has(path) ? EISDIR : ENOENT;
+    if (!this.exists(path)) return ENOENT;
+    if (slash) return this.dirs.has(path) ? EISDIR : ENOTDIR;
+    if (link) {
+      this.links.delete(path);
+      return 0n;
+    }
+    if (!node) return EISDIR;
     // Like Linux, descriptors already open keep the file's contents; it just leaves the tree.
-    this.tree.delete(path);
-    this.total -= node.size;
+    this.dropName(path);
     return 0n;
   }
 
-  /** ".", "..", then the directory's entries by name: [name, is a directory]. */
-  private entries(path: string): [string, boolean][] {
+  /** ".", "..", then the directory's entries by name, with their getdents64 types (DT_DIR 4, DT_REG 8, DT_LNK 10). */
+  private entries(path: string): [string, number][] {
     if (!this.dirs.has(path)) return []; // removed while open: Linux lists nothing
     const prefix = path === "/" ? "/" : path + "/";
-    const out: [string, boolean][] = [];
+    const out: [string, number][] = [];
     const direct = (key: string) => key.startsWith(prefix) && key.length > prefix.length && !key.slice(prefix.length).includes("/");
-    for (const key of this.tree.keys()) if (direct(key)) out.push([key.slice(prefix.length), false]);
-    for (const key of this.dirs) if (direct(key)) out.push([key.slice(prefix.length), true]);
+    for (const key of this.tree.keys()) if (direct(key)) out.push([key.slice(prefix.length), 8]);
+    for (const key of this.dirs) if (direct(key)) out.push([key.slice(prefix.length), 4]);
+    for (const key of this.links.keys()) if (direct(key)) out.push([key.slice(prefix.length), 10]);
     out.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
-    return [[".", true], ["..", true], ...out];
+    return [[".", 4], ["..", 4], ...out];
   }
 
   /** getdents64: as many struct linux_dirent64 records as fit in `max` bytes. */
@@ -482,7 +555,7 @@ export class GuestFiles {
     const parts: Uint8Array[] = [];
     let used = 0;
     while (desc.pos < list.length) {
-      const [name, dir] = list[desc.pos];
+      const [name, type] = list[desc.pos];
       const bytes = enc.encode(name);
       const reclen = (19 + bytes.length + 1 + 7) & ~7;
       if (used + reclen > max) {
@@ -494,7 +567,7 @@ export class GuestFiles {
       v.setBigUint64(0, BigInt(desc.pos + 1000), true); // d_ino: stable per position, never 0
       v.setBigInt64(8, BigInt(desc.pos + 1), true); // d_off: where the next call resumes
       v.setUint16(16, reclen, true);
-      rec[18] = dir ? 4 : 8; // DT_DIR, DT_REG
+      rec[18] = type;
       rec.set(bytes, 19);
       parts.push(rec);
       used += reclen;
@@ -588,7 +661,7 @@ export class GuestFiles {
   /** truncate(path): the same without a descriptor. */
   truncateAt(dirfd: number, raw: string, length: bigint): bigint {
     if (length < 0n) return EINVAL;
-    const path = this.walk(dirfd, raw);
+    const path = this.walk(dirfd, raw, true);
     if (typeof path !== "string") return path;
     const node = this.tree.get(path);
     if (!node) return this.dirs.has(path) ? EISDIR : ENOENT;
@@ -622,13 +695,15 @@ export class GuestFiles {
     if (special(oldRaw)) return EBUSY;
     if (special(newRaw)) return flags & RENAME_NOREPLACE ? EEXIST : EBUSY;
     const fromDir = this.dirs.has(from);
-    if (!fromDir && !this.tree.has(from)) return ENOENT;
+    if (!this.exists(from)) return ENOENT;
     const toDir = this.dirs.has(to);
-    const toExists = toDir || this.tree.has(to);
+    const toExists = this.exists(to);
     if (!fromDir && (oldRaw.endsWith("/") || (newRaw.endsWith("/") && !(flags & RENAME_EXCHANGE)))) return ENOTDIR;
     if (flags & RENAME_EXCHANGE && !toExists) return ENOENT;
     if (flags & RENAME_NOREPLACE && toExists) return EEXIST;
-    if (from === to) return 0n;
+    // Two names of one file (or one link): Linux does nothing and reports success.
+    const same = (a: string, b: string) => (this.tree.get(a) ?? this.links.get(a) ?? a) === (this.tree.get(b) ?? this.links.get(b) ?? b);
+    if (from === to || same(from, to)) return 0n;
     const inside = (path: string, dir: string) => path.startsWith(dir + "/");
     if (fromDir && inside(to, from)) return EINVAL;
     if (flags & RENAME_EXCHANGE) {
@@ -643,10 +718,11 @@ export class GuestFiles {
         if (this.entries(to).length > 2) return ENOTEMPTY;
         this.dirs.delete(to);
         for (const { desc } of this.fds.values()) if (desc.kind === "dir" && desc.path === to) desc.path = GONE;
+      } else if (this.links.has(to)) {
+        this.links.delete(to);
       } else {
         // Descriptors open on the replaced file keep it; it just leaves the tree.
-        this.total -= this.tree.get(to)!.size;
-        this.tree.delete(to);
+        this.dropName(to);
       }
     }
     this.remap((p) => (p === from || inside(p, from) ? to + p.slice(from.length) : p));
@@ -658,7 +734,46 @@ export class GuestFiles {
     const tree = [...this.tree].map(([k, v]) => [f(k), v] as const);
     this.tree = new Map(tree);
     this.dirs = new Set([...this.dirs].map((d) => (d === "/" ? d : f(d))));
+    this.links = new Map([...this.links].map(([k, v]) => [f(k), v] as const));
     for (const { desc } of this.fds.values()) if (desc.kind === "dir" && desc.path !== "/" && desc.path !== GONE) desc.path = f(desc.path);
+  }
+
+  /** symlinkat: a new name holding `target`, which need not exist. */
+  symlinkAt(target: string, dirfd: number, raw: string): bigint {
+    if (!target) return ENOENT;
+    const path = this.walk(dirfd, raw);
+    if (typeof path !== "string") return path;
+    if (this.exists(path)) return EEXIST;
+    if (raw.endsWith("/")) return ENOENT;
+    if (this.tree.size + this.dirs.size + this.links.size >= MAX_FILES) return ENOSPC;
+    this.links.set(path, new Link(target));
+    return 0n;
+  }
+
+  /** readlinkat: the target of a symbolic link. */
+  readlinkAt(dirfd: number, raw: string): Uint8Array | bigint {
+    const path = this.walk(dirfd, raw);
+    if (typeof path !== "string") return path;
+    const link = this.links.get(path);
+    if (link) return new TextEncoder().encode(link.target);
+    return this.exists(path) ? EINVAL : ENOENT;
+  }
+
+  /** linkat: another name for a file (or for a symbolic link itself, unless AT_SYMLINK_FOLLOW). */
+  linkAt(olddirfd: number, oldRaw: string, newdirfd: number, newRaw: string, flags: number): bigint {
+    if (flags & ~AT_SYMLINK_FOLLOW) return EINVAL;
+    const from = this.walk(olddirfd, oldRaw, Boolean(flags & AT_SYMLINK_FOLLOW));
+    if (typeof from !== "string") return from;
+    if (this.dirs.has(from)) return EPERM;
+    const item = this.tree.get(from) ?? this.links.get(from);
+    if (!item) return ENOENT;
+    const to = this.walk(newdirfd, newRaw);
+    if (typeof to !== "string") return to;
+    if (this.exists(to)) return EEXIST;
+    if (this.tree.size + this.dirs.size + this.links.size >= MAX_FILES) return ENOSPC;
+    if (item instanceof Link) this.links.set(to, item);
+    else this.tree.set(to, item);
+    return 0n;
   }
 
   /**
@@ -687,11 +802,12 @@ export class GuestFiles {
     return (p.size ? POLLIN | POLLRDNORM : 0) | (this.pipeEndOpen(p, true) ? 0 : POLLHUP);
   }
 
-  /** The tree as it stands, path -> contents, sorted by path. Directories appear as "path/" with no contents. */
+  /** The tree as it stands, path -> contents, sorted by path. Directories appear as "path/" with no contents, symbolic links as "path@" holding their target. */
   snapshot(): Record<string, Uint8Array> {
     const keys: [string, Uint8Array][] = [];
     for (const [key, node] of this.tree) keys.push([key, node.bytes()]);
     for (const key of this.dirs) if (key !== "/") keys.push([key + "/", new Uint8Array()]);
+    for (const [key, link] of this.links) keys.push([key + "@", new TextEncoder().encode(link.target)]);
     keys.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
     return Object.fromEntries(keys);
   }

@@ -189,3 +189,15 @@ test("poll and select report the readiness Linux does", () => {
   v.setBigUint64(0x4000, 1n << 50n, true);
   assert.equal(call("select", 51n, 0x4000n, 0n, 0n, 0n), -9n);
 });
+
+test("links: absolute targets resolve inside the tree, loops stop with ELOOP, a host tree can hold links", () => {
+  const files = new GuestFiles({ "etc/conf": "c", "bin/sh@": "/etc/conf", "a@": "b", "b@": "a" });
+  assert.equal(dec.decode(files.read(Number(files.open("bin/sh", 0)), 9) as Uint8Array), "c");
+  assert.equal(files.open("a", 0), -40n);
+  assert.deepEqual(files.statAt(-100, "bin/sh", false), { kind: "link", size: 9, nlink: 1 });
+  assert.equal(files.symlinkAt("../../../outside", -100, "esc"), 0n);
+  assert.equal(files.open("esc", 0), -2n, "\"..\" stops at the root of the tree");
+  assert.equal(files.linkAt(-100, "etc/conf", -100, "conf2", 0), 0n);
+  assert.deepEqual(files.statPath("conf2"), { kind: "file", size: 1, nlink: 2 });
+  assert.deepEqual(Object.keys(files.snapshot()), ["/a@", "/b@", "/bin/", "/bin/sh@", "/conf2", "/esc@", "/etc/", "/etc/conf"]);
+});

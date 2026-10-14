@@ -116,9 +116,9 @@ test("directories, dup, fcntl and pipes: both architectures and glibc, through w
   }
 });
 
-test("mapped files, renames, truncation and poll/select: both architectures and glibc, through wasmtime, tree left behind included", { skip }, async () => {
+test("mapped files, renames, truncation, poll/select and links: both architectures and glibc, through wasmtime, tree left behind included", { skip }, async () => {
   const input = fixture("files-in.txt");
-  for (const [build, name] of [["mapio-x86_64.elf", "mapio"], ["mapio-aarch64.elf", "mapio"], ["libc-mapio-x86_64.elf", "libc-mapio"]]) {
+  for (const [build, name] of [["mapio-x86_64.elf", "mapio"], ["mapio-aarch64.elf", "mapio"], ["libc-mapio-x86_64.elf", "libc-mapio"], ["links-x86_64.elf", "links"], ["links-aarch64.elf", "links"], ["libc-links-x86_64.elf", "libc-links"]]) {
     const report = await runLinuxHosted(fixture(build), { files: { "in.txt": input } });
     assert.equal(report.ok, true, `${build}: ${report.detail}`);
     assert.equal(report.stdout, text(`${name}.expected`), build);

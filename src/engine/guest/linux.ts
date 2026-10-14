@@ -17,7 +17,7 @@ import { GuestState, Interpreter, type Engine } from "./machine.ts";
 import { STOP_NAME, Stop, TP, type Gap, type GuestArch, type StopCode } from "./ir.ts";
 import { inText, lift, newProgram, type Program } from "./lift.ts";
 import { instantiate, lowerProgram } from "./wasm.ts";
-import { AT_FDCWD, FD_LIMIT, GuestFiles, O_DIRECTORY, POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, POLLPRI, POLLRDNORM, POLLWRNORM, type ByteSink, type FileNode, type Stat } from "./files.ts";
+import { AT_FDCWD, FD_LIMIT, GuestFiles, O_DIRECTORY, O_NOFOLLOW, POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, POLLPRI, POLLRDNORM, POLLWRNORM, type ByteSink, type FileNode, type Stat } from "./files.ts";
 
 export type LinuxOptions = {
   /** "tiered" (default): interpreter first, WebAssembly once the program runs long. "wasm": WebAssembly from the start. */
@@ -75,14 +75,14 @@ export const ABI: Record<GuestArch, { nr: number; args: number[]; ret: number; s
     args: [7, 6, 2, 10, 8, 9],
     ret: 0,
     sp: 4,
-    names: { 0: "read", 1: "write", 2: "open", 3: "close", 5: "fstat", 7: "poll", 8: "lseek", 9: "mmap", 10: "mprotect", 11: "munmap", 12: "brk", 13: "rt_sigaction", 14: "rt_sigprocmask", 16: "ioctl", 17: "pread64", 18: "pwrite64", 20: "writev", 21: "access", 22: "pipe", 23: "select", 26: "msync", 28: "madvise", 32: "dup", 33: "dup2", 39: "getpid", 60: "exit", 63: "uname", 72: "fcntl", 76: "truncate", 77: "ftruncate", 82: "rename", 83: "mkdir", 84: "rmdir", 87: "unlink", 89: "readlink", 102: "getuid", 104: "getgid", 107: "geteuid", 108: "getegid", 158: "arch_prctl", 186: "gettid", 201: "time", 217: "getdents64", 218: "set_tid_address", 228: "clock_gettime", 231: "exit_group", 257: "openat", 258: "mkdirat", 262: "newfstatat", 263: "unlinkat", 264: "renameat", 267: "readlinkat", 269: "faccessat", 270: "pselect6", 271: "ppoll", 273: "set_robust_list", 292: "dup3", 293: "pipe2", 302: "prlimit64", 316: "renameat2", 318: "getrandom", 334: "rseq" },
+    names: { 0: "read", 1: "write", 2: "open", 3: "close", 4: "stat", 5: "fstat", 6: "lstat", 7: "poll", 8: "lseek", 9: "mmap", 10: "mprotect", 11: "munmap", 12: "brk", 13: "rt_sigaction", 14: "rt_sigprocmask", 16: "ioctl", 17: "pread64", 18: "pwrite64", 20: "writev", 21: "access", 22: "pipe", 23: "select", 26: "msync", 28: "madvise", 32: "dup", 33: "dup2", 39: "getpid", 60: "exit", 63: "uname", 72: "fcntl", 76: "truncate", 77: "ftruncate", 79: "getcwd", 82: "rename", 83: "mkdir", 84: "rmdir", 86: "link", 87: "unlink", 88: "symlink", 89: "readlink", 102: "getuid", 104: "getgid", 107: "geteuid", 108: "getegid", 158: "arch_prctl", 186: "gettid", 201: "time", 217: "getdents64", 218: "set_tid_address", 228: "clock_gettime", 231: "exit_group", 257: "openat", 258: "mkdirat", 262: "newfstatat", 263: "unlinkat", 264: "renameat", 265: "linkat", 266: "symlinkat", 267: "readlinkat", 269: "faccessat", 270: "pselect6", 271: "ppoll", 273: "set_robust_list", 292: "dup3", 293: "pipe2", 302: "prlimit64", 316: "renameat2", 318: "getrandom", 334: "rseq" },
   },
   aarch64: {
     nr: 8,
     args: [0, 1, 2, 3, 4, 5],
     ret: 0,
     sp: 31,
-    names: { 23: "dup", 24: "dup3", 25: "fcntl", 29: "ioctl", 34: "mkdirat", 35: "unlinkat", 38: "renameat", 45: "truncate", 46: "ftruncate", 48: "faccessat", 56: "openat", 57: "close", 59: "pipe2", 61: "getdents64", 62: "lseek", 63: "read", 64: "write", 66: "writev", 67: "pread64", 68: "pwrite64", 72: "pselect6", 73: "ppoll", 78: "readlinkat", 79: "newfstatat", 80: "fstat", 93: "exit", 94: "exit_group", 96: "set_tid_address", 99: "set_robust_list", 113: "clock_gettime", 134: "rt_sigaction", 135: "rt_sigprocmask", 160: "uname", 172: "getpid", 174: "getuid", 175: "geteuid", 176: "getgid", 177: "getegid", 178: "gettid", 214: "brk", 215: "munmap", 222: "mmap", 226: "mprotect", 227: "msync", 233: "madvise", 261: "prlimit64", 276: "renameat2", 278: "getrandom", 293: "rseq" },
+    names: { 17: "getcwd", 23: "dup", 24: "dup3", 25: "fcntl", 29: "ioctl", 34: "mkdirat", 35: "unlinkat", 36: "symlinkat", 37: "linkat", 38: "renameat", 45: "truncate", 46: "ftruncate", 48: "faccessat", 56: "openat", 57: "close", 59: "pipe2", 61: "getdents64", 62: "lseek", 63: "read", 64: "write", 66: "writev", 67: "pread64", 68: "pwrite64", 72: "pselect6", 73: "ppoll", 78: "readlinkat", 79: "newfstatat", 80: "fstat", 93: "exit", 94: "exit_group", 96: "set_tid_address", 99: "set_robust_list", 113: "clock_gettime", 134: "rt_sigaction", 135: "rt_sigprocmask", 160: "uname", 172: "getpid", 174: "getuid", 175: "geteuid", 176: "getgid", 177: "getegid", 178: "gettid", 214: "brk", 215: "munmap", 222: "mmap", 226: "mprotect", 227: "msync", 233: "madvise", 261: "prlimit64", 276: "renameat2", 278: "getrandom", 293: "rseq" },
   },
 };
 
@@ -296,16 +296,16 @@ export class LinuxShim {
     if (typeof st === "bigint") return st;
     const out = new Uint8Array(this.arch === "x86_64" ? 144 : 128);
     const v = new DataView(out.buffer);
-    const mode = st.kind === "dir" ? 0o40755 : st.kind === "fifo" ? 0o10600 : 0o100644;
+    const mode = st.kind === "dir" ? 0o40755 : st.kind === "fifo" ? 0o10600 : st.kind === "link" ? 0o120777 : 0o100644;
     const ino = BigInt(st.size + 2);
     v.setBigUint64(8, ino, true);
     if (this.arch === "x86_64") {
-      v.setBigUint64(16, 1n, true); // st_nlink
+      v.setBigUint64(16, BigInt(st.nlink ?? 1), true); // st_nlink
       v.setUint32(24, mode, true);
       v.setBigInt64(56, 4096n, true); // st_blksize
     } else {
       v.setUint32(16, mode, true);
-      v.setUint32(20, 1, true); // st_nlink
+      v.setUint32(20, st.nlink ?? 1, true); // st_nlink
       v.setInt32(56, 4096, true); // st_blksize
     }
     v.setBigInt64(48, BigInt(st.size), true); // st_size: same offset on both
@@ -327,13 +327,18 @@ export class LinuxShim {
     return flags >> 32n ? EINVAL : this.files.renameAt(olddir, from, newdir, to, Number(flags));
   }
 
-  /** O_DIRECTORY is 0x4000 on AArch64 (where 0x10000 is O_DIRECT); GuestFiles takes the x86-64 bits. */
+  /**
+   * O_DIRECTORY is 0x4000 and O_NOFOLLOW 0x8000 on AArch64 (where 0x10000 and 0x20000 are O_DIRECT and
+   * O_LARGEFILE); GuestFiles takes the x86-64 bits.
+   */
   private openFlags(flags: bigint): number {
     let f = Number(flags & 0xffffffffn);
     if (this.arch === "aarch64") {
       const dir = f & 0x4000;
-      f &= ~(0x4000 | 0x10000);
+      const nofollow = f & 0x8000;
+      f &= ~(0x4000 | 0x8000 | 0x10000 | 0x20000);
       if (dir) f |= O_DIRECTORY;
+      if (nofollow) f |= O_NOFOLLOW;
     }
     return f;
   }
@@ -617,8 +622,43 @@ export class LinuxShim {
         if (typeof path !== "string") return path;
         // fstat(fd) arrives as newfstatat(fd, "", buf, AT_EMPTY_PATH).
         if (path === "") return (a3 & 0x1000n) !== 0n ? this.stat(state, a2, this.files.statFd(fd(a0))) : ENOENT;
-        return this.stat(state, a2, this.files.statAt(fd(a0), path));
+        return a3 & ~0x1900n ? EINVAL : this.stat(state, a2, this.files.statAt(fd(a0), path, (a3 & 0x100n) === 0n)); // AT_SYMLINK_NOFOLLOW
       }
+      case "stat":
+      case "lstat": {
+        const path = this.pathArg(state, a0);
+        return typeof path === "string" ? this.stat(state, a1, this.files.statAt(AT_FDCWD, path, name === "stat")) : path;
+      }
+      case "symlink":
+      case "symlinkat": {
+        const target = this.path(state, a0);
+        if (typeof target !== "string") return target;
+        const at = this.pathArg(state, name === "symlink" ? a1 : a2);
+        return typeof at === "string" ? this.files.symlinkAt(target, name === "symlink" ? AT_FDCWD : fd(a1), at) : at;
+      }
+      case "link":
+      case "linkat": {
+        const [od, oa, nd, na, flags] = name === "link" ? [AT_FDCWD, a0, AT_FDCWD, a1, 0n] : [fd(a0), a1, fd(a2), a3, a4];
+        const from = this.pathArg(state, oa);
+        if (typeof from !== "string") return from;
+        const to = this.pathArg(state, na);
+        return typeof to === "string" ? this.files.linkAt(od, from, nd, to, Number(flags & 0xffffffffn)) : to;
+      }
+      case "readlink":
+      case "readlinkat": {
+        const [dirfd, at, buf, size] = name === "readlink" ? [AT_FDCWD, a0, a1, a2] : [fd(a0), a1, a2, a3];
+        if (BigInt.asIntN(32, size) <= 0n) return EINVAL;
+        const path = this.pathArg(state, at);
+        if (typeof path !== "string") return path;
+        const got = this.files.readlinkAt(dirfd, path);
+        if (typeof got === "bigint") return got;
+        const out = got.subarray(0, Number(size > BigInt(got.length) ? BigInt(got.length) : size));
+        return state.write(buf, out) ? BigInt(out.length) : EFAULT;
+      }
+      case "getcwd":
+        // The working directory is always the root of the tree.
+        if (a1 < 2n) return -34n; // ERANGE
+        return state.write(a0, Uint8Array.from([0x2f, 0])) ? 2n : EFAULT;
       case "access":
       case "faccessat": {
         const path = this.pathArg(state, name === "access" ? a0 : a1);
@@ -712,9 +752,6 @@ export class LinuxShim {
         const buf = globalThis.crypto.getRandomValues(new Uint8Array(n));
         return state.write(a0, buf) ? BigInt(n) : EFAULT;
       }
-      case "readlinkat":
-      case "readlink":
-        return ENOENT; // no symbolic links in the tree
       case "prlimit64":
       case "rseq":
         return ENOSYS; // known, deliberately not provided: libc falls back
