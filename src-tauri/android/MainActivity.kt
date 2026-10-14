@@ -104,6 +104,17 @@ class ForgeApps(private val activity: Activity) {
     return true
   }
 
+  /** Open a page of Forge's own releases (a newer version to install) in the browser. Nothing else. */
+  @JavascriptInterface
+  fun openReleaseLink(url: String): Boolean {
+    val allowed = "https://github.com/kevinmgagnon2001-jpg/KevinBell-Forge/releases/"
+    if (!url.startsWith(allowed) || url.length > 300 || !url.all { it.isLetterOrDigit() || "/:._-+%~".contains(it) }) return false
+    activity.runOnUiThread {
+      activity.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+    return true
+  }
+
   /** "off" (not offered), "offered" (Forge is listed as a home screen) or "home" (it is the home screen). */
   @JavascriptInterface
   fun homeState(): String {

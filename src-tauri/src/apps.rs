@@ -36,6 +36,49 @@ pub fn open(id: &str) -> Result<(), String> {
     launch(Path::new(id))
 }
 
+/// Where Forge's own releases are. The page may open links here (a newer version to download) and
+/// nowhere else.
+pub const RELEASES: &str = "https://github.com/kevinmgagnon2001-jpg/KevinBell-Forge/releases/";
+
+/// Is this a link to one of Forge's releases (and nothing that could break out of a command line)?
+pub fn is_release_link(url: &str) -> bool {
+    url.starts_with(RELEASES) && url.len() < 300 && url.chars().all(|c| c.is_ascii_alphanumeric() || "/:._-+%~".contains(c))
+}
+
+/// Open a Forge release page or download in the system's browser.
+pub fn open_link(url: &str) -> Result<(), String> {
+    if !is_release_link(url) {
+        return Err("only Forge's release pages can be opened from here".into());
+    }
+    browse(url)
+}
+
+#[cfg(target_os = "linux")]
+fn browse(url: &str) -> Result<(), String> {
+    let mut command = Command::new("xdg-open");
+    command.arg(url);
+    detached(command)
+}
+
+#[cfg(target_os = "macos")]
+fn browse(url: &str) -> Result<(), String> {
+    let mut command = Command::new("open");
+    command.arg(url);
+    detached(command)
+}
+
+#[cfg(target_os = "windows")]
+fn browse(url: &str) -> Result<(), String> {
+    let mut command = Command::new("explorer");
+    command.arg(url);
+    detached(command)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+fn browse(_url: &str) -> Result<(), String> {
+    Err("opening links is not supported on this system".into())
+}
+
 fn walk(dir: &Path, depth: u32, ext: &str, out: &mut Vec<PathBuf>) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
@@ -283,6 +326,17 @@ mod tests {
         assert_eq!(exec_args("sh -c \"echo \\\"hi\\\"\"", "S", "/s.desktop"), vec!["sh", "-c", "echo \"hi\""]);
         assert_eq!(exec_args("  spaced   out  ", "S", "/s"), vec!["spaced", "out"]);
         assert_eq!(exec_args("app \"\"", "S", "/s"), vec!["app", ""]);
+    }
+
+    #[test]
+    fn only_forge_release_links_open() {
+        assert!(is_release_link("https://github.com/kevinmgagnon2001-jpg/KevinBell-Forge/releases/tag/v0.6.2"));
+        assert!(is_release_link("https://github.com/kevinmgagnon2001-jpg/KevinBell-Forge/releases/download/v0.6.2/Forge_0.6.2_x64-setup.exe"));
+        assert!(!is_release_link("https://github.com/someone/else/releases/tag/v1"));
+        assert!(!is_release_link("https://evil.example/https://github.com/kevinmgagnon2001-jpg/KevinBell-Forge/releases/"));
+        assert!(!is_release_link("https://github.com/kevinmgagnon2001-jpg/KevinBell-Forge/releases/x\" & calc"));
+        assert!(!is_release_link("file:///etc/passwd"));
+        assert!(open_link("https://example.com").is_err());
     }
 
     #[test]

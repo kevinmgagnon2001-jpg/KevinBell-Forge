@@ -10,7 +10,7 @@ GitHub builds the Android app for you. Nothing needs installing on your own comp
 4. On your phone, open the repository's **Releases** page and tap `Forge-0.6.0-android.apk`.
 5. Android asks once whether your browser may install apps. Allow it, then tap **Install**.
 
-New version: push a higher tag (`v0.6.1`, `v0.7.0`, …). The phone installs it over the old one, keeping your data, **as long as the signing key secrets are set** (next section).
+New version: merge a pull request labelled **release** (see docs/RELEASES.md), or push a higher tag (`v0.6.1`, `v0.7.0`, …). The app tells you when a new version is out. The phone installs it over the old one, keeping your data, **as long as the signing key secrets are set** (next section).
 
 For a test build without making a release: **Actions → Android APK → Run workflow**. The APK appears at the bottom of the run page under *Artifacts*. GitHub delivers it inside a .zip, so unzip it on the phone first.
 

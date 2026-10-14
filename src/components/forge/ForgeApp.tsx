@@ -9,6 +9,7 @@ import { DropRunner, PortalWatcher } from "./Bridge";
 import { DevicesCard } from "./Devices";
 import { MechanicsCard } from "./Mechanics";
 import { DeviceScreen } from "./DeviceScreen";
+import { UpdateBanner } from "./UpdateBanner";
 import { startMechanics } from "@/engine/carry-browser";
 import { resumeLink } from "@/engine/link-browser";
 import type { Entity, ToolSchema } from "@/engine/types";
@@ -888,6 +889,7 @@ function ForgeShell() {
       <DropRunner />
       <PortalWatcher />
       <DeviceScreen />
+      <UpdateBanner />
       <Header onScript={onScript} onDemo={onDemo} scripting={scripting} />
       <SceneSlot />
       <IntentDock />

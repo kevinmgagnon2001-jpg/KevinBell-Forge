@@ -22,6 +22,8 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
   "Forge as home screen"; desktop: installed applications). Forge steps aside and keeps its state. Engine:
   `device-apps.ts`; app: `DeviceScreen.tsx`; native: `src-tauri/src/apps.rs`, `src-tauri/android/MainActivity.kt`
   (ForgeApps), `scripts/android-manifest.mjs`. Guide: `docs/YOUR-DEVICE.md`.
+- **Releases:** merge a PR labelled `release` (or `[release]` in the title) and `release.yml` tags the next version
+  and builds everything; the apps show "Forge X is ready" with the right download. See `docs/RELEASES.md`.
 - **Desktop:** `.github/workflows/desktop.yml` builds installers for Linux x86-64/ARM64 (opened on a virtual display,
   screenshots kept), Windows and macOS (not opened). Not code-signed. Guide: `docs/DESKTOP.md`.
 - **Linux programs:** static x86-64 and ARM64 programs, glibc included, match real hardware on every engine.
@@ -33,6 +35,8 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
 
 ## Next, most important first
 
+1. Desktop self-update (Tauri updater): needs the owner's update-signing key as a secret; then sign the installers'
+   update artifacts in desktop.yml and publish latest.json with each Release.
 1. Your device inside Forge, next: a live picture of the real screen on the in-world screen (desktop capture
    with permission; Android MediaProjection), then input passed through on desktop.
 1. Carried mechanics, next: mechanics that act on an island's world (doors, tools), with per-island

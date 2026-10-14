@@ -1,0 +1,97 @@
+# A release, made for you when a pull request is merged.
+#
+#   Merge a pull request into main with the label "release" (or "[release]" in its title)
+#     -> the next version is tagged (v0.6.1 -> v0.6.2), a Release is created, and the Android APK
+#        and desktop installers are built and attached, exactly as for a hand-made tag.
+#   Labels "release:minor" / "release:major" (or "[release:minor]" / "[release:major]" in the title)
+#     bump the middle or first number instead: v0.6.2 -> v0.7.0 / v1.0.0.
+#   Actions tab -> "Release" -> "Run workflow" releases what is on main now.
+#
+# Pushing a v1.2.3 tag by hand still works too (android.yml and desktop.yml run on tags).
+# The apps check for a newer Release when they start and offer it (src/engine/updates.ts).
+
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which number goes up
+        type: choice
+        default: patch
+        options: [patch, minor, major]
+
+permissions:
+  contents: write # to push the tag and create the Release
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Tag the next version
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged == true && (
+        contains(github.event.pull_request.labels.*.name, 'release') ||
+        contains(github.event.pull_request.labels.*.name, 'release:minor') ||
+        contains(github.event.pull_request.labels.*.name, 'release:major') ||
+        contains(github.event.pull_request.title, '[release')))
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.next.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Work out the next version
+        id: next
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          TITLE: ${{ github.event.pull_request.title }}
+          CHOSEN: ${{ inputs.bump }}
+        run: |
+          BUMP="${CHOSEN:-patch}"
+          if [[ ",$LABELS," == *",release:major,"* || "$TITLE" == *"[release:major]"* ]]; then BUMP=major
+          elif [[ ",$LABELS," == *",release:minor,"* || "$TITLE" == *"[release:minor]"* ]]; then BUMP=minor
+          fi
+          git fetch --tags --force --quiet
+          TAG="$(git tag -l | node scripts/next-version.mjs "$BUMP")"
+          echo "Next version: $TAG ($BUMP)"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Tag it and create the Release
+        env:
+          TAG: ${{ steps.next.outputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+          if [[ -n "$PR_URL" ]]; then NOTES="${PR_TITLE#\[release*\] } ($PR_URL)"; else NOTES="Released from main."; fi
+          gh release create "$TAG" --verify-tag --title "Forge $TAG" --notes "$NOTES"
+
+  android:
+    name: Android
+    needs: tag
+    uses: ./.github/workflows/android.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+    secrets: inherit
+
+  desktop:
+    name: Desktop
+    needs: tag
+    uses: ./.github/workflows/desktop.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+    secrets: inherit
