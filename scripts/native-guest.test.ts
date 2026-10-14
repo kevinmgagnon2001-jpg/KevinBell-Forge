@@ -131,8 +131,8 @@ test("mapped files, renames, truncation, poll/select and links: both architectur
 
 test("ARM64 glibc programs and the NEON/FP corpus, through wasmtime", { skip }, async () => {
   const input = fixture("files-in.txt");
-  for (const name of ["libc-demo", "libc-float", "libc-files", "libc-dirs", "libc-mapio", "neon"]) {
-    const withTree = name === "libc-files" || name === "libc-dirs" || name === "libc-mapio";
+  for (const name of ["libc-demo", "libc-float", "libc-files", "libc-dirs", "libc-mapio", "libc-links", "neon"]) {
+    const withTree = name === "libc-files" || name === "libc-dirs" || name === "libc-mapio" || name === "libc-links";
     const report = await runLinuxHosted(fixture(`${name}-aarch64.elf`), { stdin: "abc", files: withTree ? { "in.txt": input } : undefined });
     assert.equal(report.ok, true, `${name}: ${report.detail}`);
     assert.equal(report.stdout, text(`${name}.arm.expected`), name);
