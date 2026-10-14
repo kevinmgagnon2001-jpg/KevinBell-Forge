@@ -624,3 +624,101 @@ your real apps; opening one steps Forge aside, and opening Forge again brings yo
 - Only links to Forge's own releases can be opened: open_release_link in apps.rs (tested) and
   ForgeApps.openReleaseLink on Android.
 - Still not done: desktop self-install (Tauri updater) needs an update-signing key from the owner.
+
+## Forge as the home screen: no more black screen
+- With Forge chosen as the home screen, pressing Home showed a black screen. Android starts the home
+  screen in a task of its own, so the home entry (an alias of MainActivity) made a second
+  MainActivity beside the running one, and Tauri draws the world in only one of them.
+- The home entry is now HomeActivity (MainActivity.kt): it draws nothing, opens Forge exactly as its
+  icon does (bringing back the running Forge, or starting it after a reboot) and closes.
+  scripts/android-manifest.mjs declares it instead of the alias, still disabled until the person
+  turns it on. Its test now also checks that MainActivity itself is never a home screen.
+- android-smoke.sh turns Forge on as the home screen on the emulator, presses Home, and fails unless
+  there is still exactly one Forge screen, it is in front, and the process did not restart.
+- After updating, anyone who had turned it on taps "Use Forge as home screen" once more: the old
+  alias is gone, so Android forgets the choice.
+- Not checked on a real phone yet; the emulator check runs with the next Android build.
+
+## A world around the lab
+The lab stood in a black void. It now stands on a stone plaza in a meadow, with hills, forest, a lake
+and mountains around it, under a late-afternoon sky.
+- src/engine/terrain.ts: the land as numbers, the same on every device and never saved or shared.
+  The plaza and the meadow out to 30 m stay flat, because bodies still stand on y = 0; hills rise
+  beyond that, mountains past ~100 m, and a lake sits in a basin. Also seeded scattering for trees,
+  rocks and flowers on dry, not-too-steep ground. Tested (src/engine/terrain.test.ts).
+- src/components/forge/Scenery.tsx:
+  - a sky dome with a sun, horizon haze and clouds; fog matches the haze;
+  - an environment map rendered once from that sky, so metal and polished surfaces reflect it;
+  - the sun casts shadows, and every solid body casts and catches them;
+  - 1 m stone tiles lined up with the building grid (the grid is still there, fainter), a curb and
+    twelve lamp posts;
+  - the ground is coloured by height and slope (meadow, dry grass, sand, rock, snow), with a fine
+    grain texture up close;
+  - instanced pines, leafy trees (a few in autumn colours), boulders, grass that moves in the wind,
+    wildflowers, and motes drifting over the plaza;
+  - a lake with moving ripples.
+  Nothing in it is an entity or collides, and the gaze and pointer rays skip it.
+- How much is drawn follows the hardware tier (hardware.ts gains `shadows` and `scenery`):
+  - full: everything, 2048 px shadows;
+  - lite (phones): about 40% of the grass and trees, 1024 px shadows;
+  - min (weak or software GPUs): no grass, flowers, motes or shadows.
+  `?scenery=full|lite|min|off` overrides it; `off` is the old dark lab.
+- The lab deck is a polished slate (#5a616c, was #2c313a) instead of a black slab. Saved labs keep
+  their colour until Reset.
+- Reduced motion turns off the wind, drifting clouds and ripples.
+- Checked in Chromium (software GPU) at 1400x900 and 390x844: third person, bench and helm views;
+  full, lite, min and off; no console errors. Not timed on a real phone yet.
+
+## Your phone as a thing you carry, and an on-screen controller
+- The phone (or computer) is no longer a screen fixed in the lab. It waits on its stand, floating and
+  turning in a beam of light. You pick it up into your pocket, pull it out to use your apps, put it
+  away, or drop it anywhere. If it is not with you, **Summon phone** flies it back to your hand in an
+  arc.
+  - src/engine/device-apps.ts: `customData.carry` (lying / pocket / out) and pure steps for each:
+    pickUp (within reach only), pullOut, putAway, drop, summonStep (the flight), carryAlong. Tested
+    in src/engine/device-carry.test.ts.
+  - pilot.tsx moves a carried phone with you, the same way it moves the helm. In your pocket it is
+    hidden; in your hand it is in front of you, screen towards you, and the crosshair ignores it.
+  - An older fixed screen in a saved world is replaced by the phone (`customData.model`).
+  - DeviceScreen.tsx: the apps sheet is open exactly while the phone is out. The sheet has Drop and
+    Put away. E picks up or pulls out; P pulls out from anywhere (summoning if needed).
+- On-screen controller (Viewport.tsx): an analog thumbstick replaces the four move buttons, so a half
+  push walks at half speed. There are Up and Down keys for flying, and one phone button that says what
+  it will do (Phone, Put away, Pick up phone, Summon phone). The Look pad and drag-to-look are
+  unchanged.
+- Game controllers (Gamepad API, pilot.tsx): left stick moves, right stick looks, A uses, the
+  triggers fly. A pad left idle does not hold the touch stick at zero.
+- Scenery on a software renderer (no GPU) is now off by default: even the light level took the frame
+  rate from 13 to 3 there. Real GPUs are unchanged. hardware.ts is tested (src/engine/hardware.test.ts).
+- Checked in Chromium at 1400x900 and 390x844 with `?apps=demo-phone`:
+  - summon from the start;
+  - pick up, pull out (the sheet opens), put away, drop, P to get it back, Escape to pocket it;
+  - a half push on the stick gives half speed (1.1 vs 2.7 m/s), and letting go stops you;
+  - no console errors.
+  Not tried with a real game controller or on a real phone yet.
+
+## Forge on Android updates itself
+- Forge suggests, once, letting it update itself. **Allow updates** opens Android's *Install unknown
+  apps* switch for Forge; **Not now** stops asking.
+- With that on, a new Release downloads by itself, with progress in the update bar. Forge checks the
+  file before installing:
+  - it is Forge (`dev.forge.app`);
+  - it is newer than the installed copy;
+  - it is signed with the same key, with a clear message if not.
+- Then Android's PackageInstaller installs it. Android asks the first time. After that Forge is the
+  installer of record, so on Android 12+ (`setRequireUserAction(USER_ACTION_NOT_REQUIRED)`) updates
+  need no tap. Forge installs when you leave Forge, or now with **Update now**.
+  - MainActivity.kt: `updateState`, `allowUpdates`, `downloadUpdate` (only Forge's own release
+    downloads, at most 400 MB), `installUpdate`, and a receiver for the installer's answer. Progress
+    reaches the page through `window.__forgeUpdate`.
+  - scripts/android-manifest.mjs adds REQUEST_INSTALL_PACKAGES and
+    UPDATE_PACKAGES_WITHOUT_USER_ACTION (tested).
+  - src/engine/updates.ts: `nextUpdateStep` decides suggest / download / install / wait (tested), and
+    `?update=demo-android` pretends to be such a phone in a browser.
+  - UpdateBanner.tsx: the suggestion, progress, Update now, Try again and Download instead.
+- Google Play Protect is left alone: it is Android's own check. docs/ANDROID.md explains the
+  legitimate ways to stop its prompts (Play internal testing, developer verification).
+- Checked in Chromium at 390x844 with `?update=demo-android`: suggestion, then Allow, the download
+  runs by itself, Update now, installing, installed. No console errors. The Kotlin is not compiled
+  here; the next Android build compiles it, and the emulator test must pass before a Release goes
+  out. Not tried on a real phone yet.

@@ -14,6 +14,45 @@ New version: merge a pull request labelled **release** (see docs/RELEASES.md), o
 
 For a test build without making a release: **Actions → Android APK → Run workflow**. The APK appears at the bottom of the run page under *Artifacts*. GitHub delivers it inside a .zip, so unzip it on the phone first.
 
+## Updates without the browser
+
+Forge suggests this once, in a bar at the top: **Let Forge update itself? → Allow updates**. That
+opens Android's own *Install unknown apps* switch for Forge; turn it on and come back.
+
+From then on:
+
+1. When a new version is out, Forge downloads it by itself (a bar shows the progress).
+2. Forge checks it really is Forge, newer, and signed with the same key, then hands it to Android's
+   installer.
+3. **The first time**, Android shows its *Do you want to update this app?* dialog: tap **Update**.
+   After that, Forge is the app that installed itself, and on Android 12 and later updates install
+   **without a tap**. Forge does it when you leave Forge (or straight away with **Update now**).
+   Android closes Forge while it is replaced; open it again and you are where you were.
+
+**Not now** stops the suggestion; the update bar then still offers **Download** (the old way, in the
+browser) and **Allow updates**.
+
+This needs the permanent signing key (above). With a one-off key each version is "a different app"
+to Android, and Forge says so instead of installing.
+
+### Google Play Protect
+
+Play Protect may still scan Forge, or ask to, when it is installed or updated. That is Android's own
+malware check. No app can switch it off, and Forge does not try to get around it. There are fewer
+prompts when every version is signed with the same key, which the permanent key gives you.
+
+To stop the prompts properly, Forge has to be known to Google:
+
+- **Play Store, internal testing track:** a Play developer account ($25, once) and an `.aab` build.
+  Testers you add get Forge from the Play Store, with Play's own automatic updates and no
+  unknown-app or Play Protect prompts. This is the cleanest fix.
+- **Android developer verification:** Google now asks developers of apps installed outside the Play
+  Store to register their identity, package name and signing key. A registered Forge is treated as
+  coming from a known developer. Check Google's current requirements for your country.
+
+Neither needs any change to the app beyond the build. Ask if you want the workflow to also produce the
+`.aab` for Play.
+
 ## Signing key (do this once)
 
 Android only lets a new version replace an installed one when both were signed with the same key. Add three repository secrets under **Settings → Secrets and variables → Actions**:

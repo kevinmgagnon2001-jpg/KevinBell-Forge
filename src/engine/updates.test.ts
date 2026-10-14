@@ -49,3 +49,28 @@ test("a newer release becomes an update; the same or older, or a stray tag, does
   assert.ok(evil?.page.startsWith("https://github.com/kevinmgagnon2001-jpg/KevinBell-Forge/releases/"));
   assert.equal(isReleaseLink("https://github.com/kevinmgagnon2001-jpg/KevinBell-Forge/releases/x\" & calc"), false);
 });
+
+test("Forge on Android suggests updating itself, then downloads and installs when you leave", async () => {
+  const { nextUpdateStep } = await import("./updates.ts");
+  const update = { version: "0.7.0", page: "https://github.com/kevinmgagnon2001-jpg/KevinBell-Forge/releases/tag/v0.7.0", download: "https://github.com/kevinmgagnon2001-jpg/KevinBell-Forge/releases/download/v0.7.0/Forge-0.7.0-android.apk", notes: "" };
+  const self = (over: Partial<{ allowed: boolean; silent: boolean; ready: string }> = {}) => ({ allowed: true, silent: true, ready: "", ...over });
+  const step = (o: Partial<Parameters<typeof nextUpdateStep>[0]>) => nextUpdateStep({ self: self(), auto: "ask", update, stage: "idle", away: false, ...o });
+  // Not on Android: nothing.
+  assert.equal(step({ self: null }), "wait");
+  // Not allowed yet: suggest it, unless the person said no.
+  assert.equal(step({ self: self({ allowed: false }), update: null }), "suggest");
+  assert.equal(step({ self: self({ allowed: false }), auto: "off" }), "wait");
+  // Allowed: a new version downloads by itself, once.
+  assert.equal(step({}), "download");
+  assert.equal(step({ stage: "downloading" }), "wait");
+  assert.equal(step({ stage: "failed" }), "wait");
+  assert.equal(step({ auto: "off" }), "wait");
+  assert.equal(step({ update: { ...update, download: null } }), "wait");
+  // Downloaded: installs when you leave Forge, and only where Android needs no tap.
+  assert.equal(step({ stage: "ready" }), "wait");
+  assert.equal(step({ stage: "ready", away: true }), "install");
+  assert.equal(step({ self: self({ ready: "0.7.0" }), away: true }), "install");
+  assert.equal(step({ self: self({ ready: "0.6.9" }), away: true }), "download");
+  assert.equal(step({ self: self({ silent: false }), stage: "ready", away: true }), "wait");
+  assert.equal(step({ stage: "installing", away: true }), "wait");
+});

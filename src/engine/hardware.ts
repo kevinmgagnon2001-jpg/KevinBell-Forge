@@ -23,10 +23,17 @@ export type HardwareProfile = {
   dpr: number;
 };
 
+/** How much of the world around the lab to draw (Scenery.tsx). */
+export type SceneryLevel = "full" | "lite" | "min";
+export type SceneryChoice = SceneryLevel | "off";
+
 export type Quality = {
   dpr: [number, number];
   antialias: boolean;
   powerPreference: "high-performance" | "low-power" | "default";
+  /** Sun shadows. */
+  shadows: boolean;
+  scenery: SceneryChoice;
 };
 
 const SOFTWARE_RENDERER = /swiftshader|llvmpipe|software|softpipe|microsoft basic render/i;
@@ -83,11 +90,13 @@ export function probeHardware(): HardwareProfile {
 export function qualityFor(profile: HardwareProfile): Quality {
   switch (profile.tier) {
     case "high":
-      return { dpr: [1, 2], antialias: true, powerPreference: "high-performance" };
+      return { dpr: [1, 2], antialias: true, powerPreference: "high-performance", shadows: true, scenery: "full" };
     case "mid":
-      return { dpr: [1, 1.5], antialias: true, powerPreference: "default" };
+      return { dpr: [1, 1.5], antialias: true, powerPreference: "default", shadows: true, scenery: "lite" };
     default:
-      return { dpr: [1, 1], antialias: false, powerPreference: "low-power" };
+      // With no graphics chip at all (a software renderer) even the light scenery drops the frame rate
+      // several times over, so it keeps the plain lab.
+      return { dpr: [1, 1], antialias: false, powerPreference: "low-power", shadows: false, scenery: profile.software ? "off" : "min" };
   }
 }
 
@@ -98,5 +107,16 @@ export function softRenderRequested(): boolean {
     return new URLSearchParams(window.location.search).get("soft") === "1";
   } catch {
     return false;
+  }
+}
+
+/** ?scenery=full|lite|min|off picks how much of the world around the lab to draw, whatever the hardware. */
+export function sceneryRequested(): SceneryChoice | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const flag = new URLSearchParams(window.location.search).get("scenery");
+    return flag === "full" || flag === "lite" || flag === "min" || flag === "off" ? flag : null;
+  } catch {
+    return null;
   }
 }

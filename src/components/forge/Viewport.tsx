@@ -2,20 +2,22 @@ import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MutableRefObject, type ReactNode } from "react";
 import type { Group, Vector3Tuple } from "three";
-import { BoxGeometry, CanvasTexture, EdgesGeometry, Matrix4, Object3D, Plane, Quaternion, Raycaster, SRGBColorSpace, Vector2, Vector3, type Texture } from "three";
-import type { Mesh } from "three";
+import { AdditiveBlending, BoxGeometry, CanvasTexture, DoubleSide, EdgesGeometry, Matrix4, Object3D, Plane, Quaternion, Raycaster, SRGBColorSpace, Vector2, Vector3, type Texture } from "three";
+import type { Mesh, MeshStandardMaterial } from "three";
 import { clusterDag, selectCut } from "@/engine/cluster-lod";
 import type { Entity, Vec3 } from "@/engine/types";
 import { TEXTURE_PACKS, type TexturePack } from "@/engine/asset-url";
 import { loadAlbedo } from "@/engine/albedo";
 import { GRAVITY, restoreLab } from "@/engine/manifold";
 import { useForge } from "@/engine/store";
-import { deviceKind, OPEN_DEVICE_EVENT } from "@/engine/device-apps";
+import { carryOf, SCREEN_TAG } from "@/engine/device-apps";
 import { scenePalette } from "./palette";
 import { Pilot } from "./pilot";
 import { RoomPicture } from "./picture";
-import { probeHardware, qualityFor, softRenderRequested } from "@/engine/hardware";
-import { faceLook, pilotKeys, pointerClaim, setAimPoint, setGazeLock, shiftLook, useGazeId, useLook } from "./look";
+import { probeHardware, qualityFor, sceneryRequested, softRenderRequested, type SceneryLevel } from "@/engine/hardware";
+import { Scenery } from "./Scenery";
+import { faceLook, pilotKeys, pilotStick, pointerClaim, setAimPoint, setGazeLock, shiftLook, useGazeId, useLook } from "./look";
+import { DeviceButton } from "./DeviceScreen";
 
 const UP = new Vector3(0, 1, 0);
 const texCache = new Map<string, Texture>();
@@ -305,11 +307,14 @@ function Solid({
   selected,
   tone,
   map,
+  polished = false,
 }: {
   children: ReactNode;
   selected: boolean;
   tone: string;
   map?: Texture | null;
+  /** Floors: polished stone that mirrors the sky. */
+  polished?: boolean;
 }) {
   return (
     <mesh>
@@ -317,8 +322,8 @@ function Solid({
       <meshStandardMaterial
         color={map ? "#ffffff" : tone}
         map={map ?? undefined}
-        roughness={0.62}
-        metalness={0.28}
+        roughness={polished ? 0.2 : 0.62}
+        metalness={polished ? 0.12 : 0.28}
         emissive={selected ? tone : "#12141a"}
         emissiveIntensity={selected ? 0.45 : 0.2}
       />
@@ -508,12 +513,14 @@ function AssetMesh({
   tone,
   map,
   screen,
+  floor,
 }: {
   asset: string;
   selected: boolean;
   tone: string;
   map?: Texture | null;
   screen?: boolean;
+  floor?: boolean;
 }) {
   if (asset === "card") {
     if (!screen) {
@@ -600,7 +607,6 @@ function AssetMesh({
       </group>
     );
   }
-  if (asset === "device-screen") return <DeviceScreenMesh />;
   if (asset === "visitor") {
     return (
       <group position={[0, 0.45, 0]}>
@@ -620,7 +626,7 @@ function AssetMesh({
   }
   if (asset === "platform") {
     return (
-      <Solid selected={selected} tone={tone} map={map}>
+      <Solid selected={selected} tone={tone} map={map} polished={floor}>
         <boxGeometry args={[1, 1, 1]} />
       </Solid>
     );
@@ -633,32 +639,82 @@ function AssetMesh({
 }
 
 /** The screen of this phone or computer (device-apps.ts): a lit face with a few app tiles, facing +z. */
-function DeviceScreenMesh() {
-  const tiles = ["#4c8df5", "#8fbfa8", "#d4a24a", "#d48a86", "#9fd4d6", "#c4a574"];
+/**
+ * Your phone (or computer) as a thing in the world (device-apps.ts). Waiting to be picked up it
+ * floats and turns with a soft glow, so you can find it; in your hand it holds still, screen on.
+ */
+function DeviceMesh({ entity }: { entity: Entity }) {
+  const spin = useRef<Group>(null);
+  const glow = useRef<MeshStandardMaterial>(null);
+  const waiting = carryOf(entity) === "lying" && !entity.customData.flight;
+  const reduce = useReducedMotion();
+  const phone = entity.customData.kind !== "computer";
+  useFrame(({ clock }) => {
+    const group = spin.current;
+    if (!group) return;
+    const t = clock.elapsedTime;
+    if (waiting && !reduce) {
+      group.rotation.y = t * 1.1;
+      group.position.y = Math.sin(t * 2.2) * 0.18;
+    } else {
+      group.rotation.y = 0;
+      group.position.y = 0;
+    }
+    if (glow.current) glow.current.emissiveIntensity = waiting ? 0.7 + Math.sin(t * 3) * 0.25 : 0.55;
+  });
+  const cols = phone ? 3 : 4;
+  const rows = phone ? 4 : 2;
+  const tiles = ["#4c8df5", "#8fbfa8", "#d4a24a", "#d48a86", "#9fd4d6", "#c4a574", "#7ee0c8", "#b49cff", "#ff8a5c", "#ffe066", "#f7a1c4", "#6fa8ff"];
+  const sc = entity.transform.scale;
+  const ground = entity.transform.position.y - 0.02;
   return (
-    <group>
-      <mesh>
-        <boxGeometry args={[1.06, 1.06, 1]} />
-        <meshStandardMaterial color="#1a1d22" roughness={0.4} metalness={0.5} />
-      </mesh>
-      <mesh position={[0, 0, 0.51]}>
-        <planeGeometry args={[0.94, 0.92]} />
-        <meshStandardMaterial color="#0f1720" emissive="#1d4e89" emissiveIntensity={0.35} roughness={0.2} />
-      </mesh>
-      {tiles.map((color, i) => (
-        <mesh key={color} position={[-0.27 + (i % 3) * 0.27, 0.2 - Math.floor(i / 3) * 0.3, 0.52]}>
-          <planeGeometry args={[0.17, 0.17]} />
-          <meshBasicMaterial color={color} />
+    <>
+      {waiting ? (
+        // A beam and a ring on the ground, so it can be found from across the plaza (or wherever it was
+        // dropped). Undo the body's scale, so they are drawn in metres.
+        <group scale={[1 / sc.x, 1 / sc.y, 1 / sc.z]}>
+          <mesh position={[0, 1.1 - ground * 0.5, 0]} raycast={() => null}>
+            <cylinderGeometry args={[0.16, 0.3, 2.2 + ground, 20, 1, true]} />
+            <meshBasicMaterial color="#7ee0c8" transparent opacity={0.13} depthWrite={false} side={DoubleSide} blending={AdditiveBlending} />
+          </mesh>
+          <mesh position={[0, -ground, 0]} rotation={[-Math.PI / 2, 0, 0]} raycast={() => null}>
+            <ringGeometry args={[0.32, 0.42, 40]} />
+            <meshBasicMaterial color="#7ee0c8" transparent opacity={0.75} depthWrite={false} />
+          </mesh>
+        </group>
+      ) : null}
+      <group ref={spin}>
+        <mesh>
+          <boxGeometry args={[1, 1, 1]} />
+          <meshStandardMaterial color="#1b1e24" roughness={0.3} metalness={0.75} />
         </mesh>
-      ))}
-    </group>
+        {[0.51, -0.51].map((z) => (
+          <mesh key={z} position={[0, 0, z]} rotation={[0, z < 0 ? Math.PI : 0, 0]}>
+            <planeGeometry args={[0.88, 0.9]} />
+            <meshStandardMaterial ref={z > 0 ? glow : undefined} color="#0c1622" emissive="#2a6fd6" emissiveIntensity={0.55} roughness={0.15} />
+          </mesh>
+        ))}
+        {tiles.slice(0, cols * rows).map((color, i) => {
+          const x = (i % cols) - (cols - 1) / 2;
+          const y = (rows - 1) / 2 - Math.floor(i / cols);
+          return (
+            <mesh key={color} position={[x * (0.72 / cols), y * (0.72 / rows) - 0.03, 0.52]}>
+              <planeGeometry args={[0.5 / cols, 0.5 / rows]} />
+              <meshBasicMaterial color={color} toneMapped={false} />
+            </mesh>
+          );
+        })}
+        {phone ? (
+          <mesh position={[0, 0.46, 0.52]}>
+            <planeGeometry args={[0.18, 0.025]} />
+            <meshBasicMaterial color="#05070a" />
+          </mesh>
+        ) : null}
+      </group>
+    </>
   );
 }
 
-/**
- * A body moving with a carried mechanic (mechanic.ts) shows as what it is: a car, a plane or a hover disc.
- * Drawn at true size (the entity's own scale is undone), facing +z like every forge body.
- */
 function VehicleMesh({ look, tone, scale }: { look: string; tone: string; scale: Vec3 }) {
   const inv: Vector3Tuple = [1 / (scale.x || 1), 1 / (scale.y || 1), 1 / (scale.z || 1)];
   const paint = <meshStandardMaterial color={tone} roughness={0.42} metalness={0.35} />;
@@ -802,6 +858,7 @@ function Body({ entity, selected }: { entity: Entity; selected: boolean }) {
       />
     ) : null;
   if (entity.customData.method === "nanite") return <ClusterCut />;
+  if (entity.tags.includes(SCREEN_TAG)) return <DeviceMesh entity={entity} />;
   const look = entity.customData.look;
   if (look === "car" || look === "plane" || look === "hover") return <VehicleMesh look={look} tone={tone} scale={entity.transform.scale} />;
   if (rep.kind === "hybrid") {
@@ -827,7 +884,7 @@ function Body({ entity, selected }: { entity: Entity; selected: boolean }) {
     <>
       {neural}
       {neural ? null : (
-        <AssetMesh asset={rep.assetId} selected={selected} tone={tone} map={map} screen={entity.customData.role === "terminal"} />
+        <AssetMesh asset={rep.assetId} selected={selected} tone={tone} map={map} screen={entity.customData.role === "terminal"} floor={entity.tags.includes("floor")} />
       )}
     </>
   );
@@ -962,6 +1019,8 @@ function EntityNode({
 
   if (entity.tags.includes("helm")) return null;
   if (mode === "first" && entity.tags.includes("architect")) return null;
+  // A phone in your pocket is out of sight.
+  if (entity.tags.includes(SCREEN_TAG) && carryOf(entity) === "pocket") return null;
 
   return (
     <group
@@ -1055,6 +1114,8 @@ function GazeLock() {
       if (id == null) continue;
       const entity = useForge.getState().entities[id];
       if (!entity || entity.tags.includes("floor") || entity.tags.includes("helm") || entity.tags.includes("architect")) continue;
+      // The phone in your hand is not something you are looking at.
+      if (entity.tags.includes(SCREEN_TAG) && carryOf(entity) !== "lying") continue;
       if ((hit.object as { isPoints?: boolean }).isPoints === true) {
         pointId ??= id;
         continue;
@@ -1155,7 +1216,7 @@ function TextureDeck() {
   );
 }
 
-function Stage() {
+function Stage({ scenery, shadows }: { scenery: SceneryLevel | "off"; shadows: boolean }) {
   const entities = useForge((s) => s.entities);
   const selectedId = useForge((s) => s.selectedId);
   const gazeId = useGazeId();
@@ -1168,16 +1229,26 @@ function Stage() {
 
   return (
     <>
-      <color attach="background" args={[scenePalette.bg]} />
-      <fog attach="fog" args={[scenePalette.fog, 36, 72]} />
-      <hemisphereLight args={[scenePalette.key, scenePalette.fill, 0.7]} />
-      <ambientLight intensity={0.38} />
-      <directionalLight position={[7, 11, 5]} intensity={1.55} color={scenePalette.key} />
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.012, 0]}>
-        <circleGeometry args={[30, 80]} />
-        <meshStandardMaterial color="#1c2128" roughness={1} metalness={0} />
-      </mesh>
-      <gridHelper args={[40, 40, scenePalette.gridMajor, scenePalette.grid]} position={[0, 0, 0]} />
+      {scenery === "off" ? (
+        <>
+          <color attach="background" args={[scenePalette.bg]} />
+          <fog attach="fog" args={[scenePalette.fog, 36, 72]} />
+          <hemisphereLight args={[scenePalette.key, scenePalette.fill, 0.7]} />
+          <ambientLight intensity={0.38} />
+          <directionalLight position={[7, 11, 5]} intensity={1.55} color={scenePalette.key} />
+          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.012, 0]}>
+            <circleGeometry args={[30, 80]} />
+            <meshStandardMaterial color="#1c2128" roughness={1} metalness={0} />
+          </mesh>
+          <gridHelper args={[40, 40, scenePalette.gridMajor, scenePalette.grid]} position={[0, 0, 0]} />
+        </>
+      ) : (
+        <>
+          <Scenery level={scenery} shadows={shadows} />
+          {/* The building grid, faint over the plaza's 1 m tiles. */}
+          <gridHelper args={[30, 30, "#3d3a35", "#4d4943"]} position={[0, 0.004, 0]} material-transparent material-opacity={0.32} material-depthWrite={false} />
+        </>
+      )}
       <DragSurface drag={drag} setDragging={setDragging} />
       <GazeLock />
       {list.map((entity) => (
@@ -1226,10 +1297,69 @@ function HoldKey({ code, label }: { code: string; label: string }) {
   );
 }
 
+/**
+ * The thumbstick. Push to walk: further is faster, sideways turns (third person) or strafes (helm).
+ * It springs back when you let go. Drag-to-look stays on the look pad and the view itself.
+ */
+function Stick() {
+  const base = useRef<HTMLDivElement>(null);
+  const finger = useRef<number | null>(null);
+  const [knob, setKnob] = useState({ x: 0, y: 0 });
+  const release = () => {
+    finger.current = null;
+    pilotStick.x = 0;
+    pilotStick.y = 0;
+    setKnob({ x: 0, y: 0 });
+  };
+  useEffect(() => release, []);
+  const follow = (clientX: number, clientY: number) => {
+    const rect = base.current?.getBoundingClientRect();
+    if (!rect) return;
+    const reach = rect.width * 0.36;
+    let dx = clientX - (rect.left + rect.width / 2);
+    let dy = clientY - (rect.top + rect.height / 2);
+    const length = Math.hypot(dx, dy);
+    if (length > reach) {
+      dx = (dx / length) * reach;
+      dy = (dy / length) * reach;
+    }
+    setKnob({ x: dx, y: dy });
+    const nx = dx / reach;
+    const ny = -dy / reach;
+    // A small dead zone, so resting a thumb on it does not creep.
+    const strength = Math.hypot(nx, ny);
+    const k = strength < 0.12 ? 0 : (strength - 0.12) / 0.88 / strength;
+    pilotStick.x = nx * k;
+    pilotStick.y = ny * k;
+  };
+  return (
+    <div
+      ref={base}
+      className="stick"
+      role="application"
+      aria-label="Move: drag the stick"
+      onPointerDown={(event) => {
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        finger.current = event.pointerId;
+        follow(event.clientX, event.clientY);
+      }}
+      onPointerMove={(event) => {
+        if (finger.current === event.pointerId) follow(event.clientX, event.clientY);
+      }}
+      onPointerUp={release}
+      onPointerCancel={release}
+      onLostPointerCapture={release}
+      onContextMenu={(event) => event.preventDefault()}
+    >
+      <span className="stick-knob" style={{ transform: `translate(${knob.x}px, ${knob.y}px)` }} />
+      <span className="stick-label">Move</span>
+    </div>
+  );
+}
+
 function Steer() {
   const mode = useLook().mode;
-  const [device, setDevice] = useState<ReturnType<typeof deviceKind>>(null);
-  useEffect(() => setDevice(deviceKind()), []);
   const drag = useRef<{ id: number; x: number; y: number } | null>(null);
   if (mode === "bench") return null;
   const home = () => {
@@ -1238,21 +1368,15 @@ function Steer() {
   };
   return (
     <div className="steer">
-      <div className="dpad" aria-label="Move">
-        <p>Move</p>
-        <HoldKey code="KeyW" label="Forward" />
-        <div className="dpad-row">
-          <HoldKey code="KeyA" label={mode === "first" ? "Left" : "Turn L"} />
-          <HoldKey code="KeyS" label="Back" />
-          <HoldKey code="KeyD" label={mode === "first" ? "Right" : "Turn R"} />
+      <div className="pad-left">
+        <Stick />
+        <div className="lift" aria-label="Up and down">
+          <HoldKey code="Space" label="Up" />
+          <HoldKey code="KeyC" label="Down" />
         </div>
       </div>
       <div className="steer-actions">
-        {device ? (
-          <button type="button" className="steer-home" onClick={() => window.dispatchEvent(new Event(OPEN_DEVICE_EVENT))}>
-            {device === "phone" ? "Phone" : "Computer"}
-          </button>
-        ) : null}
+        <DeviceButton className="steer-home" />
         <button type="button" className="steer-home" onClick={home}>
           Find room
         </button>
@@ -1328,7 +1452,7 @@ function Visor() {
         {looked ? `Looking at ${looked.name}` : "Looking at the lab"}
         {last ? ` · ${last.title}: ${last.body.replace(/\s+/g, " ").slice(0, 72)}` : ""}
       </p>
-      <p className="visor-hint">Drag the view or the Look pad. Move walks the body. Find room puts the exhibits in front of you.</p>
+      <p className="visor-hint">Drag the view or the Look pad to look. The stick walks: push further to go faster. Find room puts the exhibits in front of you.</p>
       {immersive ? (
         <form className="visor-ask" onSubmit={onSubmit}>
           <label>
@@ -1349,6 +1473,8 @@ function Visor() {
 export function Viewport() {
   const hardware = useMemo(() => probeHardware(), []);
   const quality = useMemo(() => qualityFor(hardware), [hardware]);
+  const scenery = useMemo(() => sceneryRequested() ?? quality.scenery, [quality]);
+  const shadows = quality.shadows && scenery !== "off" && scenery !== "min";
   // The flat software picture is a debug view for machines with no GPU output.
   // It is off by default because it paints over the real renderer.
   const soft = useMemo(() => softRenderRequested(), []);
@@ -1365,12 +1491,13 @@ export function Viewport() {
   return (
     <div className="view">
       <Canvas
-        camera={{ position: [10.4, 6.8, 10.2], fov: 42, near: 0.1, far: 80 }}
+        camera={{ position: [10.4, 6.8, 10.2], fov: 42, near: 0.1, far: scenery === "off" ? 80 : 900 }}
+        shadows={shadows}
         dpr={quality.dpr}
         gl={{ antialias: quality.antialias, alpha: false, powerPreference: quality.powerPreference, failIfMajorPerformanceCaveat: false, preserveDrawingBuffer: soft }}
         style={{ width: "100%", height: "100%", touchAction: "none" }}
       >
-        <Stage />
+        <Stage scenery={scenery} shadows={shadows} />
       </Canvas>
       {soft ? <RoomPicture /> : null}
       <div className="hud">

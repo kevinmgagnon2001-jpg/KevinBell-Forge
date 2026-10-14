@@ -936,6 +936,12 @@
     gap: 1rem;
   }
 
+  .device-head-actions {
+    display: flex;
+    flex-shrink: 0;
+    gap: 0.4rem;
+  }
+
   .device-head h2 {
     margin: 0;
     font-size: 1.05rem;
@@ -1442,7 +1448,7 @@
   pointer-events: none;
 }
 
-.dpad,
+.pad-left,
 .look-pad,
 .steer-home {
   pointer-events: auto;
@@ -1458,7 +1464,8 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-.dpad .visor-key {
+.lift .visor-key,
+.stick {
   touch-action: none;
 }
 
@@ -1470,14 +1477,59 @@
   pointer-events: none;
 }
 
-.dpad {
+.pad-left {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.4rem;
+}
+
+/* The thumbstick: a ring with a knob that follows your thumb and springs back. */
+.stick {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 7.5rem;
+  height: 7.5rem;
+  border: 1px solid rgb(212 162 74 / 70%);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgb(12 13 16 / 55%) 0%, rgb(12 13 16 / 82%) 70%);
+  cursor: grab;
+}
+
+.stick-knob {
+  width: 42%;
+  height: 42%;
+  border: 1px solid rgb(242 242 244 / 55%);
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #f0c77e, #b9832f 70%);
+  box-shadow: 0 4px 12px rgb(0 0 0 / 45%);
+  pointer-events: none;
+  transition: transform 90ms ease-out;
+}
+
+.stick:active .stick-knob {
+  transition: none;
+}
+
+.stick-label {
+  position: absolute;
+  bottom: 0.45rem;
+  pointer-events: none;
+}
+
+.lift {
   display: flex;
   flex-direction: column;
-  align-items: center;
   gap: 0.3rem;
 }
 
-.dpad p,
+.steer-home.is-summon {
+  border-color: #7ee0c8;
+  color: #7ee0c8;
+}
+
+.stick-label,
 .look-pad span {
   margin: 0;
   color: #f2f2f4;
@@ -1488,12 +1540,7 @@
   text-shadow: 0 1px 2px rgb(0 0 0 / 80%);
 }
 
-.dpad-row {
-  display: flex;
-  gap: 0.3rem;
-}
-
-.dpad .visor-key,
+.lift .visor-key,
 .steer-home,
 .look-pad {
   min-width: 64px;
@@ -1825,9 +1872,15 @@
     bottom: 8.6rem;
   }
 
-  .dpad .visor-key {
-    min-width: 56px;
+  .lift .visor-key {
+    min-width: 52px;
+    min-height: 44px;
     white-space: nowrap;
+  }
+
+  .stick {
+    width: 6.25rem;
+    height: 6.25rem;
   }
 
   /* Sit above the look pad so the bottom row is only the move keys and the pad. */

@@ -5,7 +5,8 @@ import { useForge } from "@/engine/store";
 import { ensureAvatar, restoreLab } from "@/engine/manifold";
 import { DEFAULT_RULES, slotsOf, stepUnderRules, STATE_SLOTS } from "@/engine/mechanic";
 import { runtimeNow } from "@/engine/movers";
-import { pilotKeys, pointerClaim, setPilotSpeed, useLook, lookPose, faceLook } from "./look";
+import { carryAlong } from "@/engine/device-apps";
+import { INTERACT_EVENT, pilotKeys, pilotStick, pointerClaim, setPilotSpeed, shiftLook, useLook, lookPose, faceLook } from "./look";
 import { stageCamera, stageGl } from "./picture";
 
 const EYE = 0.62;
@@ -17,6 +18,40 @@ const BENCH_AT = { x: 0.2, y: 0.2, z: 0.4 };
 
 function heading(yaw: number): { x: number; z: number } {
   return { x: Math.sin(yaw), z: Math.cos(yaw) };
+}
+
+const clamp1 = (n: number) => Math.max(-1, Math.min(1, n));
+const DEAD = 0.15;
+const deadzone = (n: number) => (Math.abs(n) < DEAD ? 0 : (n - Math.sign(n) * DEAD) / (1 - DEAD));
+
+/**
+ * A game controller, if one is connected: left stick moves, right stick looks, A uses (pick up or
+ * pull out the phone), the triggers fly up and down. Returns the lift it asks for.
+ */
+const padHeld = { a: false, stick: false };
+function readGamepad(dt: number): number {
+  const pads = typeof navigator !== "undefined" && navigator.getGamepads ? navigator.getGamepads() : [];
+  const pad = Array.from(pads ?? []).find((p) => p && p.connected);
+  if (!pad) return 0;
+  const lx = deadzone(pad.axes[0] ?? 0);
+  const ly = deadzone(pad.axes[1] ?? 0);
+  // Only drive the stick while the controller's stick is pushed, so the touch stick still works.
+  if (lx || ly) {
+    pilotStick.x = lx;
+    pilotStick.y = -ly;
+    padHeld.stick = true;
+  } else if (padHeld.stick) {
+    pilotStick.x = 0;
+    pilotStick.y = 0;
+    padHeld.stick = false;
+  }
+  const rx = deadzone(pad.axes[2] ?? 0);
+  const ry = deadzone(pad.axes[3] ?? 0);
+  if (rx || ry) shiftLook(rx * 520 * dt, ry * 360 * dt);
+  const a = !!pad.buttons[0]?.pressed;
+  if (a && !padHeld.a) window.dispatchEvent(new Event(INTERACT_EVENT));
+  padHeld.a = a;
+  return (pad.buttons[7]?.value ?? 0) - (pad.buttons[6]?.value ?? 0);
 }
 
 function setFov(camera: { fov?: number; updateProjectionMatrix?: () => void }, fov: number) {
@@ -55,7 +90,11 @@ export function Pilot() {
       pilotKeys.add(event.code);
     };
     const up = (event: KeyboardEvent) => pilotKeys.delete(event.code);
-    const blur = () => pilotKeys.clear();
+    const blur = () => {
+      pilotKeys.clear();
+      pilotStick.x = 0;
+      pilotStick.y = 0;
+    };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
     window.addEventListener("blur", blur);
@@ -123,6 +162,11 @@ export function Pilot() {
         pilotKeys.clear();
         for (const code of codes) pilotKeys.add(code);
       },
+      getStick: () => ({ ...pilotStick }),
+      setStick: (x: number, y: number) => {
+        pilotStick.x = x;
+        pilotStick.y = y;
+      },
       setSteer: (value: number) => {
         pilotKeys.delete("KeyA");
         pilotKeys.delete("KeyD");
@@ -163,9 +207,12 @@ export function Pilot() {
     setFov(camera, mode === "first" ? 68 : 52);
     const dt = Math.min(delta, 0.05);
     const keys = pilotKeys;
-    const turn = (keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) - (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0);
-    const gas = (keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) - (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0);
-    const lift = (keys.has("Space") ? 1 : 0) - (keys.has("ShiftLeft") || keys.has("ControlLeft") || keys.has("KeyC") ? 1 : 0);
+    const padLift = readGamepad(dt);
+    // Keys and the thumbstick add up; the stick is analog, so a half push is half speed. Stick right
+    // turns (or strafes) right, which is the D side.
+    const turn = clamp1((keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) - (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - pilotStick.x);
+    const gas = clamp1((keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) - (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0) + pilotStick.y);
+    const lift = clamp1((keys.has("Space") ? 1 : 0) - (keys.has("ShiftLeft") || keys.has("ControlLeft") || keys.has("KeyC") ? 1 : 0) + padLift);
     const pose = { x: 0, y: 0, z: 0, fx: 0, fz: 1, ok: false };
     useForge.setState((state) => {
       const avatar = Object.values(state.entities).find((entity) => entity.tags.includes("architect"));
@@ -239,6 +286,7 @@ export function Pilot() {
             if (e) entities[id] = { ...e, transform: { ...e.transform, position: at } };
           }
         }
+        carryAlong(entities, { position: { x: out[0], y: out[1], z: out[2] }, yaw: out[3] });
         if (helm) {
           entities[helm.id] = {
             ...helm,
@@ -297,6 +345,7 @@ export function Pilot() {
           if (e) entities[id] = { ...e, transform: { ...e.transform, position: at } };
         }
       }
+      carryAlong(entities, { position: { x, y, z }, yaw });
       if (helm) {
         entities[helm.id] = {
           ...helm,
@@ -339,6 +388,8 @@ declare global {
       getVisits: () => { bounds: { min: { x: number; z: number }; max: { x: number; z: number } } | null; walking: boolean; carried: boolean; correction: number }[];
       setKeys: (codes: string[]) => void;
       setSteer: (value: number) => void;
+      setStick: (x: number, y: number) => void;
+      getStick: () => { x: number; y: number };
     };
   }
 }
