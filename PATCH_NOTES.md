@@ -417,4 +417,7 @@ Tests: `npm run test:engine` (139 pass; src/engine/live-visit.test.ts), plus a b
   Stepping off returns to plain local walking; stepping back on starts a new numbered walk, and the host
   restarts from there.
 - Checked in Chromium against a real island node: walking onto the island switches the sync requests to
-  carrying inputs (seq, forward, strafe, turn, dt) with the walk number; walking off switches back.
+  carrying inputs (seq, forward, strafe, turn, dt) with the walk number; walking off switches back.- Other visitors' markers no longer jump at each sync: LiveVisit keeps a track of their snapshots
+  (prediction.ts Interpolator, 150 ms behind, no extrapolation from snapshots under 30 ms apart) and the
+  pilot moves them every frame; merging a sync leaves their position to the track.
+

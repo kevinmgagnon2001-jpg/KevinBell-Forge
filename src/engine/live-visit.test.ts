@@ -67,7 +67,9 @@ test("two players beside one island see it and each other live; stopping the hos
     const marker = half(worldB, hostId).find((e) => e.customData.visitor === ana.signed.manifest.id);
     assert.ok(marker, "Ben sees Ana");
     const anaLocal = linkA.toLocal(walk.predicted.position);
-    assert.ok(Math.abs(marker!.transform.position.z - anaLocal.z) < 1e-9 && Math.abs(marker!.transform.position.x - anaLocal.x) < 1e-9);
+    // It is drawn from a track of the host's snapshots: at most a short extrapolation past her last one.
+    const drawn = linkB.others(worldB, performance.now() / 1000 + 10).get(marker!.id)!;
+    assert.ok(Math.hypot(drawn.x - anaLocal.x, drawn.z - anaLocal.z) < 1.2, JSON.stringify({ drawn, anaLocal }));
     assert.ok(anaLocal.z < 6 - 0.4, "Ana walked forward");
     assert.ok(half(worldA, hostId).some((e) => e.customData.visitor === ben.signed.manifest.id), "Ana sees Ben");
 
@@ -137,4 +139,26 @@ test("stepping off a visited island and back on starts a new walk the host follo
     assert.ok(walker.maxCorrection < 1e-9, `walk from x = ${startX}: the host followed it`);
     link.leave();
   }
+});
+
+test("other visitors keep their place between syncs and are drawn from a smooth track", async () => {
+  const { IslandHost } = await import("./island-content.ts");
+  const host = new IslandHost(labWorld());
+  const me = host.open("me", ["render", "input"]);
+  const other = host.open("other", ["render", "input"]);
+  const link = new LiveVisit("h", OFFSET, async (view) => {
+    const r = host.sync(me, view);
+    return "error" in r ? { error: r.error } : r;
+  });
+  let world = labWorld();
+  const view: View = { position: { x: 40, y: 0, z: 10 }, forward: { x: 0, y: 0, z: -1 }, budget: 200_000 };
+  for (let i = 0; i < 4; i += 1) {
+    host.sync(other, { position: { x: i, y: 0, z: 0 }, forward: { x: 0, y: 0, z: 1 } });
+    world = (await link.round(view)).apply(world);
+  }
+  const marker = half(world, "h").find((e) => e.customData.visitor === "other")!;
+  assert.ok(marker, "the other visitor is there");
+  assert.equal(marker.transform.position.x, OFFSET.x, "merging keeps the marker where it was first placed");
+  const drawn = link.others(world).get(marker.id);
+  assert.ok(drawn && drawn.x >= OFFSET.x && drawn.x <= OFFSET.x + 3, "the track gives a position along the path");
 });

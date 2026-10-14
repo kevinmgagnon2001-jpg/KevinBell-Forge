@@ -206,7 +206,8 @@ export function Pilot() {
       const yawStr = String(Math.round(yaw * 1000) / 1000);
       const speedStr = String(Math.round(moving * SPEED * 100) / 100);
       const moved = Math.hypot(x - p.x, y - p.y, z - p.z) > 1e-5 || yawStr !== (avatar.customData.yaw || "0") || speedStr !== (avatar.customData.speed || "0");
-      if (!moved) return state;
+      const gliding = [...liveVisits].some((v) => v.others(state).size > 0);
+      if (!moved && !gliding) return state;
       const helm = Object.values(state.entities).find((entity) => entity.tags.includes("helm"));
       const nextAvatar = {
         ...avatar,
@@ -214,6 +215,13 @@ export function Pilot() {
         customData: { ...avatar.customData, yaw: yawStr, speed: speedStr },
       };
       const entities = { ...state.entities, [avatar.id]: nextAvatar };
+      // Other visitors on visited islands glide between the host's snapshots.
+      for (const v of liveVisits) {
+        for (const [id, at] of v.others(state)) {
+          const e = entities[id];
+          if (e) entities[id] = { ...e, transform: { ...e.transform, position: at } };
+        }
+      }
       if (helm) {
         entities[helm.id] = {
           ...helm,

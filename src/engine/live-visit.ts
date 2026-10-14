@@ -9,8 +9,11 @@
  * half of the world is removed.
  */
 import { validEntity, type SyncReply, type View } from "./island-content.ts";
-import { Predictor, type MoveInput, type MoveState } from "./prediction.ts";
+import { Interpolator, Predictor, type MoveInput, type MoveState } from "./prediction.ts";
 import type { Entity, Vec3, World } from "./types.ts";
+
+/** Seconds on a steady clock (the visitor's; snapshots are timed when they arrive). */
+const now = () => (globalThis.performance?.now() ?? Date.now()) / 1000;
 
 export type SyncFn = (view: View, inputs?: MoveInput[]) => Promise<SyncReply | { error: string }>;
 
@@ -36,8 +39,12 @@ function placed(remote: Entity, id: number, hostId: string, offset: Vec3): Entit
   };
 }
 
-/** Fold one sync reply into the local world: new entities appear, changed ones move, gone ones leave. */
-export function mergeVisited(world: World, hostId: string, offset: Vec3, reply: SyncReply): World {
+/**
+ * Fold one sync reply into the local world: new entities appear, changed ones move, gone ones leave.
+ * With `keepPresence`, other visitors' markers keep their current local position (they are moved
+ * smoothly every frame instead; see LiveVisit.others).
+ */
+export function mergeVisited(world: World, hostId: string, offset: Vec3, reply: SyncReply, keepPresence = false): World {
   const ids = visitedIds(world, hostId);
   const entities = { ...world.entities };
   let nextId = world.nextId;
@@ -45,7 +52,10 @@ export function mergeVisited(world: World, hostId: string, offset: Vec3, reply: 
     if (!validEntity(remote)) continue;
     const id = ids.get(remote.id) ?? nextId++;
     ids.set(remote.id, id);
-    entities[id] = placed(remote, id, hostId, offset);
+    const next = placed(remote, id, hostId, offset);
+    const was = entities[id];
+    if (keepPresence && was && remote.tags.includes("presence")) next.transform = { ...next.transform, position: was.transform.position };
+    entities[id] = next;
   }
   for (const gone of reply.leave) {
     const id = ids.get(gone);
@@ -83,6 +93,8 @@ export class LiveVisit {
   private start: MoveState | null = null;
   /** Numbers each walk on this island, so the host restarts its mover when a new one begins. */
   private walks = 0;
+  /** Other visitors' markers, played back a little in the past so they move smoothly (host id -> track). */
+  private tracks = new Map<number, Interpolator>();
   /** The island's footprint in local coordinates (x and z), from its entities; null until known. */
   bounds: { min: Vec3; max: Vec3 } | null = null;
 
@@ -156,10 +168,30 @@ export class LiveVisit {
       return { status: "live", apply: (w) => w, bytes: 0 };
     }
     this.failures = 0;
+    const t = now();
+    for (const e of [...reply.enter, ...reply.update]) {
+      if (!e.tags?.includes("presence") || !e.transform) continue;
+      let track = this.tracks.get(e.id);
+      if (!track) this.tracks.set(e.id, (track = new Interpolator(0.15)));
+      track.push(t, this.toLocal(e.transform.position));
+    }
+    for (const id of reply.leave) this.tracks.delete(id);
     if (reply.you && this.predictor) {
       this.predictor.reconcile(reply.you.ack, reply.you.state);
       this.start = null;
     }
-    return { status: "live", apply: (w) => mergeVisited(w, this.hostId, this.offset, reply), bytes: reply.bytes };
+    return { status: "live", apply: (w) => mergeVisited(w, this.hostId, this.offset, reply, true), bytes: reply.bytes };
+  }
+
+  /** Where each other visitor's marker should be drawn now: local entity id -> local position. */
+  others(world: World, at = now()): Map<number, Vec3> {
+    const out = new Map<number, Vec3>();
+    const ids = visitedIds(world, this.hostId);
+    for (const [remote, track] of this.tracks) {
+      const id = ids.get(remote);
+      const p = track.at(at);
+      if (id !== undefined && p) out.set(id, p);
+    }
+    return out;
   }
 }

@@ -184,6 +184,7 @@ export class Interpolator {
     const prev = s[s.length - 2];
     const over = Math.min(t - last.t, this.maxExtrapolate);
     const span = last.t - prev.t;
+    if (span < 0.03) return { ...last.position }; // too close together to read a speed from
     const v = { x: (last.position.x - prev.position.x) / span, y: (last.position.y - prev.position.y) / span, z: (last.position.z - prev.position.z) / span };
     return { x: last.position.x + v.x * over, y: last.position.y + v.y * over, z: last.position.z + v.z * over };
   }
