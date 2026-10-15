@@ -271,7 +271,7 @@ function Sparkle({ skin, reading, y }: { skin: SkinSpec; reading: MutableRefObje
 }
 
 /** Steam (or smoke) puffs rising from a point; more and faster as the reading climbs. */
-function Steam({ skin, reading, count, y, spread = 0.05 }: { skin: SkinSpec; reading: MutableRefObject<Reading>; count: number; y: number; spread?: number }) {
+function Steam({ skin, reading, count, y, spread = 0.05, color = "#e8e4dc" }: { skin: SkinSpec; reading: MutableRefObject<Reading>; count: number; y: number; spread?: number; color?: string }) {
   const group = useRef<Group>(null);
   const seeds = useMemo(() => Array.from({ length: count }, (_, i) => ({ phase: i / count, side: Math.sin(i * 12.9898) * spread })), [count, spread]);
   const neon = skin.id === "neon";
@@ -296,7 +296,7 @@ function Steam({ skin, reading, count, y, spread = 0.05 }: { skin: SkinSpec; rea
       {seeds.map((s) => (
         <mesh key={s.phase}>
           <sphereGeometry args={[1, 8, 6]} />
-          <meshStandardMaterial color={neon ? skin.glow : "#e8e4dc"} emissive={neon ? skin.glow : "#000000"} emissiveIntensity={neon ? 0.6 : 0} transparent opacity={0.4} depthWrite={false} roughness={1} />
+          <meshStandardMaterial color={neon ? skin.glow : color} emissive={neon ? skin.glow : "#000000"} emissiveIntensity={neon ? 0.6 : 0} transparent opacity={0.4} depthWrite={false} roughness={1} />
         </mesh>
       ))}
     </group>
@@ -631,6 +631,270 @@ function Coil({ skin, reading, rich }: PartProps) {
   );
 }
 
+/** A spur gear facing +z (teeth in the xy plane), merged into one geometry. */
+function useGear(radius: number, teeth: number, depth = 0.04): BufferGeometry {
+  const geometry = useMemo(() => {
+    const parts: BufferGeometry[] = [];
+    const disc = new CylinderGeometry(radius * 0.86, radius * 0.86, depth, 28);
+    disc.rotateX(HALF_PI);
+    parts.push(disc);
+    const width = ((Math.PI * 2 * radius) / teeth) * 0.5;
+    for (let i = 0; i < teeth; i += 1) {
+      const g = new BoxGeometry(width, radius * 0.24, depth);
+      g.translate(0, radius * 0.95, 0);
+      g.rotateZ((i / teeth) * Math.PI * 2);
+      parts.push(g);
+    }
+    const merged = mergeGeometries(parts) ?? new BufferGeometry();
+    parts.forEach((g) => g.dispose());
+    return merged;
+  }, [radius, teeth, depth]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  return geometry;
+}
+
+/**
+ * Three meshed gears on a back plate. The train spins faster as the reading climbs (it idles slowly
+ * with no reading), the hubs glow with it, and a small dial on top gives the number.
+ */
+function Gearbox(props: PartProps) {
+  const { skin, reading, rich } = props;
+  const hub = useGlow(skin, reading, 0.7);
+  // Same tooth pitch on every gear, so the speed ratios are the tooth ratios.
+  const train = [
+    { r: 0.26, teeth: 16, x: -0.14, y: 0.62 },
+    { r: 0.13, teeth: 8, x: 0.187, y: 0.809 },
+    { r: 0.0975, teeth: 6, x: 0.297, y: 0.618 },
+  ];
+  const big = useGear(train[0].r, train[0].teeth);
+  const mid = useGear(train[1].r, train[1].teeth);
+  const small = useGear(train[2].r, train[2].teeth);
+  const gears = useRef<(Group | null)[]>([]);
+  const angle = useRef(0);
+  useFrame((_, delta) => {
+    const r = reading.current;
+    angle.current += Math.min(delta, 0.1) * (r.known ? 0.3 + r.level * 6 : 0.3);
+    const shake = r.mood === "danger" ? Math.sin(r.t * 50) * 0.01 : 0;
+    const a = angle.current;
+    const spins = [a, -a * (16 / 8) + 0.2, a * (16 / 6)];
+    gears.current.forEach((g, i) => {
+      if (!g) return;
+      g.rotation.z = spins[i];
+      g.position.x = train[i].x + shake;
+    });
+  });
+  const geometries = [big, mid, small];
+  return (
+    <group>
+      <mesh position={[0, 0.1, 0]} castShadow receiveShadow>
+        <boxGeometry args={[0.95, 0.2, 0.45]} />
+        <Metal color={skin.trim} skin={skin} rough={skin.roughness + 0.15} />
+      </mesh>
+      <mesh position={[0, 0.775, -0.02]} castShadow>
+        <boxGeometry args={[0.92, 1.15, 0.06]} />
+        <Metal color={skin.body} skin={skin} rough={skin.roughness + 0.1} />
+      </mesh>
+      {/* A frame around the plate. */}
+      {[
+        [0, 1.35, 0.96, 0.05],
+        [-0.46, 0.775, 0.05, 1.2],
+        [0.46, 0.775, 0.05, 1.2],
+      ].map(([x, y, w, h]) => (
+        <mesh key={`${x}-${y}`} position={[x, y, 0.02]}>
+          <boxGeometry args={[w, h, 0.05]} />
+          <Metal color={skin.trim} skin={skin} />
+        </mesh>
+      ))}
+      {train.map((gear, i) => (
+        <group key={gear.r} ref={(g) => void (gears.current[i] = g)} position={[gear.x, gear.y, 0.06]}>
+          <mesh geometry={geometries[i]} castShadow>
+            <Metal color={i === 1 ? skin.trim : skin.body} skin={skin} rough={0.25} />
+          </mesh>
+          {/* A spoke so the turning shows even on the smallest gear. */}
+          <mesh position={[0, gear.r * 0.42, 0.024]}>
+            <boxGeometry args={[gear.r * 0.16, gear.r * 0.84, 0.01]} />
+            <meshStandardMaterial color={skin.needle} roughness={0.5} />
+          </mesh>
+          <mesh position={[0, 0, 0.03]} material={hub}>
+            <sphereGeometry args={[Math.max(0.025, gear.r * 0.18), 12, 8]} />
+          </mesh>
+        </group>
+      ))}
+      <group position={[-0.2, 1.13, 0.02]}>
+        <DialFace {...props} radius={0.16} />
+      </group>
+      {rich ? (
+        <group position={[0.3, 1.36, 0]}>
+          <Steam skin={skin} reading={reading} count={4} y={0} spread={0.03} />
+        </group>
+      ) : null}
+    </group>
+  );
+}
+
+/**
+ * A firebox and a tall chimney. The fire window up the front of the stack fills with the reading,
+ * the grate glows, and smoke rises thicker and faster as the reading climbs.
+ */
+function Smokestack({ skin, reading, rich }: PartProps) {
+  const fire = useGlow(skin, reading);
+  const grate = useGlow(skin, reading, 0.8);
+  const column = useRef<Mesh>(null);
+  const rivets = useRivets(0.165, 14, 0.018);
+  const bottom = 0.5;
+  const span = 1.1;
+  useFrame(() => {
+    const h = Math.max(0.02, reading.current.level) * span;
+    if (column.current) {
+      column.current.scale.y = h;
+      column.current.position.y = bottom + h / 2;
+    }
+  });
+  const ticks = useMemo(() => {
+    const parts: BufferGeometry[] = [];
+    for (let i = 0; i <= 10; i += 1) {
+      const g = new BoxGeometry(i % 5 === 0 ? 0.07 : 0.04, 0.01, 0.01);
+      g.translate(0.075 + (i % 5 === 0 ? 0.035 : 0.02), bottom + (span * i) / 10, 0);
+      parts.push(g);
+    }
+    const merged = mergeGeometries(parts) ?? new BufferGeometry();
+    parts.forEach((g) => g.dispose());
+    return merged;
+  }, []);
+  useEffect(() => () => ticks.dispose(), [ticks]);
+  const top = 0.35 + 1.5;
+  return (
+    <group>
+      {/* The firebox, with a glowing grate in its door. */}
+      <mesh position={[0, 0.18, 0]} castShadow receiveShadow>
+        <boxGeometry args={[0.62, 0.36, 0.5]} />
+        <Metal color={skin.trim} skin={skin} rough={skin.roughness + 0.15} />
+      </mesh>
+      <mesh position={[0, 0.17, 0.252]} material={grate}>
+        <planeGeometry args={[0.3, 0.14]} />
+      </mesh>
+      {[-0.1, -0.035, 0.035, 0.1].map((x) => (
+        <mesh key={x} position={[x, 0.17, 0.26]}>
+          <boxGeometry args={[0.018, 0.16, 0.012]} />
+          <Metal color={skin.body} skin={skin} />
+        </mesh>
+      ))}
+      {/* The stack, banded and riveted. */}
+      <mesh position={[0, 0.35 + 0.75, 0]} castShadow>
+        <cylinderGeometry args={[0.14, 0.17, 1.5, 24]} />
+        <Metal color={skin.body} skin={skin} />
+      </mesh>
+      {[0.42, 1.0, 1.6].map((y) => (
+        <group key={y} position={[0, y, 0]}>
+          <mesh rotation={[HALF_PI, 0, 0]}>
+            <torusGeometry args={[0.17 - (y - 0.35) * 0.02, 0.016, 8, 28]} />
+            <Metal color={skin.trim} skin={skin} />
+          </mesh>
+          <mesh geometry={rivets}>
+            <Metal color={skin.trim} skin={skin} />
+          </mesh>
+        </group>
+      ))}
+      {/* The fire window up the front, filled to the reading, with a scale beside it. */}
+      <group position={[0, 0, 0.16]}>
+        <mesh position={[0, bottom + span / 2, -0.004]}>
+          <boxGeometry args={[0.07, span + 0.04, 0.012]} />
+          <meshStandardMaterial color={skin.face} roughness={0.8} />
+        </mesh>
+        <mesh ref={column} position={[0, bottom + 0.5, 0.004]} material={fire}>
+          <boxGeometry args={[0.05, 1, 0.01]} />
+        </mesh>
+        <mesh geometry={ticks}>
+          <meshStandardMaterial color={skin.needle} roughness={0.5} />
+        </mesh>
+      </group>
+      {/* A flared cap, and the smoke. */}
+      <mesh position={[0, top, 0]}>
+        <cylinderGeometry args={[0.2, 0.14, 0.1, 24]} />
+        <Metal color={skin.trim} skin={skin} />
+      </mesh>
+      <group position={[0, top + 0.05, 0]}>
+        <Steam skin={skin} reading={reading} count={rich ? 10 : 5} y={0} spread={0.07} color="#5d5752" />
+      </group>
+    </group>
+  );
+}
+
+/**
+ * A column of segments, lit from the bottom up to the reading. Each segment keeps the colour of its
+ * zone (calm, warn, danger, by where it sits on the scale), and a peak marker falls back slowly.
+ */
+function Bars({ skin, stat, reading, rich }: PartProps) {
+  const count = 14;
+  const segments = useRef<(Mesh | null)[]>([]);
+  const peak = useRef(0);
+  const { zones, off } = useMemo(() => {
+    const glow = new Color(skin.glow);
+    const hot = new Color(skin.hot);
+    const make = (color: Color) => new MeshStandardMaterial({ color, emissive: color, emissiveIntensity: skin.emissive, roughness: 0.35, metalness: 0, toneMapped: false });
+    return {
+      zones: { calm: make(glow.clone()), warn: make(glow.clone().lerp(hot, 0.45)), danger: make(hot.clone()) },
+      off: new MeshStandardMaterial({ color: new Color(skin.glow).multiplyScalar(0.12), roughness: 0.6, metalness: 0.1 }),
+    };
+  }, [skin]);
+  useEffect(() => () => [zones.calm, zones.warn, zones.danger, off].forEach((m) => m.dispose()), [zones, off]);
+  // The zone of each segment, from the middle of the scale it covers.
+  const segmentZone = useMemo(() => Array.from({ length: count }, (_, i) => gaugeMood(stat, (i + 0.5) / count) as "calm" | "warn" | "danger"), [stat]);
+  useFrame((_, delta) => {
+    const r = reading.current;
+    const lit = Math.round(r.level * count);
+    peak.current = Math.max(lit, peak.current - Math.min(delta, 0.1) * 3);
+    const peakAt = Math.max(0, Math.ceil(peak.current) - 1);
+    const pulse = r.mood === "danger" ? 0.6 + Math.abs(Math.sin(r.t * 6)) * 0.8 : 1;
+    const strength = (r.known ? skin.emissive : skin.emissive * 0.25) * pulse;
+    zones.calm.emissiveIntensity = strength;
+    zones.warn.emissiveIntensity = strength;
+    zones.danger.emissiveIntensity = strength;
+    segments.current.forEach((segment, i) => {
+      if (!segment) return;
+      const on = i < lit || (r.known && i === peakAt && peak.current > 0.5);
+      segment.material = on ? zones[segmentZone[i]] : off;
+    });
+  });
+  const pitch = 0.075;
+  const bottom = 0.47;
+  const height = count * pitch + 0.08;
+  return (
+    <group>
+      <Plinth skin={skin} radius={0.3} />
+      <mesh position={[0, 0.27, 0]}>
+        <cylinderGeometry args={[0.05, 0.08, 0.3, 12]} />
+        <Metal color={skin.trim} skin={skin} />
+      </mesh>
+      {/* The housing and its frame. */}
+      <mesh position={[0, bottom + height / 2 - 0.04, -0.03]} castShadow>
+        <boxGeometry args={[0.4, height, 0.12]} />
+        <Metal color={skin.body} skin={skin} />
+      </mesh>
+      <mesh position={[0, bottom + height / 2 - 0.04, 0.032]}>
+        <boxGeometry args={[0.3, height - 0.04, 0.004]} />
+        <meshStandardMaterial color={skin.face} roughness={0.8} />
+      </mesh>
+      {[-1, 1].map((side) => (
+        <mesh key={side} position={[side * 0.2, bottom + height / 2 - 0.04, 0.02]}>
+          <boxGeometry args={[0.03, height + 0.03, 0.06]} />
+          <Metal color={skin.trim} skin={skin} />
+        </mesh>
+      ))}
+      {Array.from({ length: count }, (_, i) => (
+        <mesh key={i} ref={(m) => void (segments.current[i] = m)} position={[0, bottom + i * pitch, 0.04]} material={off}>
+          <boxGeometry args={[0.24, pitch * 0.72, 0.014]} />
+        </mesh>
+      ))}
+      <mesh position={[0, bottom + height - 0.02, 0.035]}>
+        <boxGeometry args={[0.44, 0.04, 0.14]} />
+        <Metal color={skin.trim} skin={skin} />
+      </mesh>
+      {rich ? <Sparkle skin={skin} reading={reading} y={bottom + height + 0.12} /> : null}
+    </group>
+  );
+}
+
 /** Every mesh id in gauges.ts MESHES, drawn. */
 export const GAUGE_PARTS: Record<string, (props: PartProps) => ReactNode> = {
   thermometer: Thermometer,
@@ -639,6 +903,9 @@ export const GAUGE_PARTS: Record<string, (props: PartProps) => ReactNode> = {
   piston: Piston,
   cell: Cell,
   coil: Coil,
+  gearbox: Gearbox,
+  smokestack: Smokestack,
+  bars: Bars,
 };
 
 /** The brass (or neon) nameplate in front of each machine, drawn on a small canvas twice a second. */

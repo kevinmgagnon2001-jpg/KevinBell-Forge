@@ -85,13 +85,13 @@ const known = (n: number) => Number.isFinite(n) && n >= 0;
 
 export const STATS: StatSpec[] = [
   { id: "fps", label: "Frame rate", unit: "fps", words: ["fps", "frame rate", "framerate", "frames", "speed"], min: 0, max: (s) => Math.max(60, s.refresh), warn: 0.5, danger: 0.25, lowIsBad: true, read: (s) => s.fps, mesh: "piston" },
-  { id: "frame", label: "Frame time", unit: "ms", words: ["frame time", "frametime", "latency", "lag", "ms"], min: 0, max: 50, warn: 0.4, danger: 0.66, read: (s) => s.frameMs, mesh: "dial" },
+  { id: "frame", label: "Frame time", unit: "ms", words: ["frame time", "frametime", "latency", "lag", "ms"], min: 0, max: 50, warn: 0.4, danger: 0.66, read: (s) => s.frameMs, mesh: "gearbox" },
   { id: "heat", label: "Heat", unit: "°C", words: ["heat", "temperature", "temp", "hot", "thermal", "warm"], min: 20, max: 50, warn: 0.6, danger: 0.8, read: (s) => s.tempC, mesh: "thermometer" },
   { id: "throttle", label: "Throttle", unit: "%", words: ["throttle", "throttling", "headroom", "cpu", "processor", "chip", "load"], min: 0, max: 100, warn: 0.7, danger: 0.9, read: (s) => (known(s.headroom) ? s.headroom * 100 : known(s.thermal) ? (s.thermal / 4) * 100 : -1), mesh: "coil" },
   { id: "battery", label: "Battery", unit: "%", words: ["battery", "charge", "power left", "juice"], min: 0, max: 100, warn: 0.3, danger: 0.15, lowIsBad: true, read: (s) => s.battery, mesh: "cell" },
-  { id: "power", label: "Power draw", unit: "W", words: ["power", "watts", "draw", "drain", "wattage"], min: 0, max: 12, warn: 0.6, danger: 0.85, read: (s) => (Number.isFinite(s.watts) ? Math.max(0, s.watts) : -1), mesh: "dial" },
+  { id: "power", label: "Power draw", unit: "W", words: ["power", "watts", "draw", "drain", "wattage"], min: 0, max: 12, warn: 0.6, danger: 0.85, read: (s) => (Number.isFinite(s.watts) ? Math.max(0, s.watts) : -1), mesh: "smokestack" },
   { id: "memory", label: "Memory", unit: "%", words: ["memory", "ram", "heap"], min: 0, max: 100, warn: 0.75, danger: 0.9, read: (s) => (known(s.memPct) ? s.memPct : known(s.heapMb) ? Math.min(100, (s.heapMb / 1024) * 100) : -1), mesh: "boiler" },
-  { id: "draws", label: "Draw calls", unit: "", words: ["draw calls", "draws", "gpu", "graphics", "render"], min: 0, max: 600, warn: 0.6, danger: 0.85, read: (s) => s.draws, mesh: "coil" },
+  { id: "draws", label: "Draw calls", unit: "", words: ["draw calls", "draws", "gpu", "graphics", "render"], min: 0, max: 600, warn: 0.6, danger: 0.85, read: (s) => s.draws, mesh: "bars" },
   { id: "triangles", label: "Triangles", unit: "k", words: ["triangles", "polygons", "polys", "tris"], min: 0, max: 1500, warn: 0.6, danger: 0.85, read: (s) => s.triangles / 1000, mesh: "boiler" },
 ];
 
@@ -104,6 +104,9 @@ export const MESHES: MeshSpec[] = [
   { id: "piston", label: "Piston engine", words: ["piston", "engine", "pump", "crank", "flywheel"], note: "a piston and flywheel that run at the reading" },
   { id: "cell", label: "Charge cell", words: ["cell", "capacitor", "canister", "jar", "vat"], note: "a glass vat of glowing fluid, the level is the reading" },
   { id: "coil", label: "Tesla coil", words: ["coil", "tesla", "arc", "spark", "reactor"], note: "a coil whose sparks grow with the reading" },
+  { id: "gearbox", label: "Gearbox", words: ["gearbox", "gear box", "gears", "cogs", "clockwork", "gear train"], note: "a train of gears that spins faster as the reading climbs, with a small dial" },
+  { id: "smokestack", label: "Smokestack", words: ["smokestack", "smoke stack", "chimney", "funnel"], note: "a firebox and chimney: the fire window fills and the smoke thickens with the reading" },
+  { id: "bars", label: "Bar meter", words: ["bar meter", "bar graph", "led bar", "equalizer", "vu meter", "level meter", "segment meter"], note: "a column of lit segments, warn and danger zones in their own colours, with a peak marker" },
 ];
 
 export type SkinSpec = {
@@ -220,8 +223,8 @@ export const RIGS: RigSpec[] = [
     skin: "brass",
     parts: [{ stat: "heat" }, { stat: "fps" }, { stat: "memory" }, { stat: "battery" }, { stat: "throttle" }, { stat: "power" }],
   },
-  { id: "steam", label: "Steam works", words: ["steam works", "steampunk room", "steam room"], skin: "brass", parts: [{ stat: "heat", mesh: "thermometer" }, { stat: "memory", mesh: "boiler" }, { stat: "fps", mesh: "piston" }, { stat: "frame", mesh: "dial" }] },
-  { id: "cyber", label: "Cyber core", words: ["cyber core", "cyberpunk room", "neon room", "reactor room"], skin: "neon", parts: [{ stat: "throttle", mesh: "coil" }, { stat: "battery", mesh: "cell" }, { stat: "heat", mesh: "thermometer" }, { stat: "draws", mesh: "coil" }] },
+  { id: "steam", label: "Steam works", words: ["steam works", "steampunk room", "steam room"], skin: "brass", parts: [{ stat: "heat", mesh: "thermometer" }, { stat: "memory", mesh: "boiler" }, { stat: "fps", mesh: "piston" }, { stat: "frame", mesh: "dial" }, { stat: "power", mesh: "smokestack" }] },
+  { id: "cyber", label: "Cyber core", words: ["cyber core", "cyberpunk room", "neon room", "reactor room"], skin: "neon", parts: [{ stat: "throttle", mesh: "coil" }, { stat: "battery", mesh: "cell" }, { stat: "heat", mesh: "thermometer" }, { stat: "draws", mesh: "bars" }, { stat: "frame", mesh: "bars" }] },
 ];
 export const rigById = (id: string | undefined) => byId(RIGS, id?.replace(/\s+/g, "-"));
 

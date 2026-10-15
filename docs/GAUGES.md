@@ -10,11 +10,23 @@ running Forge:
 | Boiler | Memory in use (device RAM on Android, JS heap elsewhere) | Android bridge / browser |
 | Charge cell | Battery percent (bubbles speed up while charging) | Android bridge / browser battery |
 | Tesla coil | Throttle (Android thermal headroom: 100 % = the phone starts slowing down) | Android bridge |
-| Pressure dial | Power draw in watts (out of the battery) | Android bridge |
+| Smokestack | Power draw in watts (out of the battery): the fire window fills, the smoke thickens | Android bridge |
+
+Three more machines can show any stat: a **gearbox** (gears spin faster with the reading, with a small
+dial; frame time uses it by default), a **smokestack** and a **bar meter** (a column of lit segments, each
+in the colour of its zone, with a falling peak marker; draw calls use it by default). The pressure dial,
+piston, boiler, thermometer, charge cell and tesla coil fit any stat too.
 
 Readings go amber and then red as they get worse; a machine in danger pulses, its needle shakes and the
 boiler's valve wheel spins. A reading the device does not give (heat in a desktop browser, for example)
 shows "no reading" and the machine idles.
+
+## Changing it: the picker
+
+Open **Stats** (by the view buttons). Under the quality chips, the machines' picker sets the skin
+(Brass, Copper, Neon, Chrome, Ember iron) and the machine for every gauge, or only for the selected
+gauge (choose it, then pick between its name and "All"). With no gauges, it offers "Build the engine
+room". It uses the same `style_gauge` tool as everything else, so Undo takes it back.
 
 ## Changing it: just say it
 
@@ -23,7 +35,7 @@ These run straight away, without waiting for the AI model, even while it is load
 - `build the engine room` / `set up a cyberpunk room` / `steam works`
 - `make the gauges neon` (brass, copper, neon, chrome, ember iron; also "steampunk", "cyber", ...)
 - `switch the heat gauge to copper`
-- `turn every gauge into a tesla coil`
+- `turn every gauge into a tesla coil` (or a gearbox, a smokestack, a bar meter)
 - `add a neon thermometer for the heat`, `add a boiler for memory`
 
 Anything else goes to the model as before, which has the same tools: `place_gauge`, `style_gauge`,
