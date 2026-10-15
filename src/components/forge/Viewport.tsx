@@ -25,6 +25,8 @@ import { nativeTv, useTvPicture, useTvView, watchBig } from "./TvRemote";
 import { TV_SCREEN, TV_TAG } from "@/engine/tv";
 import { GAUGE_TAG } from "@/engine/gauges";
 import { GaugeMesh } from "./Gauges";
+import { rotationLabel, setRotation, useRotation } from "./rotation";
+import { nextRotation } from "@/engine/view";
 
 const UP = new Vector3(0, 1, 0);
 
@@ -1415,6 +1417,7 @@ function Steer() {
 function ModeBar() {
   const { mode, setMode, immersive, setImmersive } = useLook();
   const perfOpen = usePerf().open;
+  const rotation = useRotation();
   return (
     <div className="mode-bar" role="toolbar" aria-label="View">
       <button type="button" className={mode === "third" ? "is-on" : ""} onClick={() => setMode("third")}>
@@ -1428,6 +1431,9 @@ function ModeBar() {
       </button>
       <button type="button" className={immersive ? "is-on" : ""} onClick={() => setImmersive(!immersive)}>
         {immersive ? "Window" : "Fill"}
+      </button>
+      <button type="button" className={rotation !== "system" ? "is-on" : ""} onClick={() => setRotation(nextRotation(rotation))} aria-label={`Screen rotation: ${rotationLabel(rotation)}`} title="Screen rotation: Auto turns with the phone">
+        ⟳ {rotationLabel(rotation)}
       </button>
       <button type="button" className={perfOpen ? "is-on" : ""} onClick={togglePerf} aria-label="Performance">
         Stats

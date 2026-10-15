@@ -66,4 +66,9 @@ test("the Android manifest gains launcher queries and a home-screen entry that s
   // A MainActivity without a launch mode gets one.
   const plain = patchManifest(GENERATED.replace('android:launchMode="singleTask"\n            ', ""));
   assert.match(plain, /<activity android:launchMode="singleTask"[\s\S]*?android:name="\.MainActivity"/);
+
+  // Turning the phone never restarts Forge: the generated list is kept, and a missing one is added.
+  assert.match(main, /configChanges="orientation\|keyboardHidden\|keyboard\|screenSize\|locale\|smallestScreenSize\|screenLayout\|uiMode"/);
+  const bare = patchManifest(GENERATED.replace(/\s*android:configChanges="[^"]*"/, ""));
+  assert.match(bare, /android:configChanges="orientation\|screenSize\|screenLayout\|smallestScreenSize"/);
 });

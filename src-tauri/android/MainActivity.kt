@@ -31,6 +31,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
@@ -167,6 +168,24 @@ class ForgeApps(private val activity: Activity, private val webView: WebView) {
     activity.runOnUiThread {
       activity.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
+    return true
+  }
+
+  /**
+   * How the screen may turn (rotation.ts): "auto" follows the sensor even with the phone's rotation
+   * lock on, "portrait" / "landscape" hold one way (either side up), "system" follows the phone's own
+   * setting. The view itself keeps going through a turn (the manifest lists orientation changes).
+   */
+  @JavascriptInterface
+  fun setOrientation(mode: String): Boolean {
+    val value = when (mode) {
+      "auto" -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+      "portrait" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+      "landscape" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+      "system" -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+      else -> return false
+    }
+    activity.runOnUiThread { activity.requestedOrientation = value }
     return true
   }
 

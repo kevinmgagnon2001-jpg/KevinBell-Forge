@@ -12,6 +12,7 @@
 //                                 made a second MainActivity, and Tauri draws its world in only one:
 //                                 the second was a black screen.)
 //   launchMode singleTask         Only ever one MainActivity, which HomeActivity brings back.
+//   configChanges                 Turning the phone does not restart Forge (screen rotation, rotation.ts).
 //   install permissions           Forge can install its own updates (MainActivity.kt, update section):
 //                                 REQUEST_INSTALL_PACKAGES, which the person still has to allow once
 //                                 ("Install unknown apps"), and UPDATE_PACKAGES_WITHOUT_USER_ACTION, so
@@ -49,6 +50,17 @@ export function patchManifest(xml) {
   let tag = main[0];
   if (/android:launchMode="[^"]*"/.test(tag)) tag = tag.replace(/android:launchMode="[^"]*"/, 'android:launchMode="singleTask"');
   else tag = tag.replace(/<activity\b/, '<activity android:launchMode="singleTask"');
+  // Turning the phone must not restart Forge (the world and the model would reload): it handles a
+  // rotation itself (rotation.ts, MainActivity.setOrientation).
+  const handled = ["orientation", "screenSize", "screenLayout", "smallestScreenSize"];
+  const changes = /android:configChanges="([^"]*)"/.exec(tag);
+  if (changes) {
+    const have = new Set(changes[1].split("|").filter(Boolean));
+    handled.forEach((c) => have.add(c));
+    tag = tag.replace(changes[0], `android:configChanges="${[...have].join("|")}"`);
+  } else {
+    tag = tag.replace(/<activity\b/, `<activity android:configChanges="${handled.join("|")}"`);
+  }
   out = out.slice(0, main.index) + tag + out.slice(main.index + main[0].length);
 
   if (!out.includes(".HomeActivity")) {

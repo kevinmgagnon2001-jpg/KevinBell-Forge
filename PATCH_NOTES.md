@@ -838,3 +838,19 @@ and mountains around it, under a late-afternoon sky.
   The link is kept under 7800 characters by thinning samples first (src/engine/diagnostics.ts, tested).
 - Guide: docs/DIAGNOSTICS.md. Checked in Chromium at 390x844 with a stand-in Android bridge: the
   report carried the note, the readings and a "low frame rate" finding; no console errors.
+
+## Auto rotate, a field of view that fits the screen, and a daily diagnostics check
+- Rotation (src/components/forge/rotation.ts, src/engine/view.ts, tested): the ⟳ button by the view
+  buttons cycles Auto → Portrait → Landscape, remembered on the device. Auto turns with the phone
+  even when the phone's rotation lock is on. On Android a new bridge method `setOrientation` sets
+  it; android-manifest.mjs makes sure a turn never restarts Forge. In a browser, Portrait/Landscape
+  hold only in full screen.
+- Field of view: three.js fixes the vertical angle, so an upright phone saw a ~35° slot. `fovFor`
+  keeps each view's angle on wide screens and widens the vertical angle on narrow ones (capped) so
+  the view across stays wide (helm ~55° across upright instead of ~35°). Rotations glide.
+- A phone turned on its side fills the screen with the 3D view, and goes back to the window when
+  turned upright again (unless Fill was chosen by hand).
+- Checked in Chromium at 412x891 ↔ 891x412 with a stand-in bridge: fill on turn, back on turn,
+  "auto" then "portrait" reached the bridge, no console errors.
+- A daily scheduled check (5:53 AM Eastern) reads open `diagnostics` issues, fixes what they show on
+  a `diagnostics/<date>` branch, opens one PR with "Fixes #N" and comments on each issue.

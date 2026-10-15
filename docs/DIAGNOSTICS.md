@@ -25,6 +25,10 @@ issue.
 - In code: `parseReport(issueBody)` in `src/engine/diagnostics.ts` reads the `forge-diagnostics` JSON
   block from an issue body.
 
+A scheduled check runs every morning (5:53 AM Eastern): it reads new reports, fixes what they show
+on a `diagnostics/<date>` branch, opens one pull request ("Fixes #N"), and comments on each report.
+For a faster turn, send a report and then tell a session "fix the open diagnostics reports".
+
 The loop: send a report from the phone → a session reads the open reports, fixes what they point
 at, pushes, and closes each issue with a link to the fix → the next build reaches the phone through
 Forge's updater → send another report to confirm.
