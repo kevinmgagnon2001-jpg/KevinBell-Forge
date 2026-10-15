@@ -825,3 +825,16 @@ and mountains around it, under a late-afternoon sky.
 - Checked: typecheck, lint (no errors), `npm run test:engine` (201 pass, 5 new), production build. In
   Chromium: the room renders with no console errors, and "make the gauges neon" restyled all six while
   the model was still loading. The Kotlin change is not compiled here; CI's Android build checks it.
+
+## Diagnostics: reports from the phone back to the build session
+- The app keeps the last 6 minutes of readings (every 5 s), the last errors, the room's gauges and the
+  device profile (src/components/forge/diagnostics-recorder.ts).
+- **Send to Claude** (in Stats, with an optional note) or the intent `send diagnostics` / `report a
+  problem: ...` opens a pre-filled GitHub issue labelled `diagnostics`. Nothing is sent until the
+  person submits it; the app holds no token. On Android a new bridge method `reportIssue` opens it,
+  and only this repository's new-issue page.
+- The issue has a readable summary (findings, min/avg/max table, errors) and a `forge-diagnostics`
+  JSON block. `parseReport` reads it back; `npm run forge:diagnostics` lists the open reports.
+  The link is kept under 7800 characters by thinning samples first (src/engine/diagnostics.ts, tested).
+- Guide: docs/DIAGNOSTICS.md. Checked in Chromium at 390x844 with a stand-in Android bridge: the
+  report carried the note, the readings and a "low frame rate" finding; no console errors.

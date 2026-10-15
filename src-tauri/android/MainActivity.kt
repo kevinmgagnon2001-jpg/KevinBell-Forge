@@ -170,6 +170,20 @@ class ForgeApps(private val activity: Activity, private val webView: WebView) {
     return true
   }
 
+  /**
+   * Open the pre-filled "new issue" page for a diagnostics report (diagnostics.ts) in the browser.
+   * Only this repository's new-issue page; the person reads it and submits it there.
+   */
+  @JavascriptInterface
+  fun reportIssue(url: String): Boolean {
+    val prefix = "https://github.com/kevinmgagnon2001-jpg/KevinBell-Forge/issues/new?"
+    if (!url.startsWith(prefix) || url.length > 8000 || url.any { it.isWhitespace() || it.isISOControl() }) return false
+    activity.runOnUiThread {
+      activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+    return true
+  }
+
   /** Open a TV channel's own page (Twitch or YouTube) in the browser, for when its player will not play in Forge. Nothing else. */
   @JavascriptInterface
   fun openLink(url: String): Boolean {

@@ -310,6 +310,17 @@ export const useForge = create<ForgeState>((set, get) => {
         ]);
         return;
       }
+      // "send diagnostics" / "report a problem: the boiler flickers" opens the report (diagnostics.ts).
+      const report = intent.match(/^(?:send|report|file)\b.*?\b(?:diagnostics|report|problem|bug|issue)\b\s*[:,-]?\s*(.*)$/i);
+      if (report) {
+        const { sendDiagnostics } = await import("@/components/forge/diagnostics-recorder");
+        const ok = await sendDiagnostics(report[1] ?? "").catch(() => false);
+        pushLog([
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ok ? "engine" : "warn", title: "Diagnostics", body: ok ? "The report is open as a GitHub issue. Review it and submit; the next build session reads it." : "Could not open the report." },
+        ]);
+        return;
+      }
       // Gauge requests ("add a neon thermometer", "make the gauges brass", "build the engine room") are
       // plain picks from fixed lists (gauges.ts), so they run now, with the model off or busy.
       const gaugeCall = gaugeIntent(intent, get());

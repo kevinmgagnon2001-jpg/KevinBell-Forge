@@ -12,6 +12,7 @@ import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AUTO, autoStart, autoStep, frameStats, LADDER, type AutoState } from "@/engine/perf";
 import { EMPTY_SAMPLE, type LiveSample } from "@/engine/gauges";
+import { sendDiagnostics, startRecorder } from "./diagnostics-recorder";
 
 type Health = { battery: number; temperature: number; charging: boolean; thermal: number; headroom: number; memPct: number; watts: number };
 
@@ -116,6 +117,11 @@ export function chooseRung(rung: number) {
   note(`picked ${LADDER[rung].name}`);
 }
 
+/** The performance state right now, outside React (the diagnostics recorder reads it). */
+export function perfNow(): Perf {
+  return perf;
+}
+
 export function togglePerf() {
   set({ open: !perf.open });
 }
@@ -202,6 +208,7 @@ const HEAT = ["cool", "warm", "hot", "very hot", "critical", "emergency", "shutt
 /** Keep the phone's health fresh (auto quality listens to its heat even when the panel is closed). */
 export function useDeviceHealth() {
   useEffect(() => {
+    startRecorder();
     const share = (h: Health) => {
       liveSample.battery = h.battery;
       liveSample.charging = h.charging;
@@ -276,6 +283,8 @@ function Graph() {
 export function PerfOverlay() {
   const p = usePerf();
   const [copied, setCopied] = useState("");
+  const [note, setNote] = useState("");
+  const [sent, setSent] = useState("");
   useDeviceHealth();
   if (!p.open || p.start === null) return null;
   const rung = LADDER[p.rung];
@@ -348,6 +357,24 @@ export function PerfOverlay() {
           Copy report
         </button>
         {copied ? <span className="perf-copied">{copied}</span> : null}
+      </div>
+      <div className="perf-row">
+        <input className="perf-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="What's wrong? (optional)" maxLength={500} aria-label="Note for the report" />
+        <button
+          type="button"
+          className="perf-chip"
+          title="Opens a pre-filled GitHub issue with the last few minutes of readings. Nothing is sent until you submit it."
+          onClick={() => {
+            setSent("Opening…");
+            void sendDiagnostics(note).then(
+              (ok) => setSent(ok ? "Review and submit the issue" : "Could not open the browser"),
+              () => setSent("Could not build the report"),
+            );
+          }}
+        >
+          Send to Claude
+        </button>
+        {sent ? <span className="perf-copied">{sent}</span> : null}
         <button type="button" className="perf-chip" onClick={togglePerf}>
           Close
         </button>

@@ -37,6 +37,9 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
   `docs/GAUGES.md`). Next: more meshes per stat (a gearbox, a smokestack, a neon bar meter), a skin picker
   in the UI, check the readings on the owner's phone with the Stats overlay's Copy report.
 
+- **Diagnostics:** the phone sends reports as GitHub issues labelled `diagnostics` (`docs/DIAGNOSTICS.md`).
+  Start a session with `npm run forge:diagnostics` (or read the issues), fix what they show, close them.
+
 ## Next, most important first
 
 1. Desktop self-update (Tauri updater): needs the owner's update-signing key as a secret; then sign the installers'
