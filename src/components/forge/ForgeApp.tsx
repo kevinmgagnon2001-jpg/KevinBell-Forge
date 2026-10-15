@@ -16,6 +16,7 @@ import { resumeLink } from "@/engine/link-browser";
 import type { Entity, ToolSchema } from "@/engine/types";
 import { FlatStage } from "./FlatStage";
 import { LookProvider, useLook } from "./look";
+import { listen, useCanListen } from "./speech";
 
 const CHIPS: { label: string; intent: string }[] = [
   { label: "Walk forward", intent: "Walk the avatar forward" },
@@ -321,6 +322,18 @@ function IntentDock() {
   };
 
   const forgeLabel = !power ? "Off" : busy || status === "loading" ? "Loading…" : "Forge";
+  const [listening, setListening] = useState(false);
+  const speech = useCanListen();
+  // Say it instead of typing (speech.ts): the words land in the box and go straight to the forge.
+  const speak = async () => {
+    setListening(true);
+    const heard = await listen();
+    setListening(false);
+    if ("text" in heard) {
+      // Typed commands that need no model (moves, gauges, addresses) still run with it off.
+      void useForge.getState().submitIntent(heard.text);
+    }
+  };
 
   return (
     <form
@@ -342,6 +355,11 @@ function IntentDock() {
           autoComplete="off"
           disabled={!power}
         />
+        {speech ? (
+          <button type="button" className="btn dock-mic" aria-label={listening ? "Listening" : "Speak an intent"} onClick={() => void speak()} disabled={listening}>
+            {listening ? "…" : "🎙"}
+          </button>
+        ) : null}
         <button type="submit" className="btn btn-primary" disabled={!intent.trim() || (!/forge:\/\/\S+/i.test(intent) && (busy || !power))}>
           {busy && status === "ready" ? "Writing…" : forgeLabel}
         </button>

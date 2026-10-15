@@ -28,6 +28,7 @@ import { GaugeMesh } from "./Gauges";
 import { AvatarFigure } from "./Avatar";
 import { Arcade } from "./Arcade";
 import { MovesButton, MovesOverlay } from "./Moves";
+import { HelmAsk } from "./HelmAsk";
 import { toggleFlight, useArcadePlaying, useFlight } from "./body-state";
 import { stepBodies } from "@/engine/physics";
 import { rotationLabel, setRotation, useRotation } from "./rotation";
@@ -1480,16 +1481,7 @@ function Visor() {
   const gaze = useGazeId();
   const looked = useForge((s) => (gaze == null ? null : (s.entities[gaze] ?? null)));
   const last = useForge((s) => s.history[s.history.length - 1]);
-  const busy = useForge((s) => s.busy);
-  const [line, setLine] = useState("");
   if (mode === "bench") return null;
-  const onSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    const intent = line.trim();
-    if (!intent) return;
-    setLine("");
-    void useForge.getState().submitIntent(intent);
-  };
   return (
     <div className={mode === "first" ? "visor is-first" : "visor"}>
       <div className="visor-frame" />
@@ -1499,19 +1491,7 @@ function Visor() {
         {last ? ` · ${last.title}: ${last.body.replace(/\s+/g, " ").slice(0, 72)}` : ""}
       </p>
       <p className="visor-hint">Left stick walks (push all the way, or hold Shift, to run), right stick looks. Space jumps, F flies. Walk up to a game to play it.</p>
-      {immersive ? (
-        <form className="visor-ask" onSubmit={onSubmit}>
-          <label>
-            <span>Helm</span>
-            <input
-              value={line}
-              onChange={(event) => setLine(event.target.value)}
-              placeholder="Tell the helm what to change in the world"
-              disabled={busy}
-            />
-          </label>
-        </form>
-      ) : null}
+      {immersive ? <HelmAsk /> : null}
     </div>
   );
 }

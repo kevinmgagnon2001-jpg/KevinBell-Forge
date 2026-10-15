@@ -25,6 +25,7 @@ package dev.forge.app
 
 import android.app.Activity
 import android.app.ActivityManager
+import android.content.ActivityNotFoundException
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.ComponentName
@@ -45,6 +46,7 @@ import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.provider.Settings
+import android.speech.RecognizerIntent
 import android.util.Base64
 import android.util.Log
 import android.view.View
@@ -66,10 +68,25 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 class MainActivity : TauriActivity() {
+  private var page: WebView? = null
+
   // Added before the page loads, so the page sees it from the start.
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
+    page = webView
     webView.addJavascriptInterface(ForgeApps(this, webView), "ForgeAndroid")
+  }
+
+  /** The words from Android's voice input (ForgeApps.listen), handed to the page's helm. */
+  @Deprecated("Activity results through the old callback keep this file free of extra libraries.")
+  @Suppress("DEPRECATION")
+  override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+    super.onActivityResult(requestCode, resultCode, data)
+    if (requestCode != SPEECH_REQUEST) return
+    val text = data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)?.firstOrNull()
+    val result = JSONObject()
+    if (resultCode == Activity.RESULT_OK && !text.isNullOrBlank()) result.put("text", text) else result.put("error", "cancelled")
+    sendSpeech(page, result)
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -88,6 +105,12 @@ class MainActivity : TauriActivity() {
       WindowInsetsCompat.CONSUMED
     }
   }
+}
+
+const val SPEECH_REQUEST = 4207
+
+fun sendSpeech(webView: WebView?, result: JSONObject) {
+  webView?.post { webView.evaluateJavascript("window.__forgeSpeech && window.__forgeSpeech($result)", null) }
 }
 
 /**
@@ -199,6 +222,27 @@ class ForgeApps(private val activity: Activity, private val webView: WebView) {
     if (!url.startsWith(prefix) || url.length > 8000 || url.any { it.isWhitespace() || it.isISOControl() }) return false
     activity.runOnUiThread {
       activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+    return true
+  }
+
+  /**
+   * Speak to the helm: Android's own voice input (the system's speech app listens, so Forge needs no
+   * microphone permission). The words come back through MainActivity.onActivityResult.
+   */
+  @JavascriptInterface
+  @Suppress("DEPRECATION")
+  fun listen(prompt: String): Boolean {
+    val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+      .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+      .putExtra(RecognizerIntent.EXTRA_PROMPT, prompt.take(80))
+      .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+    activity.runOnUiThread {
+      try {
+        activity.startActivityForResult(intent, SPEECH_REQUEST)
+      } catch (e: ActivityNotFoundException) {
+        sendSpeech(webView, JSONObject().put("error", "This phone has no voice input app"))
+      }
     }
     return true
   }

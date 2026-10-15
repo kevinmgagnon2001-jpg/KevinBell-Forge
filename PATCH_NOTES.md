@@ -937,3 +937,16 @@ and mountains around it, under a late-afternoon sky.
   In Chromium at 1280x800 and 390x844: wave, dance, a new "keep dancing" made from words, a left
   wave while walking (legs kept walking), "do a little dance" typed in the helm, one foot planted on
   a cube and the other reaching down past its edge; no console errors.
+
+## The helm: a button to speak, a button to type
+- The full-view helm bar is now two round buttons (HelmAsk.tsx): 🎙 speaks, ⌨ opens the bar, which
+  tucks away after sending. On phones they sit above Find room, clear of the sticks and Jump.
+- speech.ts: one `listen()` for the Android app (new bridge method ForgeAndroid.listen in
+  MainActivity.kt: Android's RecognizerIntent, words back through onActivityResult and
+  window.__forgeSpeech; no microphone permission in Forge) and browsers (Web Speech API).
+  `useCanListen` keeps server and client renders the same (no hydration mismatch).
+- The Architect intent box got the same 🎙 button.
+- Checked: typecheck, lint (no errors), `npm run test:engine`, production build. In Chromium at
+  390x844 and 1280x800 with a stand-in for the Android bridge: 🎙 heard "wave" and the avatar
+  waved, ⌨ opened a focused bar and "do a little dance" ran and the bar closed, the dock's 🎙 sent
+  "cheer"; no console errors. The Kotlin is not compiled here; CI's Android build checks it.

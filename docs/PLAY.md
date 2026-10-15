@@ -18,6 +18,18 @@ The avatar is a jointed figure posed every frame from how you move: it breathes 
 standing, swings into a walk and stretches into a run, tucks on a jump, spreads its arms falling,
 crouches on a hard landing and leans into flight (`src/components/forge/Avatar.tsx`).
 
+## Talking to the helm
+
+Over the full view the helm is two small round buttons (above Find room on a phone):
+
+- 🎙 **Speak**: say what you want; Forge sends it to the helm and shows the words it heard. In the
+  Android app this is Android's own voice input (the system's speech app listens; Forge asks for no
+  microphone permission). In a browser it uses the browser's speech recognition where there is one.
+- ⌨ **Type**: opens the text bar (your keyboard's dictation works in it too); it tucks away after
+  you send, or with ✕ or Esc.
+
+The "Architect intent" box under the view has the same 🎙 button.
+
 ## Moves: make your own, and the body fills in the rest
 
 Open **Moves** (by the view buttons, or G) and tap one: wave, cheer, clap, point, salute, bow, shrug,
