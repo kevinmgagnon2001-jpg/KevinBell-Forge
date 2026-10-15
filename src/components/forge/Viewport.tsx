@@ -18,7 +18,7 @@ import { probeHardware, qualityFor, sceneryRequested, softRenderRequested, type 
 import { Scenery } from "./Scenery";
 import { faceLook, lookStick, pilotKeys, pilotStick, pointerClaim, setAimPoint, setGazeLock, useGazeId, useLook } from "./look";
 import { DeviceButton } from "./DeviceScreen";
-import { useTvPicture, useTvView } from "./TvRemote";
+import { nativeTv, useTvPicture, useTvView, watchBig } from "./TvRemote";
 import { TV_SCREEN, TV_TAG } from "@/engine/tv";
 
 const UP = new Vector3(0, 1, 0);
@@ -769,7 +769,17 @@ function TvMesh() {
         <circleGeometry args={[0.012, 12]} />
         <meshBasicMaterial color={on ? "#7ee0c8" : "#d4524a"} />
       </mesh>
-      {picture && inView && !big ? (
+      {picture && inView && !big && nativeTv() ? (
+        // The Android app cannot embed the player in its page; it plays on the big screen instead.
+        <Html transform position={[0, TV_SCREEN.y, 0.012]} distanceFactor={(400 * W) / TV_PIXELS.width} zIndexRange={[5, 0]} className="tv-in-world">
+          <button type="button" className="tv-card" style={{ width: TV_PIXELS.width, height: TV_PIXELS.height }} onClick={watchBig}>
+            <span className="tv-card-live">LIVE</span>
+            <strong>{picture.channel.name}</strong>
+            <span>▶ Tap to watch</span>
+          </button>
+        </Html>
+      ) : null}
+      {picture && inView && !big && !nativeTv() ? (
         <Html transform position={[0, TV_SCREEN.y, 0.012]} distanceFactor={(400 * W) / TV_PIXELS.width} zIndexRange={[5, 0]} className="tv-in-world">
           <iframe
             src={picture.src}

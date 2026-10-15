@@ -1,9 +1,14 @@
 /**
  * The TV's remote (tv.ts): near the TV, turn it on (or press T), change channel, watch it big, or
  * add your own channel from a Twitch or YouTube link. The picture itself plays on the TV's screen in
- * the world (TvScreen in Viewport.tsx).
+ * the world (TvMesh in Viewport.tsx).
+ *
+ * In the Android app the player cannot be embedded in Forge's page (Twitch answers "blocked by
+ * response": it only plays inside https pages, and the app's page is http://tauri.localhost). There
+ * Android shows the player in its own layer over a box on the big screen (MainActivity.kt, tvShow),
+ * and the TV in the world offers "Tap to watch".
  */
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { channelsWith, embedUrl, ensureTv, parseChannel, setTvOn, switchChannel, tvChannel, tvDistance, tvIsOn, tvOf, TV_REACH, watchUrl, type Channel } from "@/engine/tv";
 import { useForge } from "@/engine/store";
 
@@ -74,6 +79,47 @@ function openOutside(channel: Channel) {
   window.open(url, "_blank", "noopener");
 }
 
+type NativeTv = { tvShow: (kind: string, ref: string, left: number, top: number, width: number, height: number) => boolean; tvHide: () => void };
+
+/** The Android app's own player layer, when there is one. */
+export function nativeTv(): NativeTv | null {
+  const android = (globalThis as { ForgeAndroid?: Partial<NativeTv> }).ForgeAndroid;
+  return android && typeof android.tvShow === "function" && typeof android.tvHide === "function" ? (android as NativeTv) : null;
+}
+
+/** A black box on the page with Android's player laid exactly over it, kept in place as the page moves. */
+function NativePlayer({ channel, tv }: { channel: Channel; tv: NativeTv }) {
+  const box = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const place = () => {
+      const r = box.current?.getBoundingClientRect();
+      if (r) tv.tvShow(channel.kind, channel.ref, r.left, r.top, r.width, r.height);
+    };
+    place();
+    const watch = new ResizeObserver(place);
+    if (box.current) watch.observe(box.current);
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    const away = () => {
+      if (document.visibilityState === "hidden") setView({ big: false });
+    };
+    document.addEventListener("visibilitychange", away);
+    return () => {
+      watch.disconnect();
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+      document.removeEventListener("visibilitychange", away);
+      tv.tvHide();
+    };
+  }, [channel.kind, channel.ref, tv]);
+  return <div ref={box} className="tv-frame tv-native" aria-label={`${channel.name}, playing`} />;
+}
+
+/** Open the big screen (the TV in the world uses this for "Tap to watch"). */
+export function watchBig() {
+  setView({ big: true });
+}
+
 const say = (body: string) => useForge.getState().note([{ tone: "engine", title: "TV", body }]);
 
 function Player({ src, title }: { src: string; title: string }) {
@@ -90,6 +136,7 @@ export function TvRemote() {
   const [error, setError] = useState("");
   const all = channelsWith(custom);
   const current = all[((index % all.length) + all.length) % all.length];
+  const native = nativeTv();
 
   useEffect(() => {
     loadCustom();
@@ -183,7 +230,7 @@ export function TvRemote() {
       <div className="device-veil" role="presentation" onPointerDown={(e) => e.target === e.currentTarget && setView({ big: false })}>
         <section className="tv-big" role="dialog" aria-modal="true" aria-label="TV">
           <div className="tv-big-screen">
-            <Player src={embedUrl(current, globalThis.location?.hostname ?? "localhost")} title={current.name} />
+            {native ? <NativePlayer channel={current} tv={native} /> : <Player src={embedUrl(current, globalThis.location?.hostname ?? "localhost")} title={current.name} />}
           </div>
           {controls}
           <div className="tv-remote-row">
