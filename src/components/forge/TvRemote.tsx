@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { channelsWith, embedUrl, ensureTv, parseChannel, setTvOn, switchChannel, tvChannel, tvDistance, tvIsOn, tvOf, TV_REACH, watchUrl, type Channel } from "@/engine/tv";
 import { useForge } from "@/engine/store";
+import { createPortal } from "react-dom";
 
 const CUSTOM = "forge-tv-channels";
 
@@ -126,12 +127,31 @@ function Player({ src, title }: { src: string; title: string }) {
   return <iframe className="tv-frame" src={src} title={title} allow="autoplay; fullscreen; encrypted-media; picture-in-picture" allowFullScreen referrerPolicy="strict-origin-when-cross-origin" />;
 }
 
+/** The strip's place in the 3D view (Viewport's .tv-slot), found once the view is up. */
+function useTvSlot(active: boolean): HTMLElement | null {
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    const find = () => {
+      const el = document.querySelector<HTMLElement>(".tv-slot");
+      setSlot((now) => (now === el ? now : el));
+    };
+    find();
+    // The view can remount (Fill, reset); look again now and then while near the TV.
+    const timer = window.setInterval(find, 1000);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  return active ? slot : null;
+}
+
 export function TvRemote() {
   const { custom, big } = useTvView();
   const near = useForge((s) => tvDistance(s) < TV_REACH);
   const on = useForge((s) => tvIsOn(tvOf(s)));
   const index = useForge((s) => Number(tvOf(s)?.customData.channel) || 0);
   const [adding, setAdding] = useState(false);
+  const [more, setMore] = useState(false);
+  const slot = useTvSlot(near);
   const [link, setLink] = useState("");
   const [error, setError] = useState("");
   const all = channelsWith(custom);
@@ -256,25 +276,51 @@ export function TvRemote() {
   }
 
   if (!near) return null;
-  if (!on) {
-    return (
-      <button type="button" className="device-prompt tv-prompt" onClick={power}>
-        Turn on the TV <kbd>T</kbd>
-      </button>
-    );
-  }
-  return (
-    <div className="tv-remote" role="group" aria-label="TV remote">
-      {controls}
-      <div className="tv-remote-row">
-        <button type="button" className="btn btn-ghost" onClick={() => setView({ big: true })}>
-          Big screen
+  // Near the TV, the remote is a slim strip docked under the view buttons (the .tv-slot in Viewport),
+  // so it never covers the TV itself. Big screen and adding a channel fold into "⋯".
+  const strip = !on ? (
+    <button type="button" className="tv-strip tv-strip-prompt" onClick={power}>
+      📺 Turn on the TV <kbd>T</kbd>
+    </button>
+  ) : (
+    <div className="tv-strip" role="group" aria-label="TV remote">
+      <div className="tv-strip-row">
+        <button type="button" className="tv-key" onClick={() => step(-1)} aria-label="Previous channel">
+          ◀
         </button>
-        <button type="button" className="btn btn-ghost" onClick={() => setAdding(true)}>
-          Add channel
+        <span className="tv-channel" title={current.name}>
+          {current.name}
+        </span>
+        <button type="button" className="tv-key" onClick={() => step(1)} aria-label="Next channel">
+          ▶
+        </button>
+        <button type="button" className="tv-key" onClick={() => setView({ big: true })} aria-label="Big screen" title="Big screen">
+          ⛶
+        </button>
+        <button type="button" className={`tv-key ${more ? "is-on" : ""}`} onClick={() => setMore(!more)} aria-label="More TV controls" aria-expanded={more}>
+          ⋯
+        </button>
+        <button type="button" className="tv-key" onClick={power} aria-label="Turn the TV off" title="Off">
+          ⏻
         </button>
       </div>
+      {more ? (
+        <div className="tv-strip-row">
+          <button type="button" className="btn btn-ghost" onClick={() => setAdding(true)}>
+            Add channel
+          </button>
+          {current.custom ? (
+            <button type="button" className="btn btn-ghost" onClick={remove}>
+              Remove
+            </button>
+          ) : null}
+          <button type="button" className="btn btn-ghost" onClick={() => openOutside(current)}>
+            Open outside
+          </button>
+        </div>
+      ) : null}
       {adder}
     </div>
   );
+  return slot ? createPortal(strip, slot) : <div className="tv-remote">{strip}</div>;
 }

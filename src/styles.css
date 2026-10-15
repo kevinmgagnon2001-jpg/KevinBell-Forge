@@ -1881,25 +1881,103 @@
 
 }
 
-/* The TV's remote (TvRemote.tsx): above the phone's prompt, clear of the sticks. */
-.tv-prompt {
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 16.5rem);
+/*
+ * The TV's remote (TvRemote.tsx): a slim strip docked in the view's HUD under the view buttons, so the
+ * TV stays in sight. .tv-remote is the fallback when there is no 3D view (top of the screen).
+ */
+.hud {
+  flex-wrap: wrap;
+}
+
+.tv-slot {
+  display: flex;
+  /* A full line of its own: the HUD is a row on wide screens and a column on phones. */
+  flex: 0 0 auto;
+  width: 100%;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+
+.tv-slot:empty {
+  display: none;
+}
+
+/* While the remote is up, the texture fan steps aside (it sits where the strip goes on a phone). */
+.view:has(.tv-slot:not(:empty)) .tex-deck {
+  display: none;
 }
 
 .tv-remote {
   position: fixed;
+  top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
   left: 50%;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 20rem);
   z-index: 40;
+  transform: translateX(-50%);
+}
+
+.tv-strip {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  width: min(22rem, calc(100vw - 2rem));
-  padding: 0.5rem;
+  gap: 0.3rem;
+  width: min(24rem, 100%);
+  padding: 0.3rem;
   border: 1px solid color-mix(in srgb, var(--color-ok) 45%, var(--color-line));
-  border-radius: 0.9rem;
-  background: color-mix(in srgb, var(--color-elevated) 92%, transparent);
-  transform: translateX(-50%);
+  border-radius: 1.4rem;
+  background: color-mix(in srgb, #09090b 78%, transparent);
+  color: var(--color-fg);
+  font: inherit;
+  pointer-events: auto;
+}
+
+.tv-strip-prompt {
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: auto;
+  min-height: 44px;
+  padding: 0.35rem 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.tv-strip-prompt kbd {
+  padding: 0 0.35rem;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-xs);
+  color: var(--color-muted);
+  font-size: 0.75rem;
+}
+
+@media (pointer: coarse) {
+  .tv-strip-prompt kbd {
+    display: none;
+  }
+}
+
+.tv-strip-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+}
+
+.tv-key {
+  flex: 0 0 auto;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0 0.5rem;
+  border: 1px solid var(--color-line);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.tv-key.is-on {
+  border-color: #7ee0c8;
+  color: #7ee0c8;
 }
 
 .tv-remote-row {
@@ -1971,15 +2049,6 @@
   pointer-events: auto;
 }
 
-@media (max-width: 640px) {
-  .tv-prompt {
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 18.5rem);
-  }
-
-  .tv-remote {
-    bottom: calc(env(safe-area-inset-bottom, 0px) + 18rem);
-  }
-}
 
 /* Android: the TV's player is Android's own layer over this box (TvRemote.tsx, NativePlayer). */
 .tv-native {
@@ -2117,6 +2186,19 @@
 
 .perf-chip:disabled {
   opacity: 0.5;
+}
+
+.perf-note {
+  flex: 1 1 100%;
+  min-height: 30px;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 8px;
+  background: rgb(0 0 0 / 25%);
+  color: inherit;
+  font: inherit;
+  /* 16px keeps phones from zooming into the field. */
+  font-size: max(16px, 1em);
 }
 
 .perf-copied {

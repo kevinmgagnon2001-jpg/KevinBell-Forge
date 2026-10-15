@@ -800,3 +800,66 @@ and mountains around it, under a late-afternoon sky.
   - before and after screenshots show the old packs invisible and the new ones on the column, cubes
     and sphere;
   - no console errors.
+
+## The engine room: device stats as steampunk / cyberpunk machines
+- Six machines stand around the bench and show the device live (src/engine/gauges.ts,
+  src/components/forge/Gauges.tsx):
+  - a thermometer for heat;
+  - a piston engine whose flywheel turns with the frame rate (scaled to the screen's refresh, 120 Hz
+    on the owner's Galaxy S26 Ultra);
+  - a boiler for memory, with a pressure dial and steam;
+  - a charge cell for the battery;
+  - a tesla coil for throttle (thermal headroom);
+  - a pressure dial for power draw.
+- Six meshes (thermometer, boiler, dial, piston, cell, coil) and five skins (brass, copper, neon,
+  chrome, ember iron). Any stat can wear any mesh and skin. Extra steam, bubbles and sparks only on
+  the top two quality rungs.
+- The Android bridge's `deviceHealth` now also reports thermal headroom, device memory and battery
+  power (watts). Outside Android, the browser's battery API fills the battery gauge.
+- Harness tools: `place_gauge`, `style_gauge`, `build_gauge_rig`. Rooms: engine-room, steam, cyber.
+- Instant commands: plain gauge requests ("make the gauges neon", "build the engine room", "add a
+  copper thermometer for heat") run at once without the model, even while it loads or is off. The
+  model's prompt only carries the gauge line when the command is about gauges, so other prompts stay
+  as short as before.
+- How to add a mesh, skin, stat or room: docs/GAUGES.md.
+- Checked: typecheck, lint (no errors), `npm run test:engine` (201 pass, 5 new), production build. In
+  Chromium: the room renders with no console errors, and "make the gauges neon" restyled all six while
+  the model was still loading. The Kotlin change is not compiled here; CI's Android build checks it.
+
+## Diagnostics: reports from the phone back to the build session
+- The app keeps the last 6 minutes of readings (every 5 s), the last errors, the room's gauges and the
+  device profile (src/components/forge/diagnostics-recorder.ts).
+- **Send to Claude** (in Stats, with an optional note) or the intent `send diagnostics` / `report a
+  problem: ...` opens a pre-filled GitHub issue labelled `diagnostics`. Nothing is sent until the
+  person submits it; the app holds no token. On Android a new bridge method `reportIssue` opens it,
+  and only this repository's new-issue page.
+- The issue has a readable summary (findings, min/avg/max table, errors) and a `forge-diagnostics`
+  JSON block. `parseReport` reads it back; `npm run forge:diagnostics` lists the open reports.
+  The link is kept under 7800 characters by thinning samples first (src/engine/diagnostics.ts, tested).
+- Guide: docs/DIAGNOSTICS.md. Checked in Chromium at 390x844 with a stand-in Android bridge: the
+  report carried the note, the readings and a "low frame rate" finding; no console errors.
+
+## Auto rotate, a field of view that fits the screen, and a daily diagnostics check
+- Rotation (src/components/forge/rotation.ts, src/engine/view.ts, tested): the ⟳ button by the view
+  buttons cycles Auto → Portrait → Landscape, remembered on the device. Auto turns with the phone
+  even when the phone's rotation lock is on. On Android a new bridge method `setOrientation` sets
+  it; android-manifest.mjs makes sure a turn never restarts Forge. In a browser, Portrait/Landscape
+  hold only in full screen.
+- Field of view: three.js fixes the vertical angle, so an upright phone saw a ~35° slot. `fovFor`
+  keeps each view's angle on wide screens and widens the vertical angle on narrow ones (capped) so
+  the view across stays wide (helm ~55° across upright instead of ~35°). Rotations glide.
+- A phone turned on its side fills the screen with the 3D view, and goes back to the window when
+  turned upright again (unless Fill was chosen by hand).
+- Checked in Chromium at 412x891 ↔ 891x412 with a stand-in bridge: fill on turn, back on turn,
+  "auto" then "portrait" reached the bridge, no console errors.
+- A daily scheduled check (5:53 AM Eastern) reads open `diagnostics` issues, fixes what they show on
+  a `diagnostics/<date>` branch, opens one PR with "Fixes #N" and comments on each issue.
+
+## The TV remote no longer covers the TV
+- The remote sat in the middle of the screen, over the TV in the world, so the TV was only usable in
+  Big screen. It is now a slim strip docked under the view buttons (a `.tv-slot` in the view's HUD,
+  filled through a React portal from TvRemote.tsx): ◀ channel ▶, big screen ⛶, ⋯ (add channel,
+  remove, open outside) and ⏻. "Turn on the TV" docks there too. The texture fan steps aside while
+  the remote is up (it sits in the same spot on a phone).
+- Checked in Chromium at 412x891, 891x412 and 1280x800 standing at the TV: the TV in the world stays
+  in sight with the remote up and with ⋯ open; no console errors from Forge.

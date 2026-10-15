@@ -11,8 +11,19 @@
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AUTO, autoStart, autoStep, frameStats, LADDER, type AutoState } from "@/engine/perf";
+import { EMPTY_SAMPLE, type LiveSample } from "@/engine/gauges";
+import { sendDiagnostics, startRecorder } from "./diagnostics-recorder";
 
-type Health = { battery: number; temperature: number; charging: boolean; thermal: number };
+type Health = { battery: number; temperature: number; charging: boolean; thermal: number; headroom: number; memPct: number; watts: number };
+
+/**
+ * The newest reading of the device, for the lab's gauges (Gauges.tsx). A plain object, refreshed
+ * twice a second by PerfProbe and every few seconds from the phone; the gauges read it every frame
+ * without causing any React renders.
+ */
+export const liveSample: LiveSample = { ...EMPTY_SAMPLE };
+/** The fastest the screen has shown, snapped to a real refresh rate (60, 90, 120, 144). */
+let fastest = 60;
 type Perf = {
   open: boolean;
   auto: boolean;
@@ -106,6 +117,11 @@ export function chooseRung(rung: number) {
   note(`picked ${LADDER[rung].name}`);
 }
 
+/** The performance state right now, outside React (the diagnostics recorder reads it). */
+export function perfNow(): Perf {
+  return perf;
+}
+
 export function togglePerf() {
   set({ open: !perf.open });
 }
@@ -130,6 +146,13 @@ export function PerfProbe() {
     const stats = frameStats(frames.slice(frames.length - n));
     const info = gl.info;
     const memory = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+    if (stats.fps > fastest * 1.08) fastest = [60, 90, 120, 144, 165, 240].find((hz) => hz >= stats.fps * 0.95) ?? 240;
+    liveSample.fps = stats.fps;
+    liveSample.frameMs = stats.avg;
+    liveSample.refresh = fastest;
+    liveSample.draws = info.render.calls;
+    liveSample.triangles = info.render.triangles;
+    liveSample.heapMb = memory ? memory.usedJSHeapSize / 1048576 : -1;
     const next: Partial<Perf> = {
       fps: stats.fps,
       avg: stats.avg,
@@ -162,8 +185,19 @@ function readHealth(): Health | null {
   const android = (globalThis as { ForgeAndroid?: Bridge }).ForgeAndroid;
   if (!android?.deviceHealth) return null;
   try {
-    const h = JSON.parse(android.deviceHealth()) as Partial<Health>;
-    return { battery: Number(h.battery ?? -1), temperature: Number(h.temperature ?? -1), charging: !!h.charging, thermal: Number(h.thermal ?? -1) };
+    const h = JSON.parse(android.deviceHealth()) as Partial<Health> & { memTotalMb?: number; memAvailMb?: number };
+    const total = Number(h.memTotalMb ?? 0);
+    const avail = Number(h.memAvailMb ?? 0);
+    const watts = Number(h.watts ?? -999);
+    return {
+      battery: Number(h.battery ?? -1),
+      temperature: Number(h.temperature ?? -1),
+      charging: !!h.charging,
+      thermal: Number(h.thermal ?? -1),
+      headroom: Number(h.headroom ?? -1),
+      memPct: total > 0 ? ((total - avail) / total) * 100 : -1,
+      watts: watts <= -900 ? Number.NaN : watts,
+    };
   } catch {
     return null;
   }
@@ -174,12 +208,42 @@ const HEAT = ["cool", "warm", "hot", "very hot", "critical", "emergency", "shutt
 /** Keep the phone's health fresh (auto quality listens to its heat even when the panel is closed). */
 export function useDeviceHealth() {
   useEffect(() => {
+    startRecorder();
+    const share = (h: Health) => {
+      liveSample.battery = h.battery;
+      liveSample.charging = h.charging;
+      liveSample.tempC = h.temperature;
+      liveSample.thermal = h.thermal;
+      liveSample.headroom = h.headroom;
+      liveSample.memPct = h.memPct;
+      liveSample.watts = h.watts;
+    };
     const read = () => {
       const h = readHealth();
-      if (h) set({ health: h });
+      if (h) {
+        share(h);
+        set({ health: h });
+      }
     };
     read();
-    const timer = window.setInterval(read, 5000);
+    // Outside the Android app, the browser may still say how the battery is doing.
+    type BatteryLike = { level: number; charging: boolean; addEventListener: (type: string, fn: () => void) => void };
+    const nav = navigator as Navigator & { getBattery?: () => Promise<BatteryLike> };
+    if (!readHealth() && nav.getBattery) {
+      nav
+        .getBattery()
+        .then((b) => {
+          const update = () => {
+            liveSample.battery = Math.round(b.level * 100);
+            liveSample.charging = b.charging;
+          };
+          update();
+          b.addEventListener("levelchange", update);
+          b.addEventListener("chargingchange", update);
+        })
+        .catch(() => undefined);
+    }
+    const timer = window.setInterval(read, 3000);
     return () => window.clearInterval(timer);
   }, []);
 }
@@ -219,6 +283,8 @@ function Graph() {
 export function PerfOverlay() {
   const p = usePerf();
   const [copied, setCopied] = useState("");
+  const [note, setNote] = useState("");
+  const [sent, setSent] = useState("");
   useDeviceHealth();
   if (!p.open || p.start === null) return null;
   const rung = LADDER[p.rung];
@@ -291,6 +357,24 @@ export function PerfOverlay() {
           Copy report
         </button>
         {copied ? <span className="perf-copied">{copied}</span> : null}
+      </div>
+      <div className="perf-row">
+        <input className="perf-note" value={note} onChange={(e) => setNote(e.target.value)} placeholder="What's wrong? (optional)" maxLength={500} aria-label="Note for the report" />
+        <button
+          type="button"
+          className="perf-chip"
+          title="Opens a pre-filled GitHub issue with the last few minutes of readings. Nothing is sent until you submit it."
+          onClick={() => {
+            setSent("Opening…");
+            void sendDiagnostics(note).then(
+              (ok) => setSent(ok ? "Review and submit the issue" : "Could not open the browser"),
+              () => setSent("Could not build the report"),
+            );
+          }}
+        >
+          Send to Claude
+        </button>
+        {sent ? <span className="perf-copied">{sent}</span> : null}
         <button type="button" className="perf-chip" onClick={togglePerf}>
           Close
         </button>

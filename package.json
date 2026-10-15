@@ -26,6 +26,7 @@
     "forge:compute": "node --experimental-strip-types scripts/compute-node.ts",
     "forge:corpus": "node --experimental-strip-types scripts/gen-compat-corpus.ts",
     "forge:fixtures": "sh fixtures/linux/build.sh",
+    "forge:diagnostics": "node --experimental-strip-types scripts/diagnostics.ts",
     "build:desktop": "node scripts/with-app-env.mjs vite build --mode desktop && node scripts/desktop-dist.mjs",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",

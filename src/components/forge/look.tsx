@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useAutoFill } from "./rotation";
 
 export type LookMode = "bench" | "first" | "third";
 
@@ -104,6 +105,7 @@ const LookContext = createContext<LookValue | null>(null);
 export function LookProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<LookMode>("third");
   const [immersive, setImmersive] = useState(false);
+  useAutoFill(immersive, setImmersive);
 
   useEffect(() => {
     const onFull = () => {

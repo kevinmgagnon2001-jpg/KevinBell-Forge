@@ -24,12 +24,14 @@
 package dev.forge.app
 
 import android.app.Activity
+import android.app.ActivityManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageInfo
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
@@ -169,6 +171,38 @@ class ForgeApps(private val activity: Activity, private val webView: WebView) {
     return true
   }
 
+  /**
+   * How the screen may turn (rotation.ts): "auto" follows the sensor even with the phone's rotation
+   * lock on, "portrait" / "landscape" hold one way (either side up), "system" follows the phone's own
+   * setting. The view itself keeps going through a turn (the manifest lists orientation changes).
+   */
+  @JavascriptInterface
+  fun setOrientation(mode: String): Boolean {
+    val value = when (mode) {
+      "auto" -> ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+      "portrait" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+      "landscape" -> ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+      "system" -> ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+      else -> return false
+    }
+    activity.runOnUiThread { activity.requestedOrientation = value }
+    return true
+  }
+
+  /**
+   * Open the pre-filled "new issue" page for a diagnostics report (diagnostics.ts) in the browser.
+   * Only this repository's new-issue page; the person reads it and submits it there.
+   */
+  @JavascriptInterface
+  fun reportIssue(url: String): Boolean {
+    val prefix = "https://github.com/kevinmgagnon2001-jpg/KevinBell-Forge/issues/new?"
+    if (!url.startsWith(prefix) || url.length > 8000 || url.any { it.isWhitespace() || it.isISOControl() }) return false
+    activity.runOnUiThread {
+      activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+    return true
+  }
+
   /** Open a TV channel's own page (Twitch or YouTube) in the browser, for when its player will not play in Forge. Nothing else. */
   @JavascriptInterface
   fun openLink(url: String): Boolean {
@@ -184,7 +218,9 @@ class ForgeApps(private val activity: Activity, private val webView: WebView) {
 
   /**
    * JSON { battery (percent, -1 unknown), temperature (battery, degrees C, -1 unknown), charging,
-   * thermal (Android's thermal status: 0 none, 1 light, 2 moderate, 3 severe, 4 critical, -1 unknown) }.
+   * thermal (Android's thermal status: 0 none, 1 light, 2 moderate, 3 severe, 4 critical, -1 unknown),
+   * headroom (0 cool .. 1 throttling, -1 unknown), memTotalMb, memAvailMb, watts (out of the battery,
+   * negative while charging, -999 unknown) }. The lab's gauges (gauges.ts) read all of it.
    */
   @JavascriptInterface
   fun deviceHealth(): String {
@@ -202,11 +238,43 @@ class ForgeApps(private val activity: Activity, private val webView: WebView) {
     } else {
       -1
     }
+    // Thermal headroom (Android 11+): 0 is cool, 1.0 is where the phone starts throttling. NaN when
+    // asked too often or not supported; JSON cannot hold NaN, so it becomes -1.
+    val headroom = if (Build.VERSION.SDK_INT >= 30) {
+      try {
+        (activity.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.getThermalHeadroom(10)?.toDouble() ?: -1.0
+      } catch (e: Exception) {
+        -1.0
+      }
+    } else {
+      -1.0
+    }
+    val memory = ActivityManager.MemoryInfo()
+    try {
+      (activity.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager)?.getMemoryInfo(memory)
+    } catch (e: Exception) {
+      /* totalMem stays 0 */
+    }
+    // Battery current (microamps; the sign differs between phones) times voltage: watts out of the battery.
+    val manager = activity.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+    val microAmps = manager?.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW) ?: Long.MIN_VALUE
+    val milliVolts = battery?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1) ?: -1
+    val watts = if (microAmps != Long.MIN_VALUE && microAmps != 0L && milliVolts > 0) {
+      val w = Math.abs(microAmps) / 1_000_000.0 * (milliVolts / 1000.0)
+      if (plugged) -w else w
+    } else {
+      Double.NaN
+    }
+    fun finite(v: Double, fallback: Double) = if (v.isNaN() || v.isInfinite()) fallback else v
     return JSONObject()
       .put("battery", if (level >= 0 && scale > 0) level * 100 / scale else -1)
       .put("temperature", if (tenths >= 0) tenths / 10.0 else -1.0)
       .put("charging", plugged)
       .put("thermal", thermal)
+      .put("headroom", finite(headroom, -1.0))
+      .put("memTotalMb", memory.totalMem / 1048576)
+      .put("memAvailMb", memory.availMem / 1048576)
+      .put("watts", finite(watts, -999.0))
       .toString()
   }
 

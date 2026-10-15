@@ -1,4 +1,5 @@
 import { autoColor, normalizeColor } from "./color.ts";
+import { buildRig, RIGS } from "./gauges.ts";
 import { IDENTITY, V3, type Entity, type PhysicsBody, type Representation, type Vec3, type World } from "./types.ts";
 
 export const GRAVITY = -9.81;
@@ -108,11 +109,14 @@ export function labWorld(): World {
   const helm = makeHelm(14, avatar);
 
   const entities = [avatar, deck, bench, terminal, clay, steel, gold, column, sample, halo, pad, orb, neural, helm];
-  return {
+  const room: World = {
     ...emptyWorld(),
     entities: Object.fromEntries(entities.map((entity) => [entity.id, entity])),
     nextId: 15,
   };
+  // The engine room (gauges.ts): the device's own heat, frame rate, memory, battery, throttle and
+  // power, as brass machines either side of the bench.
+  return buildRig(room, RIGS[0]).world;
 }
 
 /** The wearable computer. It stays on the architect's head. */

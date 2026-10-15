@@ -8,6 +8,8 @@ import { runtimeNow } from "@/engine/movers";
 import { carryAlong } from "@/engine/device-apps";
 import { INTERACT_EVENT, LOOK_RATE, lookStick, pilotKeys, pilotStick, pointerClaim, setPilotSpeed, shiftLook, useLook, lookPose, faceLook } from "./look";
 import { stageCamera, stageGl } from "./picture";
+import { fovFor } from "@/engine/view";
+import type { LookMode } from "./look";
 
 const EYE = 0.62;
 const MIN_Y = 0.45;
@@ -54,9 +56,12 @@ function readGamepad(dt: number): number {
   return (pad.buttons[7]?.value ?? 0) - (pad.buttons[6]?.value ?? 0);
 }
 
-function setFov(camera: { fov?: number; updateProjectionMatrix?: () => void }, fov: number) {
-  if (camera.fov == null || Math.abs(camera.fov - fov) < 0.5) return;
-  camera.fov = fov;
+/** Ease the camera toward the field of view for this mode on this screen (view.ts), so a rotation glides. */
+function setFov(camera: { fov?: number; aspect?: number; updateProjectionMatrix?: () => void }, mode: LookMode, delta: number) {
+  if (camera.fov == null) return;
+  const target = fovFor(mode, camera.aspect ?? 1);
+  if (Math.abs(camera.fov - target) < 0.05) return;
+  camera.fov = delta > 0 ? camera.fov + (target - camera.fov) * Math.min(1, delta * 8) : target;
   camera.updateProjectionMatrix?.();
 }
 
@@ -196,10 +201,10 @@ export function Pilot() {
     }
     if (mode === "bench") {
       setPilotSpeed(0);
+      setFov(camera, "bench", benchSet.current ? delta : 0);
       if (!benchSet.current) {
         camera.position.set(BENCH_EYE.x, BENCH_EYE.y, BENCH_EYE.z);
         camera.lookAt(BENCH_AT.x, BENCH_AT.y, BENCH_AT.z);
-        setFov(camera, 46);
         if (orbit?.target) {
           orbit.target.set(BENCH_AT.x, BENCH_AT.y, BENCH_AT.z);
           orbit.update?.();
@@ -210,7 +215,7 @@ export function Pilot() {
     }
     benchSet.current = false;
     if (orbit) orbit.enabled = false;
-    setFov(camera, mode === "first" ? 68 : 52);
+    setFov(camera, mode, delta);
     const dt = Math.min(delta, 0.05);
     const keys = pilotKeys;
     const padLift = readGamepad(dt);

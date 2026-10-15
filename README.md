@@ -10,6 +10,12 @@ Open **[Releases](../../releases)** on your phone and tap the newest `Forge-…-
 
 The lab has a screen that is your real phone or computer: open an app from it and Forge steps aside; open Forge again and you are where you were. On Android, Forge can also be your home screen. See [docs/YOUR-DEVICE.md](docs/YOUR-DEVICE.md).
 
+## Your device's stats as machines
+
+The lab's engine room shows the device's heat, frame rate, memory, battery, throttle and power draw as
+steampunk (or cyberpunk) machines. Say "make the gauges neon" or "build the engine room" and it changes at
+once. See [docs/GAUGES.md](docs/GAUGES.md).
+
 ## Run it from source
 
 ```sh

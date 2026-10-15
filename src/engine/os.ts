@@ -1,3 +1,4 @@
+import { gaugeCatalog } from "./gauges.ts";
 import type { ToolSchema } from "./types.ts";
 
 /** Builtin tools registered by AetherOS, in registration order. */
@@ -171,6 +172,24 @@ export const TOOLS: ToolSchema[] = [
     name: "place_portal",
     description: "Place a portal to another island (a forge://host:port/slug address) in front of the avatar. Walking into it visits that island.",
     parameters: { address: "string" },
+  },
+  {
+    name: "place_gauge",
+    description: `Place a machine that shows a live device stat (gauges.ts). ${gaugeCatalog()} mesh and skin are optional; x and z place it, else it takes the next free spot.`,
+    parameters: { stat: "string", mesh: "string", skin: "string", name: "string", x: "f32", z: "f32" },
+    optional: ["mesh", "skin", "name", "x", "z"],
+  },
+  {
+    name: "style_gauge",
+    description: "Change the mesh, skin or stat of gauges. id is one id, a comma list, or * for every gauge.",
+    parameters: { id: "string", mesh: "string", skin: "string", stat: "string" },
+    optional: ["mesh", "skin", "stat"],
+  },
+  {
+    name: "build_gauge_rig",
+    description: "Place a whole room of gauges at once (engine-room, steam, cyber). skin overrides the rig's own.",
+    parameters: { rig: "string", skin: "string" },
+    optional: ["skin"],
   },
 ];
 
