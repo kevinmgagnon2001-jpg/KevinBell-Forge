@@ -104,3 +104,15 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
 - WebAssembly `select` is `cond ? first : second`.
 - Workflows can be started by hand (`gh workflow run`) only if they exist on `main`. `desktop.yml` and `arm-oracle.yml`
   also run on branch pushes that touch their paths.
+
+
+## Graphics, next steps (after the texture fix)
+- Bloom on the full tier only (`@react-three/postprocessing`): the lamp posts, circuit traces, night
+  stars and the TV glow would bloom. Check the cost with the Stats overlay on a phone first; the auto
+  quality ladder would need a rung for it.
+- Ambient occlusion (N8AO) for contact shadows under exhibits, full tier only.
+- Triplanar mapping for the lab packs, so every face of a stretched solid tiles at true scale (today
+  each solid repeats by its largest side and its height, so a long box's ends are approximate).
+- A proper avatar: the body is a few primitives; a rigged low-poly figure with walk and idle cycles.
+- Water with real reflections (a planar mirror) on the full tier.
+- Use the Stats overlay's Copy report from the phone to set the tier thresholds from real numbers.

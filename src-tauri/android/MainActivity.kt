@@ -34,7 +34,9 @@ import android.content.pm.PackageInfo
 import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Build
+import android.os.PowerManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -176,6 +178,36 @@ class ForgeApps(private val activity: Activity, private val webView: WebView) {
       activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
     return true
+  }
+
+  // ---------- how the phone is doing (the performance overlay and auto quality) ----------
+
+  /**
+   * JSON { battery (percent, -1 unknown), temperature (battery, degrees C, -1 unknown), charging,
+   * thermal (Android's thermal status: 0 none, 1 light, 2 moderate, 3 severe, 4 critical, -1 unknown) }.
+   */
+  @JavascriptInterface
+  fun deviceHealth(): String {
+    val battery = try {
+      activity.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+    } catch (e: Exception) {
+      null
+    }
+    val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+    val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
+    val tenths = battery?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
+    val plugged = (battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0) != 0
+    val thermal = if (Build.VERSION.SDK_INT >= 29) {
+      (activity.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.currentThermalStatus ?: -1
+    } else {
+      -1
+    }
+    return JSONObject()
+      .put("battery", if (level >= 0 && scale > 0) level * 100 / scale else -1)
+      .put("temperature", if (tenths >= 0) tenths / 10.0 else -1.0)
+      .put("charging", plugged)
+      .put("thermal", thermal)
+      .toString()
   }
 
   // ---------- the TV's player ----------
