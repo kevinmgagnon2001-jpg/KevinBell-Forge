@@ -27,6 +27,14 @@ export const pilotKeys = new Set<string>();
  */
 export const pilotStick = { x: 0, y: 0 };
 
+/**
+ * The right thumbstick: hold it off centre and the view keeps turning (x right, y up, each -1..1),
+ * so a full turn needs no lifting and re-dragging. Dragging the view itself stays for fine aim.
+ */
+export const lookStick = { x: 0, y: 0 };
+/** Fastest turn from the look stick, radians per second (yaw, pitch). */
+export const LOOK_RATE = { yaw: 2.6, pitch: 1.5 };
+
 /** "Use" from the controller (E, the gamepad's A): pick up the phone, or pull it out. */
 export const INTERACT_EVENT = "forge:interact";
 
