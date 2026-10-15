@@ -27,6 +27,7 @@ import { GAUGE_TAG } from "@/engine/gauges";
 import { GaugeMesh } from "./Gauges";
 import { AvatarFigure } from "./Avatar";
 import { Arcade } from "./Arcade";
+import { MovesButton, MovesOverlay } from "./Moves";
 import { toggleFlight, useArcadePlaying, useFlight } from "./body-state";
 import { stepBodies } from "@/engine/physics";
 import { rotationLabel, setRotation, useRotation } from "./rotation";
@@ -1466,6 +1467,7 @@ function ModeBar() {
       <button type="button" className={rotation !== "system" ? "is-on" : ""} onClick={() => setRotation(nextRotation(rotation))} aria-label={`Screen rotation: ${rotationLabel(rotation)}`} title="Screen rotation: Auto turns with the phone">
         ⟳ {rotationLabel(rotation)}
       </button>
+      <MovesButton />
       <button type="button" className={perfOpen ? "is-on" : ""} onClick={togglePerf} aria-label="Performance">
         Stats
       </button>
@@ -1573,6 +1575,7 @@ export function Viewport() {
       <Arcade />
       <TextureDeck />
       <PerfOverlay />
+      <MovesOverlay />
       {mode === "bench" ? <LabConsole /> : null}
     </div>
   );

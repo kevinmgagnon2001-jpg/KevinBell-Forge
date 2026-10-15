@@ -9,9 +9,8 @@ import { carryAlong } from "@/engine/device-apps";
 import { INTERACT_EVENT, LOOK_RATE, lookStick, pilotKeys, pilotStick, pointerClaim, setPilotSpeed, shiftLook, useLook, lookPose, faceLook } from "./look";
 import { stageCamera, stageGl } from "./picture";
 import { fovFor } from "@/engine/view";
-import { solidsOf, stepWalk, WALK, type Solid } from "@/engine/physics";
+import { solidsFor, stepWalk, WALK } from "@/engine/physics";
 import { frameCamera, gameById } from "@/engine/arcade";
-import type { Entity } from "@/engine/types";
 import type { LookMode } from "./look";
 import { arcadePlaying, avatarMotion, flight, toggleFlight } from "./body-state";
 
@@ -64,16 +63,6 @@ function readGamepad(dt: number): { lift: number; jump: boolean } {
   if (y && !padHeld.y) toggleFlight();
   padHeld.y = y;
   return { lift: (pad.buttons[7]?.value ?? 0) - (pad.buttons[6]?.value ?? 0), jump: !!pad.buttons[0]?.pressed };
-}
-
-/** The world's solids, worked out again only when the entities change. */
-const solidCache: { entities: Record<number, Entity> | null; solids: Solid[] } = { entities: null, solids: [] };
-function solidsFor(entities: Record<number, Entity>): Solid[] {
-  if (solidCache.entities !== entities) {
-    solidCache.entities = entities;
-    solidCache.solids = solidsOf(entities);
-  }
-  return solidCache.solids;
 }
 
 /** Where the body stands and how it is falling, between frames. */
@@ -207,13 +196,13 @@ export function Pilot() {
       },
       getMotion: () => ({ ...avatarMotion, flying: flight.get(), playing: arcadePlaying.get()?.game ?? null }),
       /** Stand somewhere, facing yaw (for the browser checks). */
-      place: (x: number, z: number, yaw: number) => {
+      place: (x: number, z: number, yaw: number, y?: number) => {
         faceLook(yaw, -0.16);
         body.vy = 0;
         useForge.setState((state) => {
           const avatar = Object.values(state.entities).find((entity) => entity.tags.includes("architect"));
           if (!avatar) return state;
-          return { entities: { ...state.entities, [avatar.id]: { ...avatar, transform: { ...avatar.transform, position: { x, y: avatar.transform.position.y + 0.5, z } }, customData: { ...avatar.customData, yaw: String(yaw) } } } };
+          return { entities: { ...state.entities, [avatar.id]: { ...avatar, transform: { ...avatar.transform, position: { x, y: y ?? avatar.transform.position.y + 0.5, z } }, customData: { ...avatar.customData, yaw: String(yaw) } } } };
         });
       },
       build: (kind: string) => useForge.getState().dispatchManual("build_play", { kind }),
@@ -517,7 +506,7 @@ declare global {
       getStick: () => { x: number; y: number };
       setLook: (x: number, y: number) => void;
       getMotion: () => { speed: number; grounded: boolean; vy: number; flying: boolean; playing: string | null };
-      place: (x: number, z: number, yaw: number) => void;
+      place: (x: number, z: number, yaw: number, y?: number) => void;
       build: (kind: string) => void;
     };
   }

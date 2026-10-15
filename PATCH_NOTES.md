@@ -912,3 +912,28 @@ and mountains around it, under a late-afternoon sky.
   In Chromium: walked into the bench and the Gold cube and stopped at their faces, ran, jumped (arms
   up, knees tucked), flew and landed, built Tetris, walked up, played it with keys at 1280x800 and
   with the touch buttons at 390x844, left with Esc and Exit; no console errors.
+
+## Moves: built from words, filled in on the fly
+- src/engine/motion.ts (tested in motion.test.ts):
+  - Building (after GENMO): 15 primitives (wave, cheer, clap, point, salute, bow, shrug, flex, think,
+    stretch, dance, jumping jacks, sit, look around, facepalm) and `composeMove`, which turns words
+    into a move: steps on "then" and commas, left/right (mirrored), fast/slow, big/small, N times,
+    "upper body", "keep" to loop. `moveFromKeys` takes keyframes a model writes; every pose is
+    clamped to joint limits (LIMITS), on making and again on loading a save (cleanMoves).
+  - Filling in (after MaskedMimic): `sampleMove` gives the joints a move drives right now and its
+    weight (fade in and out); `inpaint` lays them over the generator's pose joint by joint;
+    `legIk` is two-bone leg IK in the swing plane that reports how far short a leg falls.
+- Tools make_move and do_move (os.ts, harness.ts); moves are kept in the world (`World.moves`, at
+  most 24), saved, sent to linked devices, and kept through Reset. A figure does a move by
+  customData.move + moveSeq, so any figure can, and a looping move survives a reload.
+- Instant commands (moveIntent): "wave", "do a little dance", "stop dancing", "make a move called
+  hype: jumping jacks then cheer". Building verbs are left to the model ("build a dance floor").
+- Avatar.tsx: the move over the gait (legs stay the gait's while moving), feet on the ground actually
+  under each foot via physics.ts groundUnderFoot with the pelvis dropping for the lower foot, the
+  head turning to the gazed object when standing.
+- Moves.tsx: the Moves button by the view buttons (G): built-in and your moves, Stop, and a box to
+  make one from words (it is done at once and kept).
+- Checked: typecheck, lint (no errors), `npm run test:engine` (224 pass, 5 new), production build.
+  In Chromium at 1280x800 and 390x844: wave, dance, a new "keep dancing" made from words, a left
+  wave while walking (legs kept walking), "do a little dance" typed in the helm, one foot planted on
+  a cube and the other reaching down past its edge; no console errors.

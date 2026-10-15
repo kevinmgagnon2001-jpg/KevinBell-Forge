@@ -12,10 +12,39 @@ are walked straight onto; anything taller needs a jump.
 | Jump | Space | A | Jump |
 | Fly / land | F (then Space up, Shift or C down) | Y (triggers up and down) | Fly, then Up / Down / Land |
 | Use, play | E | X | the prompt |
+| Moves | G | | Moves |
 
 The avatar is a jointed figure posed every frame from how you move: it breathes and looks around
 standing, swings into a walk and stretches into a run, tucks on a jump, spreads its arms falling,
 crouches on a hard landing and leans into flight (`src/components/forge/Avatar.tsx`).
+
+## Moves: make your own, and the body fills in the rest
+
+Open **Moves** (by the view buttons, or G) and tap one: wave, cheer, clap, point, salute, bow, shrug,
+flex, think, stretch, dance, jumping jacks, sit, look around, facepalm. Or just type it in the helm:
+"wave", "do a little dance", "stop dancing".
+
+**Make new ones from words**, in the Moves box or the helm:
+
+- `make a move called victory: cheer then flex twice`
+- `wave with the left hand, then bow slowly`
+- `keep doing jumping jacks` (loops until you say stop)
+- `dance upper body` (keeps your legs free, so you can dance while you walk)
+
+Steps are split on "then" and commas; each can say left or right, fast or slow, big or small, and how
+many times. The model can also write a move as keyframes (`make_move` with `keys`), and every pose is
+clamped to what a body can do. Your moves are saved with the world and go to your linked devices.
+
+**Filling in on the fly.** A move only drives the joints it names; your walk or run fills in the rest,
+so you can wave while you walk (when you move, your legs always follow the stick). Each foot reaches
+the ground actually under it (a step, a kerb, the edge of a box), and your hips drop when one foot has
+to reach down. When you stand still, your head turns to whatever you are looking at.
+
+This follows two research ideas, made small enough for a phone: GENMO (NVIDIA, ICCV 2025: motion
+from text, video or keyframes) for building, and MaskedMimic (NVIDIA, SIGGRAPH Asia 2024: a full
+body filled in from partial constraints) for filling in. Nothing here is a trained network; the
+vocabulary, the inpainting and the leg solver are plain code in `src/engine/motion.ts` (tested in
+`motion.test.ts`), shaped so a small learned model could take the generator's place later.
 
 ## Things move
 

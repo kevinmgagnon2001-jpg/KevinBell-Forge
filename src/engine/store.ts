@@ -3,6 +3,7 @@ import { propose, sceneRefs } from "./bonded";
 import { nearestColorName } from "./color";
 import { executeProposal } from "./harness";
 import { gaugeIntent } from "./gauges";
+import { cleanMoves, moveIntent } from "./motion";
 import { bootWorld, ensureAvatar, ensureHelm, labWorld, stepWorld } from "./manifold";
 import { DEFAULT_MODEL_PATH, MEMORY_BUDGET_MB, TOOL_NAMES } from "./os";
 import { DEFAULT_RESIDENT_ID, isResidentId, residentById, type ResidentId } from "./resident-catalog";
@@ -318,6 +319,18 @@ export const useForge = create<ForgeState>((set, get) => {
         pushLog([
           { tone: "user", title: "Intent", body: intent },
           { tone: ok ? "engine" : "warn", title: "Diagnostics", body: ok ? "The report is open as a GitHub issue. Review it and submit; the next build session reads it." : "Could not open the report." },
+        ]);
+        return;
+      }
+      // Moves ("wave", "do a little dance", "make a move called victory: cheer then flex") are picks
+      // and words from a fixed vocabulary (motion.ts), so they run now too.
+      const moveCall = moveIntent(intent, get());
+      if (moveCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: moveCall.tool, arguments: moveCall.arguments });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Moves", body: `${moveCall.tool} ${argLine(moveCall.arguments)}\n${ran.result}` },
         ]);
         return;
       }
@@ -656,6 +669,8 @@ export const useForge = create<ForgeState>((set, get) => {
         library: state.library,
         mechanics: state.mechanics,
         moverHash: state.moverHash,
+        // Moves you made stay through a reset, like your mechanics.
+        moves: state.moves,
       })),
     despawn: (id) => {
       const state = get();
@@ -700,6 +715,7 @@ export const useForge = create<ForgeState>((set, get) => {
           undo: Array.isArray(data.world.undo) ? data.world.undo.slice(-16) : [],
           skills: cleanSkills(data.world.skills),
           compat: Array.isArray(data.world.compat) ? data.world.compat.filter((item): item is string => typeof item === "string").slice(0, 8) : [],
+          moves: cleanMoves(data.world.moves),
           gravity: bootWorld().gravity,
           deltaTime: bootWorld().deltaTime,
         }));
@@ -754,6 +770,7 @@ function persistedWorld(state: ForgeState): World {
     undo: (state.undo ?? []).slice(-16),
     skills: (state.skills ?? []).slice(-12),
     compat: (state.compat ?? []).slice(0, 8),
+    moves: state.moves ?? [],
   };
 }
 
@@ -804,6 +821,7 @@ export function applySharedSave(value: unknown): boolean {
     undo: Array.isArray(save.world.undo) ? save.world.undo.slice(-16) : [],
     skills: cleanSkills(save.world.skills),
     compat: Array.isArray(save.world.compat) ? save.world.compat.filter((item): item is string => typeof item === "string").slice(0, 8) : [],
+    moves: cleanMoves(save.world.moves),
     gravity: bootWorld().gravity,
     deltaTime: bootWorld().deltaTime,
   }));

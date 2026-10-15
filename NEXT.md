@@ -123,6 +123,12 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
   (Avatar.tsx); the body walks with gravity and collisions (physics.ts stepWalk), jumps, flies (F);
   loose objects fall, bounce, slide, stack, roll, knock and get shoved, all the time (Settle in
   Viewport.tsx); games you build are played by walking up and pressing Play (arcade.ts, Arcade.tsx).
+- Moves (motion.ts, Moves.tsx, Avatar.tsx): make moves from words or keyframes (after GENMO), layer
+  them over the live gait by joint mask, feet planted on the real ground by two-bone IK, head looks
+  at what you look at (after MaskedMimic). Next: record a move from the phone camera (pose estimation,
+  the "video" input GENMO takes); hands that reach for things (pick up, press the arcade buttons);
+  carry your moves through portals like mechanics; a small learned motion model behind the same Pose
+  shape, off the main thread, with the code generator as the fallback.
 - Next: more games in `GAMES` (snake, pong, breakout fit the same entry); a high score per game kept in
   the save; boxes that tumble (only balls turn today); the third-person camera pulling in when a wall
   is behind you; foot placement on slopes; on islands you visit, the host's walk does not yet use

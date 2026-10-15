@@ -12,7 +12,11 @@ import { useFrame } from "@react-three/fiber";
 import { useRef, type ReactNode } from "react";
 import type { Group } from "three";
 import type { Entity } from "@/engine/types";
+import { inpaint, LEGS, legIk, movesOf, sampleMove, type Move } from "@/engine/motion";
+import { groundUnderFoot, solidsFor } from "@/engine/physics";
+import { useForge } from "@/engine/store";
 import { avatarMotion } from "./body-state";
+import { currentGaze } from "./look";
 
 const SUIT = "#313c4a";
 const SUIT_LIGHT = "#4b5a6c";
@@ -66,6 +70,12 @@ function Limb({ length, radius, color }: { length: number; radius: number; color
 
 export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; tone: string; live: boolean; head?: ReactNode }) {
   const joints = useRef<Partial<Record<Joint, Group | null>>>({});
+  // The move this figure is doing (motion.ts), and when it started. A one-shot already in the save
+  // when the figure appears is not replayed; a looping one carries on.
+  const moves = useForge((s) => s.moves);
+  const moveId = entity.customData.move ?? "";
+  const moveSeq = entity.customData.moveSeq ?? "";
+  const playing = useRef<{ key: string; move: Move | null; started: number }>({ key: `${moveId}#${moveSeq}`, move: null, started: Number.NEGATIVE_INFINITY });
   const chestShell = useRef<Group>(null);
   const pose = useRef<Pose>(blankPose());
   const clock = useRef({ t: Math.random() * 10, phase: 0 });
@@ -77,6 +87,14 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
     const dt = Math.min(delta, 0.1);
     const c = clock.current;
     c.t += dt;
+    const doing = playing.current;
+    const key = `${moveId}#${moveSeq}`;
+    if (doing.key !== key || (doing.move === null && moveId)) {
+      const move = moveId ? (movesOf({ moves }).find((m) => m.id === moveId) ?? null) : null;
+      // A new request starts now; on first sight only a looping move plays.
+      const fresh = doing.key !== key;
+      playing.current = { key, move, started: fresh || move?.loop ? c.t : Number.NEGATIVE_INFINITY };
+    }
     const m = live ? avatarMotion : { speed: Number(entity.customData.speed) || 0, grounded: true, vy: 0, flying: false, landed: 0 };
     const speed = Math.min(m.speed, 12);
     const air = !m.grounded && !m.flying;
@@ -157,20 +175,87 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
       if (live) avatarMotion.landed *= Math.exp(-dt * 5);
     }
 
+    // Looking at something: the head turns to it when nothing else is using the head.
+    if (live && idle > 0.5) {
+      const gaze = currentGaze();
+      const state = useForge.getState();
+      const seen = gaze != null ? state.entities[gaze] : undefined;
+      if (seen && seen.id !== entity.id && !seen.tags.includes("helm")) {
+        const p = entity.transform.position;
+        const q = seen.transform.position;
+        const yaw = Number(entity.customData.yaw) || 0;
+        let turn = Math.atan2(q.x - p.x, q.z - p.z) - yaw;
+        turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+        if (Math.abs(turn) < 1.9) {
+          t.head.y = Math.max(-1.1, Math.min(1.1, turn));
+          t.head.x = Math.max(-0.5, Math.min(0.5, -Math.atan2(q.y - (p.y + 0.6), Math.hypot(q.x - p.x, q.z - p.z))));
+        }
+      }
+    }
+
+    // A move fills in only the joints it drives; the gait keeps the rest. Walking, the legs stay the
+    // gait's (the stick is the stronger constraint), so you can wave on the move.
+    const now = playing.current;
+    let posed: Pose = t;
+    if (now.move && Number.isFinite(now.started)) {
+      const sample = sampleMove(now.move, c.t - now.started);
+      if (sample.done) now.started = Number.NEGATIVE_INFINITY;
+      else {
+        const moving = speed > 0.8 || air || m.flying;
+        const mask = moving ? sample.mask.filter((j) => !LEGS.includes(j)) : sample.mask;
+        const pose = moving ? { ...sample.pose, lift: undefined } : sample.pose;
+        posed = inpaint(t, { pose, mask, weight: sample.weight }) as Pose;
+      }
+    }
+
+    // Feet on the real ground: each foot reaches the step, kerb or slope actually under it, and the
+    // pelvis drops when one foot has to reach down (the walker stands on the highest thing under it).
+    if (live && m.grounded && !m.flying) {
+      const state = useForge.getState();
+      const solids = solidsFor(state.entities);
+      const p = entity.transform.position;
+      const yaw = Number(entity.customData.yaw) || 0;
+      const cos = Math.cos(yaw);
+      const sin = Math.sin(yaw);
+      const feetY = p.y - 0.62;
+      const reach = (side: "L" | "R") => {
+        const hip = posed[`hip${side}`].x;
+        const knee = posed[`knee${side}`].x;
+        const lz = -THIGH * Math.sin(hip) - SHIN * Math.sin(hip + knee);
+        const lx = side === "L" ? 0.09 : -0.09;
+        const fx = p.x + cos * lx + sin * lz;
+        const fz = p.z - sin * lx + cos * lz;
+        const under = groundUnderFoot(fx, fz, feetY + 0.42, solids);
+        return Math.max(-0.3, Math.min(0.4, under - feetY));
+      };
+      const raiseL = reach("L");
+      const raiseR = reach("R");
+      if (Math.abs(raiseL) > 0.01 || Math.abs(raiseR) > 0.01) {
+        const drop = Math.max(0, -Math.min(raiseL, raiseR, 0));
+        const solved = { ...posed, lift: posed.lift - drop } as Pose;
+        for (const [side, raise] of [["L", raiseL], ["R", raiseR]] as const) {
+          const leg = legIk(posed[`hip${side}`].x, posed[`knee${side}`].x, raise + drop, THIGH, SHIN);
+          solved[`hip${side}`] = { ...posed[`hip${side}`], x: leg.hip };
+          solved[`knee${side}`] = { ...posed[`knee${side}`], x: leg.knee };
+        }
+        posed = solved;
+      }
+    }
+
     // Ease every joint toward its target, so changes of gait blend instead of snapping.
     const p = pose.current;
     const k = 1 - Math.exp(-dt * 14);
-    for (const name of Object.keys(t) as (keyof Pose)[]) {
+    for (const name of Object.keys(posed) as (keyof Pose)[]) {
       if (name === "lift" || name === "breathe") continue;
       const from = p[name] as { x: number; y: number; z: number };
-      const to = t[name] as { x: number; y: number; z: number };
+      const to = posed[name] as { x: number; y: number; z: number };
       from.x += (to.x - from.x) * k;
       from.y += (to.y - from.y) * k;
       from.z += (to.z - from.z) * k;
       const g = joints.current[name as Joint];
       if (g) g.rotation.set(from.x, from.y, from.z);
     }
-    p.lift += (t.lift - p.lift) * k;
+    p.lift += (posed.lift - p.lift) * k;
     p.breathe += (t.breathe - p.breathe) * k;
     const pelvis = joints.current.pelvis;
     if (pelvis) pelvis.position.y = HIP_Y + p.lift;

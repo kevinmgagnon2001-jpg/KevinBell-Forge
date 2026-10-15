@@ -2443,6 +2443,101 @@
 .view.is-playing .hud,
 .view.is-playing .visor,
 .view.is-playing .tex-deck,
-.view.is-playing .perf {
+.view.is-playing .perf,
+.view.is-playing .moves {
   display: none;
+}
+
+/* The Moves panel (Moves.tsx). */
+.moves {
+  position: absolute;
+  top: 3.6rem;
+  right: 0.6rem;
+  z-index: 14;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  width: min(21rem, calc(100vw - 1.6rem));
+  max-height: min(26rem, 60vh);
+  overflow-y: auto;
+  padding: 0.6rem;
+  border: 1px solid rgb(212 162 74 / 55%);
+  border-radius: 0.8rem;
+  background: rgb(9 10 12 / 92%);
+  color: #f2f2f4;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  pointer-events: auto;
+}
+
+.moves-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.moves-head strong {
+  flex: 1;
+  font-size: 0.85rem;
+}
+
+.moves-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.moves-chip {
+  min-height: 34px;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.moves-chip.is-own {
+  border-color: rgb(212 162 74 / 60%);
+}
+
+.moves-chip.is-on {
+  border-color: #7ee0c8;
+  color: #7ee0c8;
+}
+
+.moves-chip:disabled {
+  opacity: 0.45;
+}
+
+.moves-make {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.moves-make input {
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 8px;
+  background: rgb(0 0 0 / 30%);
+  color: inherit;
+  font: inherit;
+  /* 16px keeps phones from zooming into the field. */
+  font-size: max(16px, 1em);
+}
+
+.moves-note {
+  margin: 0;
+  color: #9aa1ab;
+  line-height: 1.35;
+}
+
+/* Phones: the view buttons take two rows, so the Moves panel opens under them. */
+@media (max-width: 600px) {
+  .moves {
+    top: 7.2rem;
+  }
 }

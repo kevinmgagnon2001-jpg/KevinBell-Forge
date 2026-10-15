@@ -477,3 +477,20 @@ export function solidsOverlap(a: Solid, b: Solid, margin = 0): boolean {
     a.max.z > b.min.z - margin + EPS
   );
 }
+
+/** The world's solids, worked out again only when the entities change (shared by the walker and the feet). */
+const solidCache: { entities: Record<number, Entity> | null; solids: Solid[] } = { entities: null, solids: [] };
+export function solidsFor(entities: Record<number, Entity>): Solid[] {
+  if (solidCache.entities !== entities) {
+    solidCache.entities = entities;
+    solidCache.solids = solidsOf(entities);
+  }
+  return solidCache.solids;
+}
+
+/** Height of what a foot at (x, z) would stand on, no higher than `top`: the land or a solid's top. */
+export function groundUnderFoot(x: number, z: number, top: number, solids: Solid[], ground: (x: number, z: number) => number = groundAt): number {
+  const r = 0.05;
+  const box: Box = { minX: x - r, maxX: x + r, minY: -Infinity, maxY: Infinity, minZ: z - r, maxZ: z + r };
+  return supportUnder(x, z, box, top, solids.filter((s) => !s.dynamic), ground).y;
+}

@@ -113,6 +113,19 @@ export const TOOLS: ToolSchema[] = [
     parameters: { move: "string" },
   },
   {
+    name: "make_move",
+    description:
+      "Make a move (an emote or animation) and keep it. words describe it from primitives: wave, cheer, clap, point, salute, bow, shrug, flex, think, stretch, dance, jumping jacks, sit, look around, facepalm; with left/right, fast/slow, big/small, N times, 'then' between steps, 'upper body' to keep walking, 'keep' to loop. Or give keys as JSON keyframes [{t:0..1,pose:{joint:{x,y,z}}}] with length seconds; joints are root pelvis chest head hipL hipR kneeL kneeR shoulderL shoulderR elbowL elbowR.",
+    parameters: { name: "string", words: "string", keys: "string", length: "f32", loop: "bool" },
+    optional: ["name", "words", "keys", "length", "loop"],
+  },
+  {
+    name: "do_move",
+    description: "Do a move now: a kept move's name, or words to build one on the spot (as make_move), or stop. id is the figure (default you).",
+    parameters: { move: "string", id: "u64" },
+    optional: ["id"],
+  },
+  {
     name: "apply_method",
     description:
       "Run a local stand-in for a research method. name is gsplat (LoCoSplat-style densify), xpbd (position projection), or nanite (cluster LOD cut). Never executes remote code.",
