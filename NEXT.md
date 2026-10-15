@@ -5,13 +5,10 @@ History and details: `PATCH_NOTES.md` (last sections). The direction now: `docs/
 
 ## Handoff (2026-10-15)
 
-- **Release v0.6.10** (PR #13: gauges, diagnostics, rotation, TV remote) published the desktop installers
-  but not the Android APK: the emulator launch test failed before Forge ran, because the runner's
-  Android system image download was corrupt ("Error on ZipFile unknown archive"). The same APK passed the
-  test on the branch an hour earlier. The failed jobs were re-run; check the Release run
-  (Actions → Release, run 38802536055) and that `Forge-0.6.10-android-arm64.apk` is on the v0.6.10 Release.
-  If it failed again, run Actions → Release → Run workflow (patch) after merging this branch, which
-  now fetches the system image with retries (`android.yml`).
+- **Release v0.6.10** (PR #13: gauges, diagnostics, rotation, TV remote) is complete: its Android APK
+  was first held back because the runner's emulator system image download arrived corrupt (the launch
+  test failed before Forge ran); the re-run passed and attached `Forge-0.6.10-android.apk`. The branch
+  now fetches the image with retries (`android.yml`); that step passed in a branch run.
 - **On this branch, not in a PR yet:**
   1. FSR 1-style upscaling (`Upscaler.tsx`, render scale per quality rung in `perf.ts`, `?upscale=`).
   2. Ahead-of-time recompilation with a cache (`src/engine/guest/aot.ts`, `forge run --aot`,
