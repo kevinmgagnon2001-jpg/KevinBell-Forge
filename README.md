@@ -16,6 +16,11 @@ The lab's engine room shows the device's heat, frame rate, memory, battery, thro
 steampunk (or cyberpunk) machines. Say "make the gauges neon" or "build the engine room" and it changes at
 once. See [docs/GAUGES.md](docs/GAUGES.md).
 
+## Walk, jump, fly, and play the games you build
+
+You walk with weight now: jump onto things, run, fly, shove loose objects around. Build Tetris or a
+marble run, walk up to it and press Play to take the controls. See [docs/PLAY.md](docs/PLAY.md).
+
 ## Run it from source
 
 ```sh

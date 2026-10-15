@@ -883,3 +883,32 @@ and mountains around it, under a late-afternoon sky.
 - Checked: typecheck, lint (no errors), `npm run test:engine` (208 pass, 1 new), production build. In
   Chromium at 1280x800 and 390x844: the picker restyled all six gauges (neon, then bar meter), and up
   close the gearbox, smokestack and bar meter rendered with live readings; no console errors.
+
+## A body with weight, physics everywhere, and games you walk up to and play
+- Avatar (src/components/forge/Avatar.tsx): a jointed figure (hips, knees, shoulders, elbows, spine,
+  neck, head with the helm on it) replaces the capsule. Posed every frame from avatarMotion
+  (body-state.ts): idle breathing and looking around, walk and run cycles in step with ground speed,
+  tuck on the way up, arms out falling, a crouch on hard landings, a lean into flight. Joints ease
+  toward each pose, so gaits blend.
+- Walking (src/engine/physics.ts stepWalk, used by pilot.tsx): gravity, jump (Space, gamepad A, Jump
+  button), standing on anything solid, steps up to 40 cm, sliding along walls, ceilings, getting out
+  of anything you start inside, the land outside the lab (terrain.ts) as ground. Shift (or the stick
+  all the way) runs. F (gamepad Y, Fly button) flies, as before but with walls. Gamepad: A jumps,
+  X uses (was A).
+- Bodies (stepBody, stepBodies, collidePairs): fall, land, bounce, friction, walls, stacking, rolling
+  balls, knocks between bodies by mass, shoves from the walker, marble ramps as rails. A body at rest
+  sleeps and comes back as the same object, so Settle (Viewport.tsx) runs every frame for free and
+  things move without Run. stepWorld uses the same code.
+- Building a game moves exhibits out of its way (makeRoom in manifold.ts): the marble run was built
+  through the Clay cube, which did not matter until things collided.
+- Arcade (src/engine/arcade.ts, src/components/forge/Arcade.tsx): walk up to Tetris or the marble
+  run and a Play prompt appears (E, gamepad X, tap). Playing: the camera frames the game to fit the
+  screen (frameCamera), you step out of the picture, the view's overlays hide, keys and gamepad and
+  big touch buttons drive the game (held moves repeat), the game keeps its own clock, Esc / B / Exit
+  leaves. Game over offers Play again. Moves go straight to the world, without an undo step or a log
+  line each.
+- Guide: docs/PLAY.md.
+- Checked: typecheck, lint (no errors), `npm run test:engine` (219 pass, 12 new), production build.
+  In Chromium: walked into the bench and the Gold cube and stopped at their faces, ran, jumped (arms
+  up, knees tucked), flew and landed, built Tetris, walked up, played it with keys at 1280x800 and
+  with the touch buttons at 390x844, left with Esc and Exit; no console errors.

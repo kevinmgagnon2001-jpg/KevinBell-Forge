@@ -1,5 +1,6 @@
 import { autoColor, normalizeColor } from "./color.ts";
 import { buildRig, RIGS } from "./gauges.ts";
+import { solidOf, solidsOf, solidsOverlap, stepBodies, stepBody } from "./physics.ts";
 import { IDENTITY, V3, type Entity, type PhysicsBody, type Representation, type Vec3, type World } from "./types.ts";
 
 export const GRAVITY = -9.81;
@@ -462,72 +463,16 @@ export function seatOffCenter(world: World, entity: Entity, args: Record<string,
   };
 }
 
-function deckUnder(entity: Entity, others: Entity[]): { top: number; slide: string } | null {
-  const p = entity.transform.position;
-  let best: { top: number; slide: string } | null = null;
-  for (const other of others) {
-    if (other.id === entity.id) continue;
-    if (assetKind(other) !== "platform") continue;
-    const op = other.transform.position;
-    const os = other.transform.scale;
-    const top = op.y + os.y / 2;
-    if (Math.abs(p.x - op.x) > os.x / 2 + 0.35) continue;
-    if (Math.abs(p.z - op.z) > os.z / 2 + 0.35) continue;
-    if (p.y + 0.35 < top) continue;
-    if (!best || top > best.top) best = { top, slide: other.customData.slide || "" };
-  }
-  return best;
-}
-
-function floorY(entity: Entity): number {
-  return Math.max(0.02, entity.transform.scale.y / 2);
-}
-
+/** One loose body, one step, against everything else (physics.ts). */
 export function integrate(entity: Entity, dt: number, gravity: number, others: Entity[] = []): Entity {
-  const phys = entity.physics;
-  if (!phys || phys.isKinematic) return entity;
-  const deck = deckUnder(entity, others);
-  const velocity = {
-    x: phys.velocity.x,
-    y: phys.velocity.y + gravity * dt,
-    z: phys.velocity.z,
-  };
-  if (deck?.slide) {
-    const [sx, sz] = deck.slide.split(",").map((part) => Number(part.trim()));
-    if (Number.isFinite(sx)) velocity.x = sx;
-    if (Number.isFinite(sz)) velocity.z = sz;
-  }
-  const p = entity.transform.position;
-  let y = p.y + velocity.y * dt;
-  const floor = Math.max(floorY(entity), deck ? deck.top + entity.transform.scale.y / 2 : 0);
-  if (y < floor) {
-    y = floor;
-    if (velocity.y < 0) velocity.y = 0;
-  }
-  return {
-    ...entity,
-    physics: { ...phys, velocity },
-    transform: {
-      ...entity.transform,
-      position: {
-        x: p.x + velocity.x * dt,
-        y,
-        z: p.z + velocity.z * dt,
-      },
-    },
-  };
+  return stepBody(entity, dt, gravity, solidsOf(others.filter((other) => other.id !== entity.id)));
 }
 
 export function stepWorld(world: World, count = 1): World {
   const steps = Math.max(0, Math.min(240, count));
   let current = world;
   for (let i = 0; i < steps; i += 1) {
-    const bodies = Object.values(current.entities);
-    const next: Record<number, Entity> = {};
-    for (const entity of bodies) {
-      next[entity.id] = integrate(entity, current.deltaTime, current.gravity, bodies);
-    }
-    current = { ...current, entities: next, tick: current.tick + 1 };
+    current = { ...current, entities: stepBodies(current.entities, current.deltaTime, current.gravity), tick: current.tick + 1 };
     if (current.tick % 28 === 0) current = playTetris(current, "down");
   }
   return current;
@@ -545,8 +490,8 @@ export function recordEvent(world: World, msg: string): World {
   return { ...world, eventLog };
 }
 
-const CELL = 0.36;
-const COLS = 10;
+export const CELL = 0.36;
+export const COLS = 10;
 const PIECES = ["I", "O", "T", "S", "Z", "J", "L"] as const;
 type PieceName = (typeof PIECES)[number];
 
@@ -802,6 +747,32 @@ function withoutTag(world: World, tag: string): { entities: Record<number, Entit
   return { entities, nextId: world.nextId };
 }
 
+/**
+ * Something just built (a game, a run) must not stand inside the room's exhibits now that things
+ * collide: move each exhibit in the way to the nearest free spot beside it.
+ */
+function makeRoom(world: World, builtIds: number[]): World {
+  const built = new Set(builtIds);
+  const added = solidsOf(builtIds.map((id) => world.entities[id]).filter((e): e is Entity => !!e));
+  const entities = { ...world.entities };
+  for (const entity of Object.values(world.entities)) {
+    if (built.has(entity.id) || entity.tags.includes("floor")) continue;
+    const solid = solidOf(entity);
+    if (!solid || !added.some((a) => solidsOverlap(a, solid, 0.3))) continue;
+    const others = solidsOf(Object.values(entities).filter((e) => e.id !== entity.id && !e.tags.includes("floor")));
+    const p = entity.transform.position;
+    found: for (const d of [0.6, 1, 1.5, 2, 2.6, 3.4]) {
+      for (const [dx, dz] of [[0, 1], [0, -1], [1, 0], [-1, 0]]) {
+        const moved = { ...solid, min: { ...solid.min, x: solid.min.x + dx * d, z: solid.min.z + dz * d }, max: { ...solid.max, x: solid.max.x + dx * d, z: solid.max.z + dz * d } };
+        if (others.some((o) => solidsOverlap(o, moved, 0.3))) continue;
+        entities[entity.id] = { ...entity, transform: { ...entity.transform, position: { x: p.x + dx * d, y: p.y, z: p.z + dz * d } } };
+        break found;
+      }
+    }
+  }
+  return { ...world, entities };
+}
+
 export function buildTetris(world: World): World {
   const fresh = withoutTag(world, "tetris");
   const entities = { ...fresh.entities };
@@ -859,7 +830,8 @@ export function buildTetris(world: World): World {
   wall("WellLeft", originX - CELL * 0.85);
   wall("WellRight", originX + COLS * CELL - CELL * 0.15);
   const spawned = spawnPiece(entities, id, originX, originZ, "O");
-  return { ...world, entities, nextId: spawned.nextId };
+  const builtIds = Array.from({ length: spawned.nextId - fresh.nextId }, (_, i) => fresh.nextId + i);
+  return makeRoom({ ...world, entities, nextId: spawned.nextId }, builtIds);
 }
 
 export function buildMarble(world: World): World {
@@ -910,5 +882,6 @@ export function buildMarble(world: World): World {
   );
   marble.customData = { ...marble.customData, solver: "xpbd" };
   entities[id] = marble;
-  return { ...world, entities, nextId: id + 1 };
+  const builtIds = Array.from({ length: id + 1 - fresh.nextId }, (_, i) => fresh.nextId + i);
+  return makeRoom({ ...world, entities, nextId: id + 1 }, builtIds);
 }
