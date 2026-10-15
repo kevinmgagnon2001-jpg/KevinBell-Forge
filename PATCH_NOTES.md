@@ -863,3 +863,19 @@ and mountains around it, under a late-afternoon sky.
   the remote is up (it sits in the same spot on a phone).
 - Checked in Chromium at 412x891, 891x412 and 1280x800 standing at the TV: the TV in the world stays
   in sight with the remote up and with ⋯ open; no console errors from Forge.
+
+## FSR 1-style upscaling: draw fewer pixels, keep the picture sharp
+- src/components/forge/Upscaler.tsx: the world is drawn at part of the screen's pixels into a small HDR
+  target (MSAA when the rung has antialiasing), tone mapped (three's OutputPass), upscaled with EASU
+  (AMD FidelityFX FSR 1's edge-adaptive 12-tap filter, MIT) and sharpened with RCAS, to the screen.
+  The passes only see the finished picture, so the same pipeline can later sit behind any program
+  Forge runs (docs/RECOMPILER.md).
+- Quality ladder (perf.ts, tested): each rung has a render `scale`. High keeps 2× sharpness and draws at
+  77 % (it used to drop to 1.5×); Medium 2× at 67 %; Low 1.5× at 67 %; Lowest 1.5× at 50 %; Plain 1× at
+  75 %. Ultra draws every pixel. Each rung down shades no more pixels than the one above.
+- `?upscale=0.5` (0.25–1) fixes the render scale, `?upscale=off` turns it off, for comparing on a device.
+- Points (splats, the plaza's motes) keep their size when upscaled (render-scale.ts).
+- Stats shows "drawn at 75 % and upscaled"; draw calls count every pass of the frame; Copy report
+  includes the render scale.
+- Checked in Chromium: full vs 50 % pictures match in colour and tone, no shader errors, splats the
+  same size; phone layout with Stats open. Not measured on the phone yet: use Stats → Copy report.

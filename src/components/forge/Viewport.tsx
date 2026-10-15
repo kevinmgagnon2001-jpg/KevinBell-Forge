@@ -3,7 +3,8 @@ import { Html, OrbitControls } from "@react-three/drei";
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MutableRefObject, type ReactNode } from "react";
 import type { Group, Vector3Tuple } from "three";
 import { AdditiveBlending, BoxGeometry, DoubleSide, EdgesGeometry, Matrix4, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3, type Texture } from "three";
-import type { Mesh, MeshStandardMaterial } from "three";
+import type { Mesh, MeshStandardMaterial, PointsMaterial } from "three";
+import { pointScale } from "./render-scale";
 import { clusterDag, selectCut } from "@/engine/cluster-lod";
 import type { Entity, Vec3 } from "@/engine/types";
 import { localTexture, TEXTURE_PACKS, type TexturePack } from "@/engine/asset-url";
@@ -18,7 +19,8 @@ import { RoomPicture } from "./picture";
 import { probeHardware, qualityFor, sceneryRequested, softRenderRequested, type SceneryLevel } from "@/engine/hardware";
 import { Scenery } from "./Scenery";
 import { PerfOverlay, PerfProbe, startQuality, togglePerf, usePerf } from "./PerfOverlay";
-import { LADDER, startRung } from "@/engine/perf";
+import { LADDER, startRung, upscaleOverride } from "@/engine/perf";
+import { Upscaler } from "./Upscaler";
 import { faceLook, lookStick, pilotKeys, pilotStick, pointerClaim, setAimPoint, setGazeLock, useGazeId, useLook } from "./look";
 import { DeviceButton } from "./DeviceScreen";
 import { nativeTv, useTvPicture, useTvView, watchBig } from "./TvRemote";
@@ -59,6 +61,15 @@ function hexRgb(hex: string): [number, number, number] {
   const value = Number.parseInt(full, 16);
   if (!Number.isFinite(value)) return [0.8, 0.8, 0.8];
   return [((value >> 16) & 255) / 255, ((value >> 8) & 255) / 255, (value & 255) / 255];
+}
+
+/** A points material whose size follows the render scale (render-scale.ts), so splats keep their size when upscaled. */
+function ScaledPoints({ size, ...rest }: { size: number; color?: string; vertexColors?: boolean; sizeAttenuation?: boolean; depthWrite?: boolean; transparent?: boolean; opacity?: number }) {
+  const ref = useRef<PointsMaterial>(null);
+  useFrame(() => {
+    if (ref.current) ref.current.size = size * pointScale.value;
+  });
+  return <pointsMaterial ref={ref} size={size} {...rest} />;
 }
 
 function NeuralCloud({
@@ -122,7 +133,7 @@ function NeuralCloud({
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
         <bufferAttribute attach="attributes-color" args={[colors, 3]} />
       </bufferGeometry>
-      <pointsMaterial
+      <ScaledPoints
         vertexColors
         size={shape === "slab" ? 0.06 : 0.042}
         sizeAttenuation
@@ -198,7 +209,7 @@ function SplatCloud({
       <bufferGeometry>
         <bufferAttribute attach="attributes-position" args={[positions, 3]} />
       </bufferGeometry>
-      <pointsMaterial
+      <ScaledPoints
         color={color}
         size={size}
         sizeAttenuation
@@ -1497,6 +1508,9 @@ export function Viewport() {
   const rung = LADDER[perfState.start === null ? begin.start : perfState.rung];
   const scenery = rung.scenery;
   const shadows = rung.shadows && scenery !== "off" && scenery !== "min";
+  // Draw at part of the screen's pixels and upscale (Upscaler.tsx); ?upscale= fixes it for comparing.
+  const forcedScale = useMemo(() => upscaleOverride(globalThis.location?.search ?? ""), []);
+  const renderScale = forcedScale ?? rung.scale;
   // The flat software picture is a debug view for machines with no GPU output.
   // It is off by default because it paints over the real renderer.
   const soft = useMemo(() => softRenderRequested(), []);
@@ -1521,6 +1535,7 @@ export function Viewport() {
       >
         <Stage scenery={scenery} shadows={shadows} />
         <PerfProbe />
+        {renderScale < 1 ? <Upscaler scale={renderScale} antialias={quality.antialias} /> : null}
       </Canvas>
       {soft ? <RoomPicture /> : null}
       <div className="hud">

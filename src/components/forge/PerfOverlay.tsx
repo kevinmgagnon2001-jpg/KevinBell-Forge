@@ -293,7 +293,7 @@ export function PerfOverlay() {
     const lines = [
       `Forge performance report ${new Date().toISOString()}`,
       `fps ${p.fps.toFixed(1)} avg ${p.avg.toFixed(1)} ms worst ${p.worst.toFixed(0)} ms`,
-      `quality ${rung.name} (scenery ${rung.scenery}, dpr ${rung.dpr}, shadows ${rung.shadows ? "on" : "off"}) auto ${p.auto ? "on" : "off"}${p.forced ? " (set by address)" : ""}`,
+      `quality ${rung.name} (scenery ${rung.scenery}, dpr ${rung.dpr}, render scale ${rung.scale}, shadows ${rung.shadows ? "on" : "off"}) auto ${p.auto ? "on" : "off"}${p.forced ? " (set by address)" : ""}`,
       `draw calls ${p.calls} triangles ${p.triangles} textures ${p.textures} geometries ${p.geometries} js heap ${p.heapMb.toFixed(0)} MB`,
       h ? `battery ${h.battery}% ${h.temperature.toFixed(1)} C ${h.charging ? "charging" : ""} thermal ${h.thermal}` : "battery: not available",
       `screen ${window.innerWidth}x${window.innerHeight} @${window.devicePixelRatio} ${navigator.userAgent}`,
@@ -338,7 +338,7 @@ export function PerfOverlay() {
         ) : null}
       </dl>
       <p className="perf-quality">
-        Quality <strong>{rung.name}</strong>: scenery {rung.scenery}, sharpness {rung.dpr}×, shadows {rung.shadows ? "on" : "off"}
+        Quality <strong>{rung.name}</strong>: scenery {rung.scenery}, sharpness {rung.dpr}×{rung.scale < 1 ? `, drawn at ${Math.round(rung.scale * 100)}% and upscaled` : ""}, shadows {rung.shadows ? "on" : "off"}
         {p.forced ? " (set by the address)" : ""}
       </p>
       <div className="perf-row">
@@ -346,7 +346,7 @@ export function PerfOverlay() {
           Auto {p.auto ? "on" : "off"}
         </button>
         {LADDER.map((r, i) => (
-          <button key={r.name} type="button" className={`perf-chip ${i === p.rung ? "is-on" : ""}`} onClick={() => chooseRung(i)} disabled={p.forced} title={`${r.scenery}, ${r.dpr}×, shadows ${r.shadows ? "on" : "off"}`}>
+          <button key={r.name} type="button" className={`perf-chip ${i === p.rung ? "is-on" : ""}`} onClick={() => chooseRung(i)} disabled={p.forced} title={`${r.scenery}, ${r.dpr}×, drawn at ${Math.round(r.scale * 100)}%, shadows ${r.shadows ? "on" : "off"}`}>
             {r.name}
           </button>
         ))}

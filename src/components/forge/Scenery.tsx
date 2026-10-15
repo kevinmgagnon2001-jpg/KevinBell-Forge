@@ -44,6 +44,7 @@ import {
 import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { SceneryLevel } from "@/engine/hardware";
 import { fbm, heightAt, LAKE, LAND_HALF, noise2, PLAZA_RADIUS, scatter, seeded, slopeAt, WATER_Y } from "@/engine/terrain";
+import { pointScale } from "./render-scale";
 
 /** Late afternoon: the sun low over the lake, warm haze on the horizon. */
 const SKY = {
@@ -620,6 +621,7 @@ function makeClouds(level: SceneryLevel): Group {
 
 const MOTE_VERT = /* glsl */ `
 uniform float uTime;
+uniform float uPointScale;
 attribute float seed;
 varying float vFade;
 void main() {
@@ -629,7 +631,7 @@ void main() {
   p.z += cos(uTime * 0.27 + seed * 9.4) * 0.9;
   vec4 mv = modelViewMatrix * vec4(p, 1.0);
   vFade = 0.45 + 0.55 * sin(uTime * 1.7 + seed * 40.0);
-  gl_PointSize = min((2.2 + seed * 2.6) * (60.0 / -mv.z), 7.0);
+  gl_PointSize = min((2.2 + seed * 2.6) * (60.0 / -mv.z), 7.0) * uPointScale;
   gl_Position = projectionMatrix * mv;
 }`;
 const MOTE_FRAG = /* glsl */ `
@@ -655,7 +657,7 @@ function makeMotes(level: SceneryLevel, time: { value: number }): Points | null 
   const geometry = new BufferGeometry();
   geometry.setAttribute("position", new BufferAttribute(positions, 3));
   geometry.setAttribute("seed", new BufferAttribute(seeds, 1));
-  const material = new ShaderMaterial({ vertexShader: MOTE_VERT, fragmentShader: MOTE_FRAG, uniforms: { uTime: time }, transparent: true, depthWrite: false, blending: AdditiveBlending });
+  const material = new ShaderMaterial({ vertexShader: MOTE_VERT, fragmentShader: MOTE_FRAG, uniforms: { uTime: time, uPointScale: pointScale }, transparent: true, depthWrite: false, blending: AdditiveBlending });
   const points = new Points(geometry, material);
   points.frustumCulled = false;
   return scenery(points);

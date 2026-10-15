@@ -3,21 +3,45 @@
  * the picture down a rung when it struggles, or back up when it has room. The overlay that shows
  * the numbers is PerfOverlay.tsx; the hardware tier picks the starting rung (hardware.ts).
  *
- * The ladder, best first. Sharpness goes first (cheap to change), then shadows, then scenery detail
- * (which rebuilds the land, so it changes least often).
+ * The ladder, best first. Each rung draws the world at `scale` of the screen's pixels and upscales
+ * it (FSR 1-style, Upscaler.tsx): the picture stays at full sharpness (`dpr`) while the GPU shades
+ * fewer pixels. Then shadows go, then scenery detail (which rebuilds the land, so it changes least).
  */
 import type { Quality, SceneryChoice } from "./hardware.ts";
 
-export type Rung = { name: string; scenery: SceneryChoice; dpr: number; shadows: boolean };
+export type Rung = { name: string; scenery: SceneryChoice; dpr: number; shadows: boolean; scale: number };
 
 export const LADDER: Rung[] = [
-  { name: "Ultra", scenery: "full", dpr: 2, shadows: true },
-  { name: "High", scenery: "full", dpr: 1.5, shadows: true },
-  { name: "Medium", scenery: "lite", dpr: 1.5, shadows: true },
-  { name: "Low", scenery: "lite", dpr: 1.25, shadows: false },
-  { name: "Lowest", scenery: "min", dpr: 1, shadows: false },
-  { name: "Plain", scenery: "off", dpr: 1, shadows: false },
+  { name: "Ultra", scenery: "full", dpr: 2, shadows: true, scale: 1 },
+  { name: "High", scenery: "full", dpr: 2, shadows: true, scale: 0.77 },
+  { name: "Medium", scenery: "lite", dpr: 2, shadows: true, scale: 0.67 },
+  { name: "Low", scenery: "lite", dpr: 1.5, shadows: false, scale: 0.67 },
+  { name: "Lowest", scenery: "min", dpr: 1.5, shadows: false, scale: 0.5 },
+  { name: "Plain", scenery: "off", dpr: 1, shadows: false, scale: 0.75 },
 ];
+
+/** Pixels shaded per CSS pixel, per axis: the output sharpness times the render scale. */
+export function effectiveDpr(rung: Rung): number {
+  return rung.dpr * rung.scale;
+}
+
+/** The internal render size for an output size and a scale (whole pixels, at least 1). */
+export function renderSize(width: number, height: number, scale: number): { width: number; height: number } {
+  const s = Math.min(1, Math.max(0.25, Number.isFinite(scale) ? scale : 1));
+  return { width: Math.max(1, Math.round(width * s)), height: Math.max(1, Math.round(height * s)) };
+}
+
+/**
+ * `?upscale=0.5` (0.25..1) fixes the render scale, `?upscale=off` turns upscaling off; null when the
+ * address says nothing. For comparing on a device.
+ */
+export function upscaleOverride(search: string): number | null {
+  const raw = new URLSearchParams(search).get("upscale");
+  if (raw == null) return null;
+  if (raw === "off" || raw === "0" || raw === "1") return 1;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? Math.min(1, Math.max(0.25, n)) : null;
+}
 
 /** Where the hardware tier starts on the ladder (and the best it may climb to). */
 export function startRung(quality: Quality): number {
