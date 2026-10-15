@@ -768,3 +768,35 @@ and mountains around it, under a late-afternoon sky.
   - tapping it opens the big screen and asks for the player at the box's exact rectangle;
   - Back removes it.
   Not checked on a phone yet. The desktop app has the same Twitch limit and is not changed here.
+
+## Stats overlay, auto quality, and textures that actually show
+- **Stats** (by the view buttons) opens the performance overlay (PerfOverlay.tsx):
+  - frame rate and a 3-second frame-time graph, with the worst frame;
+  - draw calls, triangles, textures and JS memory;
+  - the quality rung;
+  - on Android, the battery, its temperature and Android's heat level (a new bridge method,
+    `deviceHealth`);
+  - Auto on/off, a manual rung, and **Copy report** for a shareable summary.
+- Auto quality (src/engine/perf.ts, tested) moves along a ladder:
+  - the rungs are Ultra → High → Medium → Low → Lowest → Plain;
+  - sharpness goes first, then shadows, then scenery detail;
+  - it steps down after 4 s under 28 fps, or at once when Android says the phone is severely hot (and
+    every 20 s when moderately hot);
+  - it climbs back only after 25 s above 55 fps, never above the device's starting rung, and backs
+    off for 5 minutes after a climb that had to be undone;
+  - a manual pick turns auto off and is remembered; `?scenery=` still fixes the picture.
+- Textures: wrapping a lab pack on a solid did nothing visible. The material was not rebuilt when a
+  texture map appeared, so solids stayed plain.
+  - The packs are now full surfaces (surfaces.ts): tileable 512 px colour, normal, roughness and glow
+    maps;
+  - each has a matching finish: polished marble, brushed metallic steel, bricks with mortar, wood
+    planks, clay, paper, a circuit board with glowing traces, and a night sky with glowing stars;
+  - they repeat about once a metre instead of stretching;
+  - a new material is made per surface, so they always show.
+- Checked in Chromium:
+  - the overlay reads correctly with a stand-in Android bridge;
+  - auto quality stepped Ultra → Medium → Low on a slow GPU, logging why;
+  - Copy report works;
+  - before and after screenshots show the old packs invisible and the new ones on the column, cubes
+    and sphere;
+  - no console errors.

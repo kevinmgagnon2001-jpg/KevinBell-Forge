@@ -1,12 +1,13 @@
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html, OrbitControls } from "@react-three/drei";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MutableRefObject, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MutableRefObject, type ReactNode } from "react";
 import type { Group, Vector3Tuple } from "three";
-import { AdditiveBlending, BoxGeometry, CanvasTexture, DoubleSide, EdgesGeometry, Matrix4, Object3D, Plane, Quaternion, Raycaster, SRGBColorSpace, Vector2, Vector3, type Texture } from "three";
+import { AdditiveBlending, BoxGeometry, DoubleSide, EdgesGeometry, Matrix4, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3, type Texture } from "three";
 import type { Mesh, MeshStandardMaterial } from "three";
 import { clusterDag, selectCut } from "@/engine/cluster-lod";
 import type { Entity, Vec3 } from "@/engine/types";
-import { TEXTURE_PACKS, type TexturePack } from "@/engine/asset-url";
+import { localTexture, TEXTURE_PACKS, type TexturePack } from "@/engine/asset-url";
+import { packPreview, surfaceFor, type Surface } from "./surfaces";
 import { loadAlbedo } from "@/engine/albedo";
 import { GRAVITY, restoreLab } from "@/engine/manifold";
 import { useForge } from "@/engine/store";
@@ -16,113 +17,14 @@ import { Pilot } from "./pilot";
 import { RoomPicture } from "./picture";
 import { probeHardware, qualityFor, sceneryRequested, softRenderRequested, type SceneryLevel } from "@/engine/hardware";
 import { Scenery } from "./Scenery";
+import { PerfOverlay, PerfProbe, startQuality, togglePerf, usePerf } from "./PerfOverlay";
+import { LADDER, startRung } from "@/engine/perf";
 import { faceLook, lookStick, pilotKeys, pilotStick, pointerClaim, setAimPoint, setGazeLock, useGazeId, useLook } from "./look";
 import { DeviceButton } from "./DeviceScreen";
 import { nativeTv, useTvPicture, useTvView, watchBig } from "./TvRemote";
 import { TV_SCREEN, TV_TAG } from "@/engine/tv";
 
 const UP = new Vector3(0, 1, 0);
-const texCache = new Map<string, Texture>();
-
-function paintLabTexture(kind: string): Texture {
-  const hit = texCache.get(kind);
-  if (hit) return hit;
-  const canvas = document.createElement("canvas");
-  canvas.width = 128;
-  canvas.height = 128;
-  const ctx = canvas.getContext("2d");
-  if (ctx) {
-    if (kind === "circuit") {
-      ctx.fillStyle = "#102033";
-      ctx.fillRect(0, 0, 128, 128);
-      ctx.strokeStyle = "#7ee0c8";
-      ctx.lineWidth = 2;
-      for (let i = 8; i < 128; i += 16) {
-        ctx.beginPath();
-        ctx.moveTo(i, 0);
-        ctx.lineTo(i, 128);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(0, i);
-        ctx.lineTo(48, i);
-        ctx.stroke();
-      }
-    } else if (kind === "clay") {
-      ctx.fillStyle = "#c46a4a";
-      ctx.fillRect(0, 0, 128, 128);
-      for (let i = 0; i < 420; i += 1) {
-        ctx.fillStyle = `rgba(70,28,18,${0.08 + (i % 4) * 0.04})`;
-        ctx.fillRect((i * 17) % 128, (i * 29) % 128, 3, 2);
-      }
-    } else if (kind === "paper") {
-      ctx.fillStyle = "#efe6d4";
-      ctx.fillRect(0, 0, 128, 128);
-      ctx.strokeStyle = "rgba(90,70,40,0.28)";
-      for (let y = 10; y < 128; y += 8) {
-        ctx.beginPath();
-        ctx.moveTo(6, y);
-        ctx.lineTo(122, y);
-        ctx.stroke();
-      }
-    } else if (kind === "steel") {
-      ctx.fillStyle = "#c5c9d1";
-      ctx.fillRect(0, 0, 128, 128);
-      ctx.strokeStyle = "rgba(70,76,86,0.45)";
-      ctx.lineWidth = 2;
-      for (let y = 4; y < 128; y += 6) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(128, y + (y % 12 === 0 ? 2 : 0));
-        ctx.stroke();
-      }
-    } else if (kind === "brick") {
-      ctx.fillStyle = "#8d4636";
-      ctx.fillRect(0, 0, 128, 128);
-      ctx.fillStyle = "#e7d3c4";
-      for (let row = 0; row < 5; row += 1) {
-        const y = 4 + row * 25;
-        const shift = row % 2 ? 16 : 0;
-        for (let x = -16 + shift; x < 128; x += 32) {
-          ctx.fillRect(x + 2, y + 2, 26, 18);
-        }
-      }
-    } else if (kind === "grain") {
-      ctx.fillStyle = "#b8884e";
-      ctx.fillRect(0, 0, 128, 128);
-      ctx.strokeStyle = "rgba(90,48,18,0.35)";
-      for (let i = 0; i < 18; i += 1) {
-        ctx.beginPath();
-        ctx.moveTo(0, i * 7);
-        ctx.bezierCurveTo(40, i * 7 + 4, 80, i * 7 - 3, 128, i * 7 + 2);
-        ctx.stroke();
-      }
-    } else if (kind === "night") {
-      ctx.fillStyle = "#141822";
-      ctx.fillRect(0, 0, 128, 128);
-      ctx.fillStyle = "#d5d8de";
-      for (let i = 0; i < 40; i += 1) {
-        const size = i % 5 === 0 ? 2 : 1;
-        ctx.fillRect((i * 37) % 124, (i * 19) % 124, size, size);
-      }
-    } else {
-      ctx.fillStyle = "#f4f1ec";
-      ctx.fillRect(0, 0, 128, 128);
-      ctx.strokeStyle = "#b7b0a6";
-      ctx.lineWidth = 3;
-      for (let i = 0; i < 7; i += 1) {
-        ctx.beginPath();
-        ctx.moveTo(-10, i * 22);
-        ctx.bezierCurveTo(30, i * 22 + 18, 70, i * 22 - 12, 140, i * 22 + 8);
-        ctx.stroke();
-      }
-    }
-  }
-  const texture = new CanvasTexture(canvas);
-  texture.colorSpace = SRGBColorSpace;
-  texture.needsUpdate = true;
-  texCache.set(kind, texture);
-  return texture;
-}
 
 function useReducedMotion() {
   const [reduce, setReduce] = useState(false);
@@ -304,6 +206,9 @@ function SplatCloud({
   );
 }
 
+/** A lab texture pack wrapped on this body (surfaces.ts), for the solids inside it. */
+const SurfaceContext = createContext<Surface | null>(null);
+
 function Solid({
   children,
   selected,
@@ -318,10 +223,33 @@ function Solid({
   /** Floors: polished stone that mirrors the sky. */
   polished?: boolean;
 }) {
+  const surface = useContext(SurfaceContext);
+  if (surface) {
+    // A new material per surface: maps appearing or going need the shader rebuilt.
+    return (
+      <mesh>
+        {children}
+        <meshStandardMaterial
+          key={surface.key}
+          color="#ffffff"
+          map={surface.map}
+          normalMap={surface.normalMap}
+          normalScale={[surface.normalScale, surface.normalScale]}
+          roughnessMap={surface.roughnessMap}
+          roughness={surface.roughness}
+          metalness={surface.metalness}
+          emissiveMap={surface.emissiveMap}
+          emissive={selected ? tone : (surface.emissive ?? "#000000")}
+          emissiveIntensity={selected ? 0.45 : (surface.emissiveIntensity ?? 0)}
+        />
+      </mesh>
+    );
+  }
   return (
     <mesh>
       {children}
       <meshStandardMaterial
+        key={map ? "mapped" : "plain"}
         color={map ? "#ffffff" : tone}
         map={map ?? undefined}
         roughness={polished ? 0.2 : 0.62}
@@ -341,7 +269,8 @@ function useAlbedo(src: string | undefined) {
       return;
     }
     if (src.startsWith("tex:")) {
-      setMap(paintLabTexture(src.slice(4)));
+      // Lab packs are full surfaces (surfaces.ts), set up in Body.
+      setMap(null);
       return;
     }
     let dead = false;
@@ -919,6 +848,23 @@ function AvatarMesh({ tone }: { tone: string }) {
 }
 
 function Body({ entity, selected }: { entity: Entity; selected: boolean }) {
+  const surface = useBodySurface(entity);
+  if (!surface) return <BodyInner entity={entity} selected={selected} />;
+  return (
+    <SurfaceContext.Provider value={surface}>
+      <BodyInner entity={entity} selected={selected} />
+    </SurfaceContext.Provider>
+  );
+}
+
+/** The lab pack wrapped on a body, tiled to its size; null for anything else. */
+function useBodySurface(entity: Entity): Surface | null {
+  const pack = localTexture(entity.customData.src ?? "");
+  const { x, y, z } = entity.transform.scale;
+  return useMemo(() => (pack ? surfaceFor(pack, { x, y, z }) : null), [pack, x, y, z]);
+}
+
+function BodyInner({ entity, selected }: { entity: Entity; selected: boolean }) {
   const tone = entityTone(entity);
   const map = useAlbedo(entity.customData.src);
   const rep = entity.representation;
@@ -1214,11 +1160,6 @@ function GazeLock() {
 
 const MESH_PACKS = ["gem", "knot", "vase", "crystal"] as const;
 
-function packPreview(kind: string): string {
-  const texture = paintLabTexture(kind);
-  const image = texture.image as HTMLCanvasElement | undefined;
-  return image?.toDataURL?.() ?? "";
-}
 
 function TextureDeck() {
   const gaze = useGazeId();
@@ -1470,6 +1411,7 @@ function Steer() {
 
 function ModeBar() {
   const { mode, setMode, immersive, setImmersive } = useLook();
+  const perfOpen = usePerf().open;
   return (
     <div className="mode-bar" role="toolbar" aria-label="View">
       <button type="button" className={mode === "third" ? "is-on" : ""} onClick={() => setMode("third")}>
@@ -1483,6 +1425,9 @@ function ModeBar() {
       </button>
       <button type="button" className={immersive ? "is-on" : ""} onClick={() => setImmersive(!immersive)}>
         {immersive ? "Window" : "Fill"}
+      </button>
+      <button type="button" className={perfOpen ? "is-on" : ""} onClick={togglePerf} aria-label="Performance">
+        Stats
       </button>
     </div>
   );
@@ -1532,8 +1477,17 @@ function Visor() {
 export function Viewport() {
   const hardware = useMemo(() => probeHardware(), []);
   const quality = useMemo(() => qualityFor(hardware), [hardware]);
-  const scenery = useMemo(() => sceneryRequested() ?? quality.scenery, [quality]);
-  const shadows = quality.shadows && scenery !== "off" && scenery !== "min";
+  // The quality rung: where the hardware starts, then auto quality (PerfOverlay.tsx) moves it.
+  // ?scenery=... fixes it.
+  const begin = useMemo(() => {
+    const asked = sceneryRequested();
+    return asked ? { start: Math.max(0, LADDER.findIndex((r) => r.scenery === asked)), forced: true } : { start: startRung(quality), forced: false };
+  }, [quality]);
+  useMemo(() => startQuality(begin.start, begin.forced), [begin]);
+  const perfState = usePerf();
+  const rung = LADDER[perfState.start === null ? begin.start : perfState.rung];
+  const scenery = rung.scenery;
+  const shadows = rung.shadows && scenery !== "off" && scenery !== "min";
   // The flat software picture is a debug view for machines with no GPU output.
   // It is off by default because it paints over the real renderer.
   const soft = useMemo(() => softRenderRequested(), []);
@@ -1552,11 +1506,12 @@ export function Viewport() {
       <Canvas
         camera={{ position: [10.4, 6.8, 10.2], fov: 42, near: 0.1, far: scenery === "off" ? 80 : 900 }}
         shadows={shadows}
-        dpr={quality.dpr}
+        dpr={[1, rung.dpr]}
         gl={{ antialias: quality.antialias, alpha: false, powerPreference: quality.powerPreference, failIfMajorPerformanceCaveat: false, preserveDrawingBuffer: soft }}
         style={{ width: "100%", height: "100%", touchAction: "none" }}
       >
         <Stage scenery={scenery} shadows={shadows} />
+        <PerfProbe />
       </Canvas>
       {soft ? <RoomPicture /> : null}
       <div className="hud">
@@ -1573,6 +1528,7 @@ export function Viewport() {
       <Visor />
       <Steer />
       <TextureDeck />
+      <PerfOverlay />
       {mode === "bench" ? <LabConsole /> : null}
     </div>
   );
