@@ -6,7 +6,7 @@ import { ensureAvatar, restoreLab } from "@/engine/manifold";
 import { DEFAULT_RULES, slotsOf, stepUnderRules, STATE_SLOTS } from "@/engine/mechanic";
 import { runtimeNow } from "@/engine/movers";
 import { carryAlong } from "@/engine/device-apps";
-import { INTERACT_EVENT, pilotKeys, pilotStick, pointerClaim, setPilotSpeed, shiftLook, useLook, lookPose, faceLook } from "./look";
+import { INTERACT_EVENT, LOOK_RATE, lookStick, pilotKeys, pilotStick, pointerClaim, setPilotSpeed, shiftLook, useLook, lookPose, faceLook } from "./look";
 import { stageCamera, stageGl } from "./picture";
 
 const EYE = 0.62;
@@ -94,6 +94,8 @@ export function Pilot() {
       pilotKeys.clear();
       pilotStick.x = 0;
       pilotStick.y = 0;
+      lookStick.x = 0;
+      lookStick.y = 0;
     };
     window.addEventListener("keydown", down);
     window.addEventListener("keyup", up);
@@ -163,6 +165,10 @@ export function Pilot() {
         for (const code of codes) pilotKeys.add(code);
       },
       getStick: () => ({ ...pilotStick }),
+      setLook: (x: number, y: number) => {
+        lookStick.x = x;
+        lookStick.y = y;
+      },
       setStick: (x: number, y: number) => {
         pilotStick.x = x;
         pilotStick.y = y;
@@ -208,6 +214,11 @@ export function Pilot() {
     const dt = Math.min(delta, 0.05);
     const keys = pilotKeys;
     const padLift = readGamepad(dt);
+    // The look stick turns at a rate: a small push is slow (squared, for aiming), a full push is fast.
+    if (lookStick.x || lookStick.y) {
+      lookPose.yaw -= lookStick.x * Math.abs(lookStick.x) * LOOK_RATE.yaw * dt;
+      lookPose.pitch = Math.max(-1.05, Math.min(1.05, lookPose.pitch + lookStick.y * Math.abs(lookStick.y) * LOOK_RATE.pitch * dt));
+    }
     // Keys and the thumbstick add up; the stick is analog, so a half push is half speed. Stick right
     // turns (or strafes) right, which is the D side.
     const turn = clamp1((keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) - (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - pilotStick.x);
@@ -390,6 +401,7 @@ declare global {
       setSteer: (value: number) => void;
       setStick: (x: number, y: number) => void;
       getStick: () => { x: number; y: number };
+      setLook: (x: number, y: number) => void;
     };
   }
 }

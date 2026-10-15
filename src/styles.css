@@ -1449,7 +1449,7 @@
 }
 
 .pad-left,
-.look-pad,
+.stick,
 .steer-home {
   pointer-events: auto;
 }
@@ -1529,8 +1529,7 @@
   color: #7ee0c8;
 }
 
-.stick-label,
-.look-pad span {
+.stick-label {
   margin: 0;
   color: #f2f2f4;
   font-family: var(--font-mono);
@@ -1541,8 +1540,7 @@
 }
 
 .lift .visor-key,
-.steer-home,
-.look-pad {
+.steer-home {
   min-width: 64px;
   min-height: 48px;
   border: 1px solid rgb(212 162 74 / 70%);
@@ -1558,22 +1556,7 @@
   padding: 0.4rem 0.7rem;
 }
 
-.look-pad {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  width: 7.5rem;
-  height: 7.5rem;
-  border-radius: 50%;
-  touch-action: none;
-  user-select: none;
-}
 
-.look-pad strong {
-  font-size: 1rem;
-  font-weight: 600;
-}
 
 .visor {
   position: absolute;
@@ -1896,9 +1879,104 @@
     white-space: nowrap;
   }
 
-  .look-pad {
-    flex-shrink: 0;
-    width: 6.25rem;
-    height: 6.25rem;
+}
+
+/* The TV's remote (TvRemote.tsx): above the phone's prompt, clear of the sticks. */
+.tv-prompt {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 13rem);
+}
+
+.tv-remote {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 20rem);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: min(22rem, calc(100vw - 2rem));
+  padding: 0.5rem;
+  border: 1px solid color-mix(in srgb, var(--color-ok) 45%, var(--color-line));
+  border-radius: 0.9rem;
+  background: color-mix(in srgb, var(--color-elevated) 92%, transparent);
+  transform: translateX(-50%);
+}
+
+.tv-remote-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.tv-channel {
+  flex: 1 1 8rem;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tv-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.tv-add .field {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.tv-add .form-error {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.tv-big {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  width: min(64rem, 100%);
+  max-height: 100%;
+  padding: 0.75rem;
+  overflow: auto;
+  border: 1px solid var(--color-line);
+  border-radius: 1rem;
+  background: var(--color-elevated);
+}
+
+.tv-big-screen {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 0.6rem;
+  background: #000;
+}
+
+.tv-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.tv-in-world iframe {
+  pointer-events: auto;
+}
+
+@media (max-width: 640px) {
+  .tv-prompt {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 18.5rem);
+  }
+
+  .tv-remote {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 18rem);
   }
 }

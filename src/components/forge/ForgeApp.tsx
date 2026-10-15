@@ -9,6 +9,7 @@ import { DropRunner, PortalWatcher } from "./Bridge";
 import { DevicesCard } from "./Devices";
 import { MechanicsCard } from "./Mechanics";
 import { DeviceScreen } from "./DeviceScreen";
+import { TvRemote } from "./TvRemote";
 import { UpdateBanner } from "./UpdateBanner";
 import { startMechanics } from "@/engine/carry-browser";
 import { resumeLink } from "@/engine/link-browser";
@@ -889,6 +890,7 @@ function ForgeShell() {
       <DropRunner />
       <PortalWatcher />
       <DeviceScreen />
+      <TvRemote />
       <UpdateBanner />
       <Header onScript={onScript} onDemo={onDemo} scripting={scripting} />
       <SceneSlot />

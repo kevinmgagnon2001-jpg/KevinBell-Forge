@@ -21,13 +21,17 @@ PID="$(adb shell pidof "$PKG" | tr -d '\r')"
 adb logcat -d > "$OUT/logcat.txt"
 # The page's console (WebView prints it under "chromium" / "Console"), Rust's output, and crashes.
 grep -E "chromium|Console|CONSOLE|RustStdoutStderr|Tauri|AndroidRuntime|FATAL|wasmtime|ForgeApps" "$OUT/logcat.txt" > "$OUT/app-log.txt" || true
+# Why Android stopped Forge, if it did without a crash: "not responding", low memory, or a kill.
+grep -E "ANR in|Process dev\.forge\.app .*has died|lowmemorykiller|Killing [0-9]+:dev\.forge\.app|am_kill.*dev\.forge\.app" "$OUT/logcat.txt" > "$OUT/why-stopped.txt" || true
 adb shell dumpsys meminfo "$PKG" > "$OUT/meminfo.txt" 2>&1 || true
 echo "--- app log (last 80 lines) ---"; tail -n 80 "$OUT/app-log.txt"
 if grep -q "FATAL EXCEPTION" "$OUT/logcat.txt"; then
   echo "::error title=Android smoke test::the app crashed; see app-log.txt in the android-smoke artifact"; exit 1
 fi
 if [ -z "$PID" ]; then
-  echo "::error title=Android smoke test::the app is not running 60 s after launch; see logcat.txt in the android-smoke artifact"; exit 1
+  echo "--- why Android stopped Forge ---"; cat "$OUT/why-stopped.txt"
+  grep -A 12 "ANR in dev.forge.app" "$OUT/logcat.txt" | head -n 30 || true
+  echo "::error title=Android smoke test::the app is not running 60 s after launch; see why-stopped.txt and logcat.txt in the android-smoke artifact"; exit 1
 fi
 errors="$(grep -ciE "Uncaught|TypeError|ReferenceError|SyntaxError|Failed to load" "$OUT/app-log.txt" || true)"
 if [ "${errors:-0}" -gt 0 ]; then

@@ -159,6 +159,17 @@ class ForgeApps(private val activity: Activity, private val webView: WebView) {
     return true
   }
 
+  /** Open a TV channel's own page (Twitch or YouTube) in the browser, for when its player will not play in Forge. Nothing else. */
+  @JavascriptInterface
+  fun openLink(url: String): Boolean {
+    val allowed = listOf("https://www.twitch.tv/", "https://www.youtube.com/watch?v=")
+    if (allowed.none { url.startsWith(it) } || url.length > 200 || !url.all { it.isLetterOrDigit() || "/:._-?=".contains(it) }) return false
+    activity.runOnUiThread {
+      activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+    return true
+  }
+
   /** "off" (not offered), "offered" (Forge is listed as a home screen) or "home" (it is the home screen). */
   @JavascriptInterface
   fun homeState(): String {

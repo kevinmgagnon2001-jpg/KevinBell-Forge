@@ -722,3 +722,33 @@ and mountains around it, under a late-afternoon sky.
   runs by itself, Update now, installing, installed. No console errors. The Kotlin is not compiled
   here; the next Android build compiles it, and the emulator test must pass before a Release goes
   out. Not tried on a real phone yet.
+
+## A look stick, and a TV with interdimensional cable
+- The look pad is now a right thumbstick (Viewport.tsx `Stick`, `lookStick` in look.tsx). Hold it off
+  centre and the view keeps turning, squared for fine control at small pushes; pilot.tsx turns by
+  `LOOK_RATE` (2.6 rad/s yaw, 1.5 rad/s pitch at full push). Dragging the view stays for fine aim.
+- A TV in the lab (src/engine/tv.ts, tested):
+  - **Nothing, Forever** (twitch.tv/watchmeforever) is the first channel.
+  - Twitch channel links and YouTube video and stream links become channels. Anything else is
+    refused, and saved channels are re-checked when they load.
+  - Players are embedded from Twitch and YouTube directly; Twitch is told the embedding page's host.
+- On the TV's screen in the world, the live player is placed with CSS 3D (drei `Html transform`), so
+  it turns and shrinks with the screen. It is only mounted while the TV is on, within 22 m and
+  facing you, and not on the big screen.
+- TvRemote.tsx:
+  - "Turn on the TV" (T) near it;
+  - ◀ ▶, Off, Big screen;
+  - Add channel and Remove channel;
+  - Open outside Forge (Android: a new bridge `openLink`, limited to twitch.tv and youtube.com watch
+    pages).
+- Checked in Chromium at 1400x900 and 390x844:
+  - holding the look stick turns the view and it stops on release;
+  - the TV turns on with the Twitch player on its screen;
+  - a bad link is refused and a YouTube link is added;
+  - channels wrap round;
+  - Big screen takes the player out of the world;
+  - T turns it off;
+  - no overflow.
+
+  The test browser cannot decode Twitch video, so actual playback (and whether Twitch plays inside
+  the Android app) is untried.

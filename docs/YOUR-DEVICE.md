@@ -26,13 +26,27 @@ Your phone (or computer) is a thing you carry in Forge.
 
 ## The controller
 
-- **Move:** the stick on the left. Push further to go faster. Sideways turns you (third person) or
-  steps sideways (helm).
+- **Move:** the left stick. Push further to go faster. Sideways turns you (third person) or steps
+  sideways (helm).
+- **Look:** the right stick. Hold it off centre and the view keeps turning, so a full turn needs no
+  lifting and re-dragging. A small push turns slowly, for aiming; a full push turns fast.
+- **Fine aim:** drag the view itself.
 - **Up / Down:** fly up and down.
-- **Look:** drag the **Look** pad, or drag the view itself, for fine aiming.
-- **Keyboard:** W A S D or the arrows, Space and C, E to pick up or use.
+- **Keyboard:** W A S D or the arrows, Space and C, E to pick up or use, T for the TV.
 - **Game controller:** left stick moves, right stick looks, A picks up or uses, the triggers fly up and
   down.
+
+## The TV
+
+A TV stands in the lab, to the left of where you start. Walk up to it and tap **Turn on the TV** (or
+press **T**).
+
+- It starts on **Nothing, Forever**, the endless AI-made show on Twitch: interdimensional cable.
+- **◀ ▶** change channel. **Add channel** takes any Twitch channel link or YouTube video or stream
+  link; your channels are kept on this device.
+- **Big screen** watches it full size; **Back to the world** returns.
+- If a player will not play inside Forge (Twitch can refuse to play inside apps), **Open outside
+  Forge** opens the channel in your browser.
 
 ## Forge as your phone's home screen (Android)
 

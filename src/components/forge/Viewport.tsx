@@ -1,5 +1,5 @@
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
-import { OrbitControls } from "@react-three/drei";
+import { Html, OrbitControls } from "@react-three/drei";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type MutableRefObject, type ReactNode } from "react";
 import type { Group, Vector3Tuple } from "three";
 import { AdditiveBlending, BoxGeometry, CanvasTexture, DoubleSide, EdgesGeometry, Matrix4, Object3D, Plane, Quaternion, Raycaster, SRGBColorSpace, Vector2, Vector3, type Texture } from "three";
@@ -16,8 +16,10 @@ import { Pilot } from "./pilot";
 import { RoomPicture } from "./picture";
 import { probeHardware, qualityFor, sceneryRequested, softRenderRequested, type SceneryLevel } from "@/engine/hardware";
 import { Scenery } from "./Scenery";
-import { faceLook, pilotKeys, pilotStick, pointerClaim, setAimPoint, setGazeLock, shiftLook, useGazeId, useLook } from "./look";
+import { faceLook, lookStick, pilotKeys, pilotStick, pointerClaim, setAimPoint, setGazeLock, useGazeId, useLook } from "./look";
 import { DeviceButton } from "./DeviceScreen";
+import { useTvPicture, useTvView } from "./TvRemote";
+import { TV_SCREEN, TV_TAG } from "@/engine/tv";
 
 const UP = new Vector3(0, 1, 0);
 const texCache = new Map<string, Texture>();
@@ -715,6 +717,75 @@ function DeviceMesh({ entity }: { entity: Entity }) {
   );
 }
 
+/**
+ * The TV (tv.ts): a screen on a stand. Switched on, the live channel plays on it: the real player,
+ * placed in the world with CSS 3D so it turns and shrinks with the screen. It is only mounted while
+ * the TV is on, near enough to see and facing you, and not on the big screen.
+ */
+const TV_PIXELS = { width: 640, height: 360 };
+
+function TvMesh() {
+  const picture = useTvPicture();
+  const { big } = useTvView();
+  const camera = useThree((s) => s.camera);
+  const [inView, setInView] = useState(false);
+  const front = useRef(new Vector3());
+  const toCamera = useRef(new Vector3());
+  const screenRef = useRef<Mesh>(null);
+  useFrame(() => {
+    const screen = screenRef.current;
+    if (!screen || !picture) return;
+    screen.getWorldPosition(toCamera.current);
+    const distance = toCamera.current.distanceTo(camera.position);
+    front.current.set(0, 0, 1).applyQuaternion(screen.getWorldQuaternion(new Quaternion()));
+    toCamera.current.subVectors(camera.position, toCamera.current).normalize();
+    const visible = distance < 22 && front.current.dot(toCamera.current) > 0.05;
+    if (visible !== inView) setInView(visible);
+  });
+  const W = TV_SCREEN.width;
+  const H = TV_SCREEN.height;
+  const on = !!picture;
+  return (
+    <group>
+      {[-0.55, 0.55].map((x) => (
+        <mesh key={x} position={[x, (TV_SCREEN.y - H / 2) / 2, -0.02]}>
+          <cylinderGeometry args={[0.025, 0.035, TV_SCREEN.y - H / 2, 10]} />
+          <meshStandardMaterial color="#25282e" roughness={0.4} metalness={0.7} />
+        </mesh>
+      ))}
+      <mesh position={[0, 0.02, -0.02]}>
+        <boxGeometry args={[1.3, 0.04, 0.36]} />
+        <meshStandardMaterial color="#25282e" roughness={0.4} metalness={0.7} />
+      </mesh>
+      <mesh position={[0, TV_SCREEN.y, -0.03]}>
+        <boxGeometry args={[W + 0.1, H + 0.1, 0.07]} />
+        <meshStandardMaterial color="#121418" roughness={0.35} metalness={0.6} />
+      </mesh>
+      <mesh ref={screenRef} position={[0, TV_SCREEN.y, 0.006]}>
+        <planeGeometry args={[W, H]} />
+        <meshStandardMaterial color={on ? "#0b0d12" : "#050608"} emissive={on ? "#2a3b66" : "#000000"} emissiveIntensity={on ? 0.6 : 0} roughness={0.12} metalness={0.2} />
+      </mesh>
+      <mesh position={[W / 2 - 0.05, TV_SCREEN.y - H / 2 - 0.035, 0.01]}>
+        <circleGeometry args={[0.012, 12]} />
+        <meshBasicMaterial color={on ? "#7ee0c8" : "#d4524a"} />
+      </mesh>
+      {picture && inView && !big ? (
+        <Html transform position={[0, TV_SCREEN.y, 0.012]} distanceFactor={(400 * W) / TV_PIXELS.width} zIndexRange={[5, 0]} className="tv-in-world">
+          <iframe
+            src={picture.src}
+            title={picture.channel.name}
+            width={TV_PIXELS.width}
+            height={TV_PIXELS.height}
+            allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+            referrerPolicy="strict-origin-when-cross-origin"
+            style={{ border: 0, display: "block", background: "#000" }}
+          />
+        </Html>
+      ) : null}
+    </group>
+  );
+}
+
 function VehicleMesh({ look, tone, scale }: { look: string; tone: string; scale: Vec3 }) {
   const inv: Vector3Tuple = [1 / (scale.x || 1), 1 / (scale.y || 1), 1 / (scale.z || 1)];
   const paint = <meshStandardMaterial color={tone} roughness={0.42} metalness={0.35} />;
@@ -859,6 +930,7 @@ function Body({ entity, selected }: { entity: Entity; selected: boolean }) {
     ) : null;
   if (entity.customData.method === "nanite") return <ClusterCut />;
   if (entity.tags.includes(SCREEN_TAG)) return <DeviceMesh entity={entity} />;
+  if (entity.tags.includes(TV_TAG)) return <TvMesh />;
   const look = entity.customData.look;
   if (look === "car" || look === "plane" || look === "hover") return <VehicleMesh look={look} tone={tone} scale={entity.transform.scale} />;
   if (rep.kind === "hybrid") {
@@ -1001,7 +1073,7 @@ function EntityNode({
   const q = entity.transform.rotation;
   const fixed = entity.tags.includes("floor") || entity.tags.includes("tetris");
   const yaw = Number(entity.customData.yaw) || 0;
-  const facing = entity.tags.includes("architect") || entity.tags.includes("agent") || entity.tags.includes("presence") || entity.tags.includes("device-screen");
+  const facing = entity.tags.includes("architect") || entity.tags.includes("agent") || entity.tags.includes("presence") || entity.tags.includes("device-screen") || entity.tags.includes(TV_TAG);
   const half = yaw / 2;
   const quat: [number, number, number, number] = facing ? [0, Math.sin(half), 0, Math.cos(half)] : [q.x, q.y, q.z, q.w];
 
@@ -1298,17 +1370,18 @@ function HoldKey({ code, label }: { code: string; label: string }) {
 }
 
 /**
- * The thumbstick. Push to walk: further is faster, sideways turns (third person) or strafes (helm).
- * It springs back when you let go. Drag-to-look stays on the look pad and the view itself.
+ * A thumbstick. The left one walks: further is faster, sideways turns (third person) or strafes
+ * (helm). The right one looks: hold it off centre and the view keeps turning. Both spring back when
+ * you let go. Dragging the view itself stays, for fine aim.
  */
-function Stick() {
+function Stick({ target, label, side }: { target: { x: number; y: number }; label: string; side: "move" | "look" }) {
   const base = useRef<HTMLDivElement>(null);
   const finger = useRef<number | null>(null);
   const [knob, setKnob] = useState({ x: 0, y: 0 });
   const release = () => {
     finger.current = null;
-    pilotStick.x = 0;
-    pilotStick.y = 0;
+    target.x = 0;
+    target.y = 0;
     setKnob({ x: 0, y: 0 });
   };
   useEffect(() => release, []);
@@ -1329,15 +1402,15 @@ function Stick() {
     // A small dead zone, so resting a thumb on it does not creep.
     const strength = Math.hypot(nx, ny);
     const k = strength < 0.12 ? 0 : (strength - 0.12) / 0.88 / strength;
-    pilotStick.x = nx * k;
-    pilotStick.y = ny * k;
+    target.x = nx * k;
+    target.y = ny * k;
   };
   return (
     <div
       ref={base}
-      className="stick"
+      className={`stick is-${side}`}
       role="application"
-      aria-label="Move: drag the stick"
+      aria-label={`${label}: drag the stick`}
       onPointerDown={(event) => {
         event.preventDefault();
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -1353,14 +1426,13 @@ function Stick() {
       onContextMenu={(event) => event.preventDefault()}
     >
       <span className="stick-knob" style={{ transform: `translate(${knob.x}px, ${knob.y}px)` }} />
-      <span className="stick-label">Move</span>
+      <span className="stick-label">{label}</span>
     </div>
   );
 }
 
 function Steer() {
   const mode = useLook().mode;
-  const drag = useRef<{ id: number; x: number; y: number } | null>(null);
   if (mode === "bench") return null;
   const home = () => {
     faceLook(0, mode === "first" ? -0.08 : -0.16);
@@ -1369,7 +1441,7 @@ function Steer() {
   return (
     <div className="steer">
       <div className="pad-left">
-        <Stick />
+        <Stick target={pilotStick} label="Move" side="move" />
         <div className="lift" aria-label="Up and down">
           <HoldKey code="Space" label="Up" />
           <HoldKey code="KeyC" label="Down" />
@@ -1381,30 +1453,7 @@ function Steer() {
           Find room
         </button>
       </div>
-      <div
-        className="look-pad"
-        onPointerDown={(event) => {
-          event.preventDefault();
-          event.currentTarget.setPointerCapture(event.pointerId);
-          drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY };
-        }}
-        onPointerMove={(event) => {
-          const current = drag.current;
-          if (!current || current.id !== event.pointerId) return;
-          shiftLook(event.clientX - current.x, event.clientY - current.y);
-          current.x = event.clientX;
-          current.y = event.clientY;
-        }}
-        onPointerUp={() => {
-          drag.current = null;
-        }}
-        onPointerCancel={() => {
-          drag.current = null;
-        }}
-      >
-        <strong>Look</strong>
-        <span>drag here</span>
-      </div>
+      <Stick target={lookStick} label="Look" side="look" />
     </div>
   );
 }
@@ -1452,7 +1501,7 @@ function Visor() {
         {looked ? `Looking at ${looked.name}` : "Looking at the lab"}
         {last ? ` · ${last.title}: ${last.body.replace(/\s+/g, " ").slice(0, 72)}` : ""}
       </p>
-      <p className="visor-hint">Drag the view or the Look pad to look. The stick walks: push further to go faster. Find room puts the exhibits in front of you.</p>
+      <p className="visor-hint">Left stick walks, right stick looks: push further to go faster. Drag the view for fine aim. Find room puts the exhibits in front of you.</p>
       {immersive ? (
         <form className="visor-ask" onSubmit={onSubmit}>
           <label>
