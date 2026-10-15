@@ -15,8 +15,9 @@
 import { readElf, PF_X, type Segment } from "./elf.ts";
 import { GuestState, Interpreter, type Engine } from "./machine.ts";
 import { FCW, NREG, STATE, STOP_NAME, Stop, TP, type Gap, type GuestArch, type StopCode } from "./ir.ts";
-import { inText, lift, newProgram, type Program } from "./lift.ts";
+import { inText, lift, MAX_INSNS, newProgram, type Program } from "./lift.ts";
 import { instantiate, lowerProgram } from "./wasm.ts";
+import type { AheadBuild } from "./aot.ts";
 import { AT_FDCWD, FD_LIMIT, GuestFiles, O_DIRECTORY, O_NOFOLLOW, POLLERR, POLLHUP, POLLIN, POLLNVAL, POLLOUT, POLLPRI, POLLRDNORM, POLLWRNORM, type ByteSink, type FileNode, type Stat } from "./files.ts";
 
 export type LinuxOptions = {
@@ -24,6 +25,12 @@ export type LinuxOptions = {
   engine?: "tiered" | "wasm" | "interpreter";
   /** Instructions to interpret before lowering to WebAssembly in "tiered" mode. */
   tierUpAfter?: number;
+  /**
+   * A build made ahead of time for this program (aot.ts, compileAhead). The run starts in WebAssembly
+   * with nothing lifted; reaching code the build does not hold falls back to lifting. The caller makes
+   * sure it belongs to this program (aheadKey); a build for another architecture or memory size is ignored.
+   */
+  ahead?: AheadBuild;
   memBytes?: number;
   fuel?: number;
   stdin?: Uint8Array | string;
@@ -105,8 +112,15 @@ export type Prepared =
       fetch: (addr: bigint) => number | undefined;
       brkBase: bigint;
       mmapTop: bigint;
+      /** Where lifting started: the entry point and code addresses found in data. */
+      roots: bigint[];
+      segments: Segment[];
     }
   | { ok: false; arch: GuestArch | null; reason: string };
+
+function usableAhead(ahead: AheadBuild | undefined, arch: GuestArch, memBytes: number): ahead is AheadBuild {
+  return !!ahead && ahead.arch === arch && ahead.memBytes === memBytes;
+}
 
 /** Load the ELF, build the stack and CPU state, and lift from the entry point. Runs nothing. */
 export function prepareLinux(bytes: Uint8Array, options: LinuxOptions = {}): Prepared {
@@ -163,9 +177,13 @@ export function prepareLinux(bytes: Uint8Array, options: LinuxOptions = {}): Pre
   const image = memory.slice();
   const fetch = (addr: bigint) => (addr >= 0n && addr < BigInt(memBytes) ? image[Number(addr)] : undefined);
   // The entry's own code first (the walk takes roots from the end), then whatever code pointers reach.
-  lift(program, fetch, [...codePointers(memory, elf.segments, text, elf.arch), elf.entry]);
-  if (elf.arch === "x86_64") lift(program, fetch, jumpTableTargets(program, memory, elf.segments, text));
-  return { ok: true, arch: elf.arch, entry: elf.entry, memBytes, memory, program, fetch, brkBase: pageUp(top), mmapTop: stackTop - STACK_BYTES };
+  const roots = [...codePointers(memory, elf.segments, text, elf.arch), elf.entry];
+  // With a build made ahead of time nothing is lifted now: the module already holds the code.
+  if (!usableAhead(options.ahead, elf.arch, memBytes)) {
+    lift(program, fetch, roots);
+    if (elf.arch === "x86_64") lift(program, fetch, jumpTableTargets(program, memory, elf.segments, text));
+  }
+  return { ok: true, arch: elf.arch, entry: elf.entry, memBytes, memory, program, fetch, brkBase: pageUp(top), mmapTop: stackTop - STACK_BYTES, roots, segments: elf.segments };
 }
 
 /**
@@ -1050,6 +1068,9 @@ export function runLinux(bytes: Uint8Array, options: LinuxOptions = {}): LinuxRe
     };
   }
   const { program, fetch, memBytes } = prepared;
+  // A build made ahead of time: used for the first module; dropped (after re-lifting what it held)
+  // only if the program reaches code the build missed.
+  let ahead = usableAhead(options.ahead, prepared.arch, memBytes) ? options.ahead : null;
   let memory = prepared.memory;
   let state = new GuestState(memory);
   /**
@@ -1065,13 +1086,13 @@ export function runLinux(bytes: Uint8Array, options: LinuxOptions = {}): LinuxRe
    * that a burst of discoveries costs one rebuild, short because rebuilding reuses every unchanged chunk.
    */
   const SETTLE = 100_000n;
-  let mode: "interp" | "wasm" = engineKind === "interpreter" || tierAt > 0n ? "interp" : "wasm";
+  let mode: "interp" | "wasm" = ahead && engineKind !== "interpreter" ? "wasm" : engineKind === "interpreter" || tierAt > 0n ? "interp" : "wasm";
   let wasm: Engine | null = null;
   let interp: Interpreter | null = null;
   let interpRan = 0n;
   let wasmMemory: WebAssembly.Memory | null = null;
   const buildWasm = (): Engine => {
-    if (!program.insns.size) return { name: "wasm", state, run: () => Stop.unmapped }; // nothing translatable yet
+    if (!program.insns.size && !ahead) return { name: "wasm", state, run: () => Stop.unmapped }; // nothing translatable yet
     // One memory for every rebuild: only the first build copies the image into it.
     if (!wasmMemory) {
       wasmMemory = new WebAssembly.Memory({ initial: memBytes / 65536, maximum: memBytes / 65536 });
@@ -1080,7 +1101,7 @@ export function runLinux(bytes: Uint8Array, options: LinuxOptions = {}): LinuxRe
       memory = fresh;
       state = new GuestState(memory);
     }
-    const { run } = instantiate(lowerProgram(program, memBytes, { importMemory: true }), wasmMemory);
+    const { run } = instantiate(ahead ? { bytes: ahead.bytes, lo: 0n, count: 0 } : lowerProgram(program, memBytes, { importMemory: true }), wasmMemory);
     interp = null;
     return { name: "wasm", state, run: () => run() as StopCode };
   };
@@ -1124,6 +1145,11 @@ export function runLinux(bytes: Uint8Array, options: LinuxOptions = {}): LinuxRe
       continue;
     }
     if (stop === Stop.unmapped) {
+      if (ahead) {
+        // The build missed some code: bring back everything it held, then carry on the usual way.
+        lift(program, fetch, ahead.roots, MAX_INSNS);
+        ahead = null;
+      }
       const again = relift(program, fetch, state.pc, relifts);
       relifts += 1;
       if (!again.ok) {

@@ -43,6 +43,15 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
 - **Rotation:** ⟳ button (Auto / Portrait / Landscape), field of view per screen shape (`view.ts`), sideways
   fills the screen. Next: check on the phone that a turn keeps the TV player and the model loaded.
 
+- **Universal recompiler (the direction now):** `docs/RECOMPILER.md`. Step 1 is done for the command
+  line (`forge run --aot`, `aot.ts`): whole-program translation with a disk cache, 4–10× faster runs.
+  FSR 1-style upscaling is in the renderer (`Upscaler.tsx`, render scale per quality rung).
+  Next, in order: the AOT cache in the app (IndexedDB / app storage) and cached modules for wasmtime in
+  the native host; pluggable platforms (Linux behind a loader + call table + graphics interface);
+  missing calls as fixture-checked skills fed by the run report and diagnostics; graphics (GL ES /
+  Vulkan → WebGPU); temporal upscaling and frame generation; more CPU front ends; a homebrew platform.
+  Measure the upscaler on the phone (Stats → Copy report, try `?upscale=0.5`).
+
 ## Next, most important first
 
 1. Desktop self-update (Tauri updater): needs the owner's update-signing key as a secret; then sign the installers'

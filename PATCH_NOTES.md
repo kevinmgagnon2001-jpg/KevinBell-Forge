@@ -879,3 +879,20 @@ and mountains around it, under a late-afternoon sky.
   includes the render scale.
 - Checked in Chromium: full vs 50 % pictures match in colour and tone, no shader errors, splats the
   same size; phone layout with Stats open. Not measured on the phone yet: use Stats → Copy report.
+
+## Ahead-of-time recompilation with a cache (docs/RECOMPILER.md, step 1)
+- src/engine/guest/aot.ts: `compileAhead` lifts a whole Linux program before it runs, from every root a
+  static pass finds (entry, code pointers in data, x86 switch tables, glibc IRELATIVE resolvers, and
+  code addresses computed in code: `lea [rip+…]`, ARM `adrp`+`add`, moves of constants), repeated until
+  a pass finds nothing new, then lowers it to one WebAssembly module.
+- `runLinux(bytes, { ahead })` starts in WebAssembly with nothing lifted. Reaching code the build
+  missed re-lifts everything the build held and carries on the usual way (tested with a deliberately
+  partial build).
+- `encodeAhead`/`decodeAhead`: one `.faot` file (header, roots, module); damaged files and other format
+  versions are refused. `aheadKey`: SHA-256 of the program + memory size + AOT_VERSION.
+- `forge run --aot` (scripts/aot-cache.ts) caches builds in ~/.forge/aot (FORGE_AOT_DIR overrides).
+- Measured here, run time only (cached load adds 20–110 ms): sqlite 14.9 s → 1.5 s, zlib 2.7 s →
+  0.53 s, glibc demo (ARM64) 1.8 s → 0.41 s. Zero lifts at run time on every test program (sqlite: 404k
+  instructions in 4 passes). Even the first run (build + run) beats the usual path.
+- Tests: src/engine/guest/aot.test.ts (same output as the usual path on both architectures, fallback,
+  wrong-architecture/memory builds ignored, cache file round trip). `npm run test:engine`: 213 pass.

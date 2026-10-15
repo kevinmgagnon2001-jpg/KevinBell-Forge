@@ -2,7 +2,8 @@
  * forge: the engine from the command line. Bundled into one file (dist/forge.mjs) by
  * scripts/build-cli.mjs, with launchers in bin/ (forge for Linux/macOS, forge.cmd for Windows).
  *
- *   forge run <program> [--interp] [--fuel N] [--show-ir]   run a static Linux x86-64 or ARM64 program
+ *   forge run <program> [--aot] [--interp] [--fuel N] [--show-ir]   run a static Linux x86-64 or ARM64 program
+ *                                                           (--aot: translate it all once, cache it, start translated)
  *   forge info <file>                                       identify any file and say how Forge would use it
  *   forge gate <script.ts> [--grant fetch,storage]          check a script with the safe-compile gate
  *   forge script <script.ts>                                gate it, then run it in an isolated worker
@@ -38,8 +39,18 @@ async function main(): Promise<number> {
         }
       }
       if (rest.includes("--show-ir")) await showIr(file);
+      const bytes = new Uint8Array(readFileSync(file));
+      // --aot: translate the whole program once, cache it, start translated (docs/RECOMPILER.md).
+      let ahead;
+      if (rest.includes("--aot") && !rest.includes("--interp")) {
+        const { loadOrBuildAhead } = await import("./aot-cache.ts");
+        const got = await loadOrBuildAhead(bytes);
+        ahead = got.build;
+        if (!rest.includes("--quiet")) console.error(`[forge] ahead of time: ${got.hit ? "loaded" : "built"} ${got.build.insns} instructions in ${got.ms.toFixed(0)} ms (${got.path})`);
+      }
       const started = performance.now();
-      const report = runLinux(new Uint8Array(readFileSync(file)), {
+      const report = runLinux(bytes, {
+        ahead,
         engine: rest.includes("--interp") ? "interpreter" : "tiered",
         fuel: flag("--fuel") ? Number(flag("--fuel")) : undefined,
         stdin,
@@ -49,7 +60,7 @@ async function main(): Promise<number> {
       process.stderr.write(report.stderr);
       if (!rest.includes("--quiet")) {
         console.error(
-          `\n[forge] ${report.arch ?? "?"} (${report.engine}): ${report.detail} in ${(performance.now() - started).toFixed(0)} ms` +
+          `\n[forge] ${report.arch ?? "?"} (${report.engine}${ahead ? ", ahead of time" : ""}): ${report.detail} in ${(performance.now() - started).toFixed(0)} ms, ${report.relifts} lifted while running` +
             (report.unsupportedSyscalls.length ? `; unsupported system calls: ${report.unsupportedSyscalls.join(", ")}` : ""),
         );
       }
@@ -143,7 +154,8 @@ async function showIr(file: string) {
 
 function usage(): number {
   console.error(`forge ${VERSION}
-  forge run <program> [--interp] [--fuel N] [--show-ir] [-- args...]   run a static Linux x86-64 or ARM64 program
+  forge run <program> [--aot] [--interp] [--fuel N] [--show-ir] [-- args...]   run a static Linux x86-64 or ARM64 program
+                                                                       (--aot: translate it whole once, cache it in ~/.forge/aot)
   forge info <file>                                                    identify a file and how Forge would use it
   forge gate <script.ts> [--grant fetch,storage] [--typecheck] [--emit] check a script
   forge script <script.ts>                                             gate it, then run it in an isolated worker
