@@ -13,6 +13,11 @@
 //
 // HomeActivity (below) is what Android starts as the home screen. It never draws anything.
 //
+// The TV's live player (tvShow/tvHide) plays in a small WebView of its own laid over Forge's. Twitch
+// only lets its player be embedded in https pages, and Forge's page is http://tauri.localhost, so
+// inside Forge it shows "blocked by response". The overlay's page has an https address
+// (https://forge.tv/, never fetched: the page is given to it directly), which Twitch accepts.
+//
 // ForgeApps also lets Forge update itself (the update section): with the person's permission it
 // downloads a newer Release, checks it is Forge signed with the same key, and hands it to Android's
 // package installer. Android asks the first time; from then on (Android 12+) updates need no tap.
@@ -39,8 +44,11 @@ import android.provider.Settings
 import android.util.Base64
 import android.util.Log
 import android.view.View
+import android.view.ViewGroup
 import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
 import android.webkit.WebView
+import android.widget.FrameLayout
 import androidx.activity.enableEdgeToEdge
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
@@ -168,6 +176,64 @@ class ForgeApps(private val activity: Activity, private val webView: WebView) {
       activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
     return true
+  }
+
+  // ---------- the TV's player ----------
+
+  private var tv: WebView? = null
+  private val twitchName = Regex("^[a-z0-9_]{3,25}$")
+  private val youtubeId = Regex("^[A-Za-z0-9_-]{11}$")
+
+  /**
+   * Show a channel's player over Forge, at a rectangle of the page (CSS pixels). Only Twitch channels
+   * and YouTube videos, and the player address is built here, not taken from the page.
+   */
+  @JavascriptInterface
+  fun tvShow(kind: String, ref: String, left: Float, top: Float, width: Float, height: Float): Boolean {
+    val src = when {
+      kind == "twitch" && twitchName.matches(ref) -> "https://player.twitch.tv/?channel=$ref&parent=forge.tv&autoplay=true&muted=false"
+      kind == "youtube" && youtubeId.matches(ref) -> "https://www.youtube.com/embed/$ref?autoplay=1&playsinline=1"
+      else -> return false
+    }
+    if (width < 40f || height < 40f) return false
+    activity.runOnUiThread {
+      val density = activity.resources.displayMetrics.density
+      val params = FrameLayout.LayoutParams((width * density).toInt(), (height * density).toInt()).apply {
+        leftMargin = (left * density).toInt()
+        topMargin = (top * density).toInt()
+      }
+      val view = tv ?: WebView(activity).also { created ->
+        created.settings.javaScriptEnabled = true
+        created.settings.domStorageEnabled = true
+        created.settings.mediaPlaybackRequiresUserGesture = false
+        created.webChromeClient = WebChromeClient()
+        created.setBackgroundColor(Color.BLACK)
+        activity.findViewById<ViewGroup>(android.R.id.content).addView(created, params)
+        tv = created
+      }
+      view.layoutParams = params
+      if (view.tag != src) {
+        view.tag = src
+        val page = "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"></head>" +
+          "<body style=\"margin:0;background:#000;overflow:hidden\"><iframe src=\"$src\" style=\"border:0;width:100vw;height:100vh\" " +
+          "allow=\"autoplay; fullscreen; encrypted-media; picture-in-picture\" allowfullscreen></iframe></body></html>"
+        view.loadDataWithBaseURL("https://forge.tv/", page, "text/html", "utf-8", null)
+      }
+      view.visibility = View.VISIBLE
+    }
+    return true
+  }
+
+  /** Stop and remove the TV's player. */
+  @JavascriptInterface
+  fun tvHide() {
+    activity.runOnUiThread {
+      val view = tv ?: return@runOnUiThread
+      tv = null
+      view.loadUrl("about:blank")
+      (view.parent as? ViewGroup)?.removeView(view)
+      view.destroy()
+    }
   }
 
   /** "off" (not offered), "offered" (Forge is listed as a home screen) or "home" (it is the home screen). */

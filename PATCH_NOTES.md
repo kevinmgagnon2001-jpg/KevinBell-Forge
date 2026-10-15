@@ -752,3 +752,19 @@ and mountains around it, under a late-afternoon sky.
 
   The test browser cannot decode Twitch video, so actual playback (and whether Twitch plays inside
   the Android app) is untried.
+
+## The TV plays in the Android app
+- On the phone the TV showed "blocked by response". Twitch only lets its player be embedded in https
+  pages, and the app's page is http://tauri.localhost; the web version was fine.
+- MainActivity.kt: `tvShow(kind, ref, rect)` / `tvHide()` show the player in a WebView of its own,
+  laid over Forge at a rectangle of the page. Its page is given to it directly with the https address
+  https://forge.tv/ (never fetched), which Twitch accepts as the parent. The player address is built
+  natively from a checked Twitch name or YouTube id; nothing else can be shown.
+- TvRemote.tsx: on Android the big screen reserves a box and keeps Android's player over it (resize,
+  scroll), hiding it on Back or when Forge goes to the background. The TV in the world shows
+  "LIVE · channel · ▶ Tap to watch", which opens the big screen.
+- Checked in Chromium at 390x844 with a stand-in bridge:
+  - the card shows on the TV;
+  - tapping it opens the big screen and asks for the player at the box's exact rectangle;
+  - Back removes it.
+  Not checked on a phone yet. The desktop app has the same Twitch limit and is not changed here.
