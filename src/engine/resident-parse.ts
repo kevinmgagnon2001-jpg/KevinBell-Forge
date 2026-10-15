@@ -2,6 +2,7 @@ import { propose, sceneRefs } from "./bonded.ts";
 import { NAMED_COLORS } from "./color.ts";
 import { executeProposal } from "./harness.ts";
 import { TOOL_NAMES, TOOLS } from "./os.ts";
+import { gaugeCatalog } from "./gauges.ts";
 import type { BondedModel, ProposedAction, World } from "./types.ts";
 import { alignToJob } from "./vm.ts";
 
@@ -210,6 +211,8 @@ export function interpretResident(
   };
 }
 
+const GAUGE_WORDS = /gauge|meter|stat|thermo|boiler|piston|coil|dial|skin|mesh|engine room|reactor/i;
+
 export function residentPrompt(scene: string, intent: string): string {
   return [
     "Choose the one tool that fits the command. Reply with one JSON object and no other text.",
@@ -226,6 +229,10 @@ export function residentPrompt(scene: string, intent: string): string {
     "asset is cube, sphere, platform, pillar, ring, or gaussian.",
     `color is ${COLOR_NAMES.join(", ")}.`,
     "A new object sits on the platform, off its center.",
+    // Only when the command is about gauges: every line here is prompt the small model must read first.
+    ...(GAUGE_WORDS.test(intent)
+      ? [`place_gauge shows a live device stat as a machine: stat, optional mesh and skin. style_gauge id (or *) plus mesh, skin or stat. build_gauge_rig rig. ${gaugeCatalog()}`]
+      : []),
     "Scene id name asset color x,y,z:",
     scene || "(empty)",
     `Command: ${intent}`,

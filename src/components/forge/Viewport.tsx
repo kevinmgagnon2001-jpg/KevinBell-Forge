@@ -23,6 +23,8 @@ import { faceLook, lookStick, pilotKeys, pilotStick, pointerClaim, setAimPoint, 
 import { DeviceButton } from "./DeviceScreen";
 import { nativeTv, useTvPicture, useTvView, watchBig } from "./TvRemote";
 import { TV_SCREEN, TV_TAG } from "@/engine/tv";
+import { GAUGE_TAG } from "@/engine/gauges";
+import { GaugeMesh } from "./Gauges";
 
 const UP = new Vector3(0, 1, 0);
 
@@ -887,6 +889,7 @@ function BodyInner({ entity, selected }: { entity: Entity; selected: boolean }) 
   if (entity.customData.method === "nanite") return <ClusterCut />;
   if (entity.tags.includes(SCREEN_TAG)) return <DeviceMesh entity={entity} />;
   if (entity.tags.includes(TV_TAG)) return <TvMesh />;
+  if (entity.tags.includes(GAUGE_TAG)) return <GaugeMesh entity={entity} />;
   const look = entity.customData.look;
   if (look === "car" || look === "plane" || look === "hover") return <VehicleMesh look={look} tone={tone} scale={entity.transform.scale} />;
   if (rep.kind === "hybrid") {
@@ -1029,7 +1032,7 @@ function EntityNode({
   const q = entity.transform.rotation;
   const fixed = entity.tags.includes("floor") || entity.tags.includes("tetris");
   const yaw = Number(entity.customData.yaw) || 0;
-  const facing = entity.tags.includes("architect") || entity.tags.includes("agent") || entity.tags.includes("presence") || entity.tags.includes("device-screen") || entity.tags.includes(TV_TAG);
+  const facing = entity.tags.includes("architect") || entity.tags.includes("agent") || entity.tags.includes("presence") || entity.tags.includes("device-screen") || entity.tags.includes(TV_TAG) || entity.tags.includes(GAUGE_TAG);
   const half = yaw / 2;
   const quat: [number, number, number, number] = facing ? [0, Math.sin(half), 0, Math.cos(half)] : [q.x, q.y, q.z, q.w];
 

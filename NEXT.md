@@ -33,6 +33,10 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
   poll/select, symbolic and hard links, threads (clone, futex; one at a time, switched at system calls). Fixtures: `mapio.c`, `links.c` (raw system calls, both architectures),
   `libc-mapio.c`, `libc-links.c` (glibc).
 
+- **Engine room:** the device's stats as machines in the lab (`gauges.ts`, `Gauges.tsx`, guide
+  `docs/GAUGES.md`). Next: more meshes per stat (a gearbox, a smokestack, a neon bar meter), a skin picker
+  in the UI, check the readings on the owner's phone with the Stats overlay's Copy report.
+
 ## Next, most important first
 
 1. Desktop self-update (Tauri updater): needs the owner's update-signing key as a secret; then sign the installers'

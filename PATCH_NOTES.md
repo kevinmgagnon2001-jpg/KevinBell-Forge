@@ -800,3 +800,28 @@ and mountains around it, under a late-afternoon sky.
   - before and after screenshots show the old packs invisible and the new ones on the column, cubes
     and sphere;
   - no console errors.
+
+## The engine room: device stats as steampunk / cyberpunk machines
+- Six machines stand around the bench and show the device live (src/engine/gauges.ts,
+  src/components/forge/Gauges.tsx):
+  - a thermometer for heat;
+  - a piston engine whose flywheel turns with the frame rate (scaled to the screen's refresh, 120 Hz
+    on the owner's Galaxy S26 Ultra);
+  - a boiler for memory, with a pressure dial and steam;
+  - a charge cell for the battery;
+  - a tesla coil for throttle (thermal headroom);
+  - a pressure dial for power draw.
+- Six meshes (thermometer, boiler, dial, piston, cell, coil) and five skins (brass, copper, neon,
+  chrome, ember iron). Any stat can wear any mesh and skin. Extra steam, bubbles and sparks only on
+  the top two quality rungs.
+- The Android bridge's `deviceHealth` now also reports thermal headroom, device memory and battery
+  power (watts). Outside Android, the browser's battery API fills the battery gauge.
+- Harness tools: `place_gauge`, `style_gauge`, `build_gauge_rig`. Rooms: engine-room, steam, cyber.
+- Instant commands: plain gauge requests ("make the gauges neon", "build the engine room", "add a
+  copper thermometer for heat") run at once without the model, even while it loads or is off. The
+  model's prompt only carries the gauge line when the command is about gauges, so other prompts stay
+  as short as before.
+- How to add a mesh, skin, stat or room: docs/GAUGES.md.
+- Checked: typecheck, lint (no errors), `npm run test:engine` (201 pass, 5 new), production build. In
+  Chromium: the room renders with no console errors, and "make the gauges neon" restyled all six while
+  the model was still loading. The Kotlin change is not compiled here; CI's Android build checks it.

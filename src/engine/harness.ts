@@ -2,6 +2,7 @@ import { colorName, normalizeColor } from "./color.ts";
 import { deckCommand } from "./deck-bridge.ts";
 import { compatCommand } from "./isa.ts";
 import { placePortal } from "./portal-tool.ts";
+import { buildRig, makeGauge, MESHES, rigById, RIGS, SKINS, skinById, statById, STATS, styleGauges, meshById } from "./gauges.ts";
 import { buildMarble, buildTetris, createAgent, makeSpawned, playTetris, queryByTag, recordEvent, restyle, seatOffCenter, steer } from "./manifold.ts";
 import { clusterDag } from "./cluster-lod.ts";
 import { toolByName } from "./os.ts";
@@ -114,6 +115,40 @@ export function dispatchTool(world: World, name: string, args: Record<string, st
   if (name === "deck_bridge") return deckCommand(world, args);
   if (name === "compat_map") return compatCommand(world, args);
   if (name === "place_portal") return placePortal(world, args);
+
+  if (name === "place_gauge") {
+    const stat = statById(args.stat);
+    if (!stat) return { ok: false, detail: `stat must be ${STATS.map((s) => s.id).join(", ")}`, world };
+    if (args.mesh && !meshById(args.mesh)) return { ok: false, detail: `mesh must be ${MESHES.map((m) => m.id).join(", ")}`, world };
+    if (args.skin && !skinById(args.skin)) return { ok: false, detail: `skin must be ${SKINS.map((s) => s.id).join(", ")}`, world };
+    const x = parseF32(args.x);
+    const z = parseF32(args.z);
+    const id = world.nextId;
+    const gauge = makeGauge(id, { stat: stat.id, mesh: args.mesh, skin: args.skin, name: args.name, ...(x != null && z != null ? { x, z } : {}) }, world);
+    return {
+      ok: true,
+      detail: `Placed ${gauge.name} (${skinById(gauge.customData.skin)?.label}) as entity ${id}. It reads ${stat.label.toLowerCase()} live.`,
+      world: { ...world, entities: { ...world.entities, [id]: gauge }, nextId: id + 1 },
+    };
+  }
+
+  if (name === "style_gauge") {
+    const raw = (args.id ?? "*").trim();
+    const ids = raw === "*" || raw === "" ? "all" : parseIdList(raw);
+    if (!ids) return { ok: false, detail: "argument 'id' is not a valid id list", world };
+    const styled = styleGauges(world, ids, { mesh: args.mesh, skin: args.skin, stat: args.stat });
+    if (styled.error) return { ok: false, detail: styled.error, world };
+    const what = [args.mesh && meshById(args.mesh)?.label, args.skin && skinById(args.skin)?.label, args.stat && statById(args.stat)?.label].filter(Boolean).join(", ");
+    return { ok: true, detail: `Restyled ${styled.count} gauge${styled.count === 1 ? "" : "s"}: ${what}`, world: styled.world };
+  }
+
+  if (name === "build_gauge_rig") {
+    const rig = rigById(args.rig);
+    if (!rig) return { ok: false, detail: `rig must be ${RIGS.map((r) => r.id).join(", ")}`, world };
+    if (args.skin && !skinById(args.skin)) return { ok: false, detail: `skin must be ${SKINS.map((s) => s.id).join(", ")}`, world };
+    const built = buildRig(world, rig, args.skin);
+    return { ok: true, detail: `${rig.label}: ${built.placed} placed, ${built.restyled} restyled. The machines read this device live.`, world: built.world };
+  }
 
   if (name === "spawn_entity") {
     const id = world.nextId;

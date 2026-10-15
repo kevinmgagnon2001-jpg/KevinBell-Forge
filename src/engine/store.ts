@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { propose, sceneRefs } from "./bonded";
 import { nearestColorName } from "./color";
 import { executeProposal } from "./harness";
+import { gaugeIntent } from "./gauges";
 import { bootWorld, ensureAvatar, ensureHelm, labWorld, stepWorld } from "./manifold";
 import { DEFAULT_MODEL_PATH, MEMORY_BUDGET_MB, TOOL_NAMES } from "./os";
 import { DEFAULT_RESIDENT_ID, isResidentId, residentById, type ResidentId } from "./resident-catalog";
@@ -306,6 +307,19 @@ export const useForge = create<ForgeState>((set, get) => {
         commit(ran.ok ? ran.world : before, before.selectedId, [
           { tone: "user", title: "Intent", body: intent },
           { tone: ran.ok ? "engine" : "warn", title: "Portal", body: ran.result },
+        ]);
+        return;
+      }
+      // Gauge requests ("add a neon thermometer", "make the gauges brass", "build the engine room") are
+      // plain picks from fixed lists (gauges.ts), so they run now, with the model off or busy.
+      const gaugeCall = gaugeIntent(intent, get());
+      if (gaugeCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: gaugeCall.tool, arguments: gaugeCall.arguments });
+        const spawned = ran.world.nextId > before.nextId ? ran.world.nextId - 1 : before.selectedId;
+        commit(ran.ok ? ran.world : before, spawned, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Gauges", body: `${gaugeCall.tool} ${argLine(gaugeCall.arguments)}\n${ran.result}` },
         ]);
         return;
       }
