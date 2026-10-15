@@ -863,3 +863,23 @@ and mountains around it, under a late-afternoon sky.
   the remote is up (it sits in the same spot on a phone).
 - Checked in Chromium at 412x891, 891x412 and 1280x800 standing at the TV: the TV in the world stays
   in sight with the remote up and with ⋯ open; no console errors from Forge.
+
+## Engine room: a gearbox, a smokestack, a bar meter, and a picker
+- Three new machines (src/components/forge/Gauges.tsx, entries in MESHES in src/engine/gauges.ts):
+  - gearbox: three meshed gears (same tooth pitch, so the speeds follow the tooth ratios) spinning
+    faster with the reading, glowing hubs, a small dial with the number;
+  - smokestack: a firebox with a glowing grate, a banded chimney whose fire window fills with the
+    reading, and smoke that thickens with it;
+  - bar meter: 14 segments lit up to the reading, each in its zone's colour (calm, warn, danger by
+    where it sits on the scale, so frame rate's danger is at the bottom), with a falling peak marker.
+- Defaults: power draw is a smokestack, frame time a gearbox, draw calls a bar meter. The steam works
+  gains a smokestack; the cyber core shows draw calls and frame time as bar meters.
+- Words: "gearbox", "gears", "cogs", "clockwork"; "smokestack", "chimney", "funnel"; "bar meter",
+  "bar graph", "equalizer", "vu meter". Plain "bar", "stack" and "smoke" are left out on purpose
+  ("build a stack of cubes" and "add a bar stool" stay with the model; tested).
+- A picker in Stats (src/components/forge/GaugePicker.tsx): skin swatches and a machine menu, for all
+  gauges or the selected one; "Build the engine room" when there are none. It goes through
+  `style_gauge`/`build_gauge_rig` (dispatchManual), so it logs and undoes like any change.
+- Checked: typecheck, lint (no errors), `npm run test:engine` (208 pass, 1 new), production build. In
+  Chromium at 1280x800 and 390x844: the picker restyled all six gauges (neon, then bar meter), and up
+  close the gearbox, smokestack and bar meter rendered with live readings; no console errors.

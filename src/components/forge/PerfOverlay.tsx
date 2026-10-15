@@ -13,6 +13,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { AUTO, autoStart, autoStep, frameStats, LADDER, type AutoState } from "@/engine/perf";
 import { EMPTY_SAMPLE, type LiveSample } from "@/engine/gauges";
 import { sendDiagnostics, startRecorder } from "./diagnostics-recorder";
+import { GaugePicker } from "./GaugePicker";
 
 type Health = { battery: number; temperature: number; charging: boolean; thermal: number; headroom: number; memPct: number; watts: number };
 
@@ -352,6 +353,7 @@ export function PerfOverlay() {
         ))}
       </div>
       {p.log.length ? <p className="perf-log">{p.log[p.log.length - 1]}</p> : null}
+      <GaugePicker />
       <div className="perf-row">
         <button type="button" className="perf-chip" onClick={report}>
           Copy report

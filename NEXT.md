@@ -34,8 +34,10 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
   `libc-mapio.c`, `libc-links.c` (glibc).
 
 - **Engine room:** the device's stats as machines in the lab (`gauges.ts`, `Gauges.tsx`, guide
-  `docs/GAUGES.md`). Next: more meshes per stat (a gearbox, a smokestack, a neon bar meter), a skin picker
-  in the UI, check the readings on the owner's phone with the Stats overlay's Copy report.
+  `docs/GAUGES.md`). Nine machines (gearbox, smokestack and bar meter are new) and a picker in Stats
+  (`GaugePicker.tsx`) for skin and machine, all gauges or the selected one. Next: check the readings on
+  the owner's phone with the Stats overlay's Copy report; brass reads dark on the low rungs (no
+  environment map), so a light rig or env map for the metals would help.
 
 - **Diagnostics:** the phone sends reports as GitHub issues labelled `diagnostics` (`docs/DIAGNOSTICS.md`).
   Start a session with `npm run forge:diagnostics` (or read the issues), fix what they show, close them.

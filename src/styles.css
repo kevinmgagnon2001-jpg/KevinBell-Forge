@@ -2205,3 +2205,46 @@
   align-self: center;
   color: #7ee0c8;
 }
+
+/* The engine room picker in the Stats panel (GaugePicker.tsx). */
+.gauge-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid rgb(255 255 255 / 10%);
+}
+
+.gauge-pick-label {
+  align-self: center;
+  color: #9aa1ab;
+}
+
+.gauge-pick > .gauge-pick-label {
+  align-self: flex-start;
+}
+
+.gauge-swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.gauge-swatch-dot {
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 2px solid;
+  border-radius: 50%;
+}
+
+.gauge-mesh {
+  min-height: 30px;
+  padding: 0.15rem 0.45rem;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 8px;
+  background: rgb(0 0 0 / 25%);
+  color: inherit;
+  font: inherit;
+  /* 16px keeps phones from zooming into the field. */
+  font-size: max(16px, 1em);
+}

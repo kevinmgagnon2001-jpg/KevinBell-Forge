@@ -63,7 +63,7 @@ test("tools: place, restyle and rigs, with clear errors", () => {
   // A rig restyles the heat gauge it finds and adds the rest.
   const rig = call(world, "build_gauge_rig", { rig: "cyber" });
   assert.ok(rig.ok, rig.result);
-  assert.equal(gauges(rig.world).length, 4);
+  assert.equal(gauges(rig.world).length, RIGS.find((r) => r.id === "cyber")!.parts.length);
   assert.ok(gauges(rig.world).every((x) => x.customData.skin === "neon"));
   // Undo takes the whole rig back.
   assert.equal(gauges(call(rig.world, "undo", {}).world).length, 1);
@@ -84,4 +84,20 @@ test("instant commands: plain requests become tool calls without a model", () =>
   assert.equal(gaugeIntent("paint the cube named Clay teal", lab), null);
   assert.equal(gaugeIntent("walk forward", lab), null);
   assert.equal(gaugeIntent("make it hot pink", lab), null);
+});
+
+test("gearbox, smokestack and bar meter: words, defaults and rigs", () => {
+  const lab = labWorld();
+  assert.deepEqual(gaugeIntent("add a smokestack for power draw", lab), { tool: "place_gauge", arguments: { stat: "power", mesh: "smokestack" } });
+  assert.deepEqual(gaugeIntent("add a neon bar meter for draw calls", lab), { tool: "place_gauge", arguments: { stat: "draws", mesh: "bars", skin: "neon" } });
+  assert.deepEqual(gaugeIntent("turn every gauge into a gearbox", lab), { tool: "style_gauge", arguments: { id: "*", mesh: "gearbox" } });
+  // A mesh word alone picks the stat that defaults to it.
+  assert.deepEqual(gaugeIntent("add a chimney", lab), { tool: "place_gauge", arguments: { stat: "power", mesh: "smokestack" } });
+  // The engine room's power gauge is a smokestack now; the cyber core shows draw calls as a bar meter.
+  assert.equal(gauges(lab).find((g) => g.customData.stat === "power")?.customData.mesh, "smokestack");
+  const cyber = call(emptyWorld(), "build_gauge_rig", { rig: "cyber" }).world;
+  assert.equal(gauges(cyber).find((g) => g.customData.stat === "draws")?.customData.mesh, "bars");
+  // Ordinary building words are not gauge requests.
+  assert.equal(gaugeIntent("build a stack of cubes", lab), null);
+  assert.equal(gaugeIntent("add a bar stool", lab), null);
 });
