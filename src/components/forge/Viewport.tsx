@@ -1533,6 +1533,8 @@ export function Viewport() {
           <span>g {GRAVITY.toFixed(2)}</span>
         </p>
         <ModeBar />
+        {/* The TV remote docks here (TvRemote.tsx) so it never covers the TV. */}
+        <div className="tv-slot" />
       </div>
       <Visor />
       <Steer />

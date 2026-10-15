@@ -854,3 +854,12 @@ and mountains around it, under a late-afternoon sky.
   "auto" then "portrait" reached the bridge, no console errors.
 - A daily scheduled check (5:53 AM Eastern) reads open `diagnostics` issues, fixes what they show on
   a `diagnostics/<date>` branch, opens one PR with "Fixes #N" and comments on each issue.
+
+## The TV remote no longer covers the TV
+- The remote sat in the middle of the screen, over the TV in the world, so the TV was only usable in
+  Big screen. It is now a slim strip docked under the view buttons (a `.tv-slot` in the view's HUD,
+  filled through a React portal from TvRemote.tsx): ◀ channel ▶, big screen ⛶, ⋯ (add channel,
+  remove, open outside) and ⏻. "Turn on the TV" docks there too. The texture fan steps aside while
+  the remote is up (it sits in the same spot on a phone).
+- Checked in Chromium at 412x891, 891x412 and 1280x800 standing at the TV: the TV in the world stays
+  in sight with the remote up and with ⋯ open; no console errors from Forge.
