@@ -1,7 +1,30 @@
 # Pick up here
 
-State at the end of the last session (branch `ccr-cb829fc1-9iqt9m`; all work is committed and pushed).
-History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status per item: `docs/handoff.html`, section 3.
+State at the end of the last session (branch `ccr-c65f531b-ncqxz8`, all work committed and pushed; not yet in a PR).
+History and details: `PATCH_NOTES.md` (last sections). The direction now: `docs/RECOMPILER.md`.
+
+## Handoff (2026-10-15)
+
+- **Release v0.6.10** (PR #13: gauges, diagnostics, rotation, TV remote) published the desktop installers
+  but not the Android APK: the emulator launch test failed before Forge ran, because the runner's
+  Android system image download was corrupt ("Error on ZipFile unknown archive"). The same APK passed the
+  test on the branch an hour earlier. The failed jobs were re-run; check the Release run
+  (Actions → Release, run 38802536055) and that `Forge-0.6.10-android-arm64.apk` is on the v0.6.10 Release.
+  If it failed again, run Actions → Release → Run workflow (patch) after merging this branch, which
+  now fetches the system image with retries (`android.yml`).
+- **On this branch, not in a PR yet:**
+  1. FSR 1-style upscaling (`Upscaler.tsx`, render scale per quality rung in `perf.ts`, `?upscale=`).
+  2. Ahead-of-time recompilation with a cache (`src/engine/guest/aot.ts`, `forge run --aot`,
+     `scripts/aot-cache.ts`): zero lifts at run time on every test program, sqlite 10x faster.
+  3. `docs/RECOMPILER.md` (the plan) and the emulator system image retry in `android.yml`.
+  Open a PR from it (add `[release]` to ship), after `npm run lint`, `npm run typecheck`, `npm run test:engine`.
+- **Next, in order** (also tasks in the session): the AOT cache inside the app (IndexedDB in the browser,
+  app storage on Android/desktop) and cached modules for wasmtime in the native host; pluggable
+  platforms (Linux behind loader + call table + graphics); missing calls as fixture-checked skills;
+  graphics (GL ES / Vulkan → WebGPU); temporal upscaling and frame generation; more CPU front ends.
+- **Owner, on the phone:** Stats → Copy report at High/Medium and with `?upscale=0.5` to tune the
+  render scales; Send to Claude for anything that looks wrong (the daily check at 5:53 AM Eastern reads
+  it, if its session can reach GitHub; if not, recreate it from claude.ai routines with GitHub attached).
 
 ## Where things stand
 
