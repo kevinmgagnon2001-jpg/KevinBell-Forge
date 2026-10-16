@@ -1196,3 +1196,12 @@ and mountains around it, under a late-afternoon sky.
 - Checked: typecheck, lint, `npm run test:engine`; in Chromium: the bench and a campfire burning
   with smoke and warm light, the spray knocking flames down with steam, "put out the fire"; no
   console errors.
+
+## Moss, frost, rust and crystal (Papers roadmap: living growth)
+- growth.ts (tested): Gray-Scott reaction-diffusion on a tiling torus, four kinds by feed and kill
+  (moss, frost, rust, crystal) with colours, pace, shine and glow; tool `grow`; plain requests.
+- Growth.tsx: a shell over the thing with a standard material extended in its shader: triplanar
+  pattern at two scales, a front creeping from near the base with a ragged edge, colour from the
+  pattern, glow for frost and crystal. Growths already in a loaded world show fully grown.
+- Checked: typecheck, lint, `npm run test:engine`; in Chromium: moss on the clay, rust on the steel,
+  crystal on the gold, frost up the column; no console errors.

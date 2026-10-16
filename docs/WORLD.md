@@ -147,3 +147,12 @@ your hands where you look, with steam where it hits. Flames are camera-facing sh
 shader, glowing past white so the bloom takes them; smoke drifts with the wind, embers swirl up,
 and a flickering warm light plays on everything near.
 
+## Moss, frost, rust and crystal
+
+"Grow moss on the column", "frost the bench", "let the steel rust", "crystallize the gold", "clean
+the column" (tool `grow`; `src/engine/growth.ts`, drawn by `Growth.tsx`). Each kind is a Gray-Scott
+reaction-diffusion pattern (a continuous cellular automaton: coral for moss, fine worms for frost,
+blotches for rust, a glowing labyrinth for crystal), grown once into a tiling texture and wrapped
+over the thing on every side at two scales. It creeps out from a spot near the base with a ragged
+living edge until it covers the thing; frost and crystal glow.
+

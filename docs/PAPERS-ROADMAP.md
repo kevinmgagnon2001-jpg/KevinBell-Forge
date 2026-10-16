@@ -207,9 +207,11 @@ Notes on what was built differently from the plan:
 - [ ] **Town economy** (M). *SimWorld (NeurIPS 2025), TMP "Researchers Built a Tiny Economy. AIs
   Broke It Immediately"*
   - NPC couriers with personalities bid on jobs, built on top of the NPCs-with-memory feature.
-- [ ] **Living moss and growth** (M). *Neural cellular automata (Sakana AI, 2026), TMP "Sakana AI's
+- [x] **Living moss and growth** (M). *Neural cellular automata (Sakana AI, 2026), TMP "Sakana AI's
   God Simulator Is Brilliant"* (likely)
   - Tiny automata in a fragment shader on wall textures: "grow moss across these walls".
+  - Done (growth.ts, Growth.tsx) with Gray-Scott reaction-diffusion grown on the CPU once per kind,
+    not a trained neural automaton; the spread is a shader front, not a live simulation.
 - [x] **Fire you can put out** (L). *TMP "The Most Realistic Fire Simulation Ever" (Feb 2026);
   paper not identified.*
   - A coarse heat and fuel grid with fire spreading over flammable entities, and water that

@@ -301,6 +301,12 @@ export const TOOLS: ToolSchema[] = [
     parameters: {},
   },
   {
+    name: "grow",
+    description: "Grow something living over a thing: kind moss, frost, rust or crystal (none cleans it). It creeps out from one spot over time in an organic pattern.",
+    parameters: { kind: "string", thing: "string" },
+    optional: ["thing"],
+  },
+  {
     name: "wield",
     description: "Hold the hyper sword (item hyper-sword), whose blade is a hypercube turning through 4D, or put it away (item none).",
     parameters: { item: "string" },

@@ -11,6 +11,7 @@ import { hyperIntent } from "./hyper";
 import { ropeIntent } from "./rope";
 import { clothIntent } from "./cloth";
 import { fireIntent } from "./fire";
+import { growthIntent } from "./growth";
 import { companionIntent, companionOf, companionPrompt, ordersFromModel } from "./companion";
 import { cleanBest } from "./arcade";
 import { cleanRecent, MAX_SKILLS, skillIntent, skillBrief } from "./skillbook";
@@ -398,6 +399,17 @@ export const useForge = create<ForgeState>((set, get) => {
         commit(ran?.ok ? ran.world : before, before.selectedId, [
           { tone: "user", title: "Intent", body: intent },
           { tone: ran?.ok ? "engine" : "warn", title: "Companion", body: ran ? `${line}\n${ran.result}` : `${buddy.name} doesn't know how to do that yet.` },
+        ]);
+        return;
+      }
+      // Growth ("grow moss on the column", "frost the bench", "let the steel rust") (growth.ts).
+      const growCall = growthIntent(intent);
+      if (growCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: growCall.tool, arguments: growCall.arguments });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Growth", body: ran.result },
         ]);
         return;
       }
