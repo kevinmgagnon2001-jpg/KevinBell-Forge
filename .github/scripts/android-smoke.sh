@@ -12,7 +12,9 @@ adb wait-for-device
 for _ in $(seq 1 60); do adb shell pm list packages > /dev/null 2>&1 && break; sleep 2; done
 adb install -r "$APK" || { echo "::error title=Android smoke test::the APK did not install"; exit 1; }
 adb logcat -c
-adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 > /dev/null
+# Forge's own icon by name: the package has two launcher icons now (Forge and Blocks), and "any
+# launcher activity of the package" (monkey) can pick the Blocks one, which never loads the world.
+adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$PKG/.MainActivity" > /dev/null
 sleep 20
 adb exec-out screencap -p > "$OUT/screen-20s.png"
 sleep 40
@@ -61,7 +63,7 @@ if ! adb shell pm enable "$PKG/.HomeActivity" > "$OUT/home-setup.txt" 2>&1 \
 fi
 # Switching a component on from the shell also stops the app (Forge's own button does not: it passes
 # DONT_KILL_APP), so open Forge again and take the process to compare from here.
-adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 > /dev/null
+adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$PKG/.MainActivity" > /dev/null
 sleep 15
 PID="$(adb shell pidof "$PKG" | tr -d '\r')"
 if [ -z "$PID" ]; then
