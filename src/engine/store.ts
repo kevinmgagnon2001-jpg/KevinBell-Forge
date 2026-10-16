@@ -1,22 +1,15 @@
 import { create } from "zustand";
 import { propose, sceneRefs } from "./bonded";
 import { nearestColorName } from "./color";
-import { executeProposal } from "./harness";
-import { gaugeIntent } from "./gauges";
-import { cleanMoves, moveIntent } from "./motion";
-import { cleanWeather, weatherIntent } from "./weather";
-import { soundIntent } from "./sounds";
-import { cleanTown, townIntent } from "./town";
-import { hyperIntent } from "./hyper";
-import { ropeIntent } from "./rope";
-import { clothIntent } from "./cloth";
-import { fireIntent } from "./fire";
-import { growthIntent } from "./growth";
-import { smokeRingIntent } from "./vortex";
-import { rigidIntent } from "./rigid";
+import { executePlan, executeProposal } from "./harness";
+import { planIntent, splitClauses, suggest, type Plan } from "./planner";
+import { routeIntent } from "./route";
+import { cleanMoves } from "./motion";
+import { cleanWeather } from "./weather";
+import { cleanTown } from "./town";
 import { companionIntent, companionOf, companionPrompt, ordersFromModel } from "./companion";
 import { cleanBest } from "./arcade";
-import { cleanRecent, MAX_SKILLS, skillIntent, skillBrief } from "./skillbook";
+import { cleanRecent, MAX_SKILLS, skillBrief } from "./skillbook";
 import { bootWorld, ensureAvatar, ensureHelm, labWorld, stepWorld } from "./manifold";
 import { DEFAULT_MODEL_PATH, MEMORY_BUDGET_MB, TOOL_NAMES } from "./os";
 import { DEFAULT_RESIDENT_ID, isResidentId, residentById, type ResidentId } from "./resident-catalog";
@@ -139,12 +132,13 @@ function freshCore() {
     memoryBudgetMb: MEMORY_BUDGET_MB,
     ticksPerIntent: 3,
     residentId: DEFAULT_RESIDENT_ID,
-    residentPower: true,
-    residentStatus: "loading" as const,
+    // The model is opt-in: Forge runs on its own planner (planner.ts) until you turn one on.
+    residentPower: false,
+    residentStatus: "off" as const,
     residentProgress: 0,
     residentLoaded: 0,
     residentTotal: 0,
-    residentDetail: "Fetching Gemma into this page",
+    residentDetail: "Off. Forge's own planner answers; turn a model on for free-form requests.",
     residentHeld: false,
     criticPower: false,
     criticStatus: "off" as const,
@@ -179,6 +173,8 @@ type Persisted = {
   ticksPerIntent: number;
   residentId: ResidentId;
   residentPower: boolean;
+  /** Set once the model was turned on by hand; saves from before it default to off. */
+  residentOn?: boolean;
   criticPower: boolean;
   library?: NeuralAsset[];
   mechanics?: MechanicPackage[];
@@ -255,6 +251,9 @@ function sceneBrief(world: World): string {
 
 let residentBoot: Promise<void> | null = null;
 
+/** The last group the planner made or changed: what "them" means next time (planner.ts). */
+let planGroup: number[] = [];
+
 export const useForge = create<ForgeState>((set, get) => {
   const pushLog = (entries: Omit<LogEntry, "id">[]) => {
     set((state) => {
@@ -300,6 +299,42 @@ export const useForge = create<ForgeState>((set, get) => {
     );
   };
 
+  /** Run a plan from the planner as one change and log what it understood. */
+  const runPlan = (plan: Plan, intent: string) => {
+    const before = get();
+    if (!plan.calls.length) {
+      if (Array.isArray(plan.group)) planGroup = plan.group;
+      if (typeof plan.select === "number" && before.entities[plan.select]) set({ selectedId: plan.select });
+      pushLog([
+        { tone: "user", title: "Intent", body: intent },
+        { tone: "engine", title: "Forge", body: plan.say },
+      ]);
+      return;
+    }
+    const ran = executePlan(before, plan.calls);
+    const made: number[] = [];
+    for (let id = before.nextId; id < ran.world.nextId; id += 1) if (ran.world.entities[id]) made.push(id);
+    planGroup = plan.group === "spawned" ? made : Array.isArray(plan.group) ? plan.group.filter((id) => ran.world.entities[id]) : planGroup;
+    const pick =
+      plan.select === "spawned"
+        ? (made[made.length - 1] ?? before.selectedId)
+        : typeof plan.select === "number"
+          ? plan.select
+          : plan.select === null
+            ? null
+            : before.selectedId;
+    const selected = pick != null && ran.world.entities[pick] ? pick : before.selectedId != null && ran.world.entities[before.selectedId] ? before.selectedId : null;
+    const failed = ran.results.filter((line) => / failed: /.test(line));
+    commit(ran.done ? ran.world : before, selected, [
+      { tone: "user", title: "Intent", body: intent },
+      {
+        tone: ran.ok ? "engine" : "warn",
+        title: "Forge",
+        body: ran.done ? (failed.length ? `${plan.say}\n${failed.slice(0, 3).join("\n")}` : plan.say) : failed.slice(0, 3).join("\n") || "Nothing changed.",
+      },
+    ]);
+  };
+
   return {
     ...freshCore(),
     stepSim: (count = 1) => {
@@ -314,6 +349,14 @@ export const useForge = create<ForgeState>((set, get) => {
     submitIntent: async (intentRaw) => {
       const intent = intentRaw.trim().slice(0, 400);
       if (!intent) return;
+      // Several steps in one breath ("make a red cube, then throw it"): each runs in turn, so "it"
+      // in a later step is what the earlier one made. Orders for the companion stay whole.
+      const buddyName = companionOf(get())?.name.toLowerCase();
+      const clauses = splitClauses(intent);
+      if (clauses.length > 1 && clauses.length <= 8 && !companionIntent(intent, get()) && !(buddyName && intent.toLowerCase().startsWith(buddyName))) {
+        for (const clause of clauses) await get().submitIntent(clause);
+        return;
+      }
       // A typed forge:// address needs no model (nor waits for one): the harness places the portal itself.
       if (/forge:\/\/\S+/i.test(intent)) {
         const before = get();
@@ -335,65 +378,10 @@ export const useForge = create<ForgeState>((set, get) => {
         ]);
         return;
       }
-      // "build breakout" (the Hyper Breakout cabinet) needs no model.
-      if (/^(?:(?:please|can you|could you)\s+)?(?:build|make|add|put|set up|give me)\b.*\b(breakout|brick ?breaker)\b/i.test(intent) && !/\b(paint|colou?r|texture)\b/i.test(intent)) {
-        const before = get();
-        const ran = executeProposal(before, { kind: "tool_call", toolName: "build_play", arguments: { kind: "breakout" } });
-        commit(ran.ok ? ran.world : before, before.selectedId, [
-          { tone: "user", title: "Intent", body: intent },
-          { tone: ran.ok ? "engine" : "warn", title: "Arcade", body: ran.result },
-        ]);
-        return;
-      }
-      // "build blocks" (the Blocks cabinet) needs no model either.
-      if (/^(?:(?:please|can you|could you)\s+)?(?:build|make|add|put|set up|give me)\b.*\bblocks\b/i.test(intent) && !/\b(paint|colou?r|texture)\b/i.test(intent)) {
-        const before = get();
-        const ran = executeProposal(before, { kind: "tool_call", toolName: "build_play", arguments: { kind: "blocks" } });
-        commit(ran.ok ? ran.world : before, before.selectedId, [
-          { tone: "user", title: "Intent", body: intent },
-          { tone: ran.ok ? "engine" : "warn", title: "Blocks", body: ran.result },
-        ]);
-        return;
-      }
-      // Moves ("wave", "do a little dance", "make a move called victory: cheer then flex") are picks
-      // and words from a fixed vocabulary (motion.ts), so they run now too.
-      const moveCall = moveIntent(intent, get());
-      if (moveCall) {
-        const before = get();
-        const ran = executeProposal(before, { kind: "tool_call", toolName: moveCall.tool, arguments: moveCall.arguments });
-        commit(ran.ok ? ran.world : before, before.selectedId, [
-          { tone: "user", title: "Intent", body: intent },
-          { tone: ran.ok ? "engine" : "warn", title: "Moves", body: `${moveCall.tool} ${argLine(moveCall.arguments)}\n${ran.result}` },
-        ]);
-        return;
-      }
-      // 4D bubbles and the hyper sword ("make a 4d bubble", "give me the 4d sword") (hyper.ts).
-      const hyperCall = hyperIntent(intent);
-      if (hyperCall) {
-        const before = get();
-        const ran = executeProposal(before, { kind: "tool_call", toolName: hyperCall.tool, arguments: hyperCall.arguments });
-        const spawned = ran.world.nextId > before.nextId ? ran.world.nextId - 1 : before.selectedId;
-        commit(ran.ok ? ran.world : before, spawned, [
-          { tone: "user", title: "Intent", body: intent },
-          { tone: ran.ok ? "engine" : "warn", title: "4D", body: ran.result },
-        ]);
-        return;
-      }
-      // The companion ("follow me", "bring me the gold", "stack the cubes here") (companion.ts).
-      const companionCall = companionIntent(intent, get());
-      if (companionCall) {
-        const before = get();
-        const ran = executeProposal(before, { kind: "tool_call", toolName: companionCall.tool, arguments: companionCall.arguments });
-        commit(ran.ok ? ran.world : before, before.selectedId, [
-          { tone: "user", title: "Intent", body: intent },
-          { tone: ran.ok ? "engine" : "warn", title: "Companion", body: ran.result },
-        ]);
-        return;
-      }
       // Spoken to by name in words it does not know ("Pip, tidy up the cubes"): the resident model
       // rewrites them in the companion's little language.
       const buddy = companionOf(get());
-      if (buddy && intent.trim().toLowerCase().startsWith(buddy.name.toLowerCase()) && get().residentPower && residentReady(get().residentId)) {
+      if (buddy && !companionIntent(intent, get()) && intent.trim().toLowerCase().startsWith(buddy.name.toLowerCase()) && get().residentPower && residentReady(get().residentId)) {
         const words = intent.trim().slice(buddy.name.length).replace(/^[,:\s]+/, "");
         const line = ordersFromModel(await chatResident(companionPrompt(words, get())).catch(() => ""));
         const before = get();
@@ -404,137 +392,42 @@ export const useForge = create<ForgeState>((set, get) => {
         ]);
         return;
       }
-      // Smoke rings ("blow a smoke ring", "blow two smoke rings"): drawn only, nothing in the world changes.
-      const rings = smokeRingIntent(intent);
-      if (rings) {
-        if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("forge:smoke-ring", { detail: rings }));
+      // Each system's own words (route.ts): arcade cabinets, moves, 4D, the companion, smoke rings,
+      // dominoes, growth, fire, cloth, ropes, townsfolk, skills, weather, sound and gauges. Fixed
+      // vocabularies, so they run now, with the model off or busy.
+      const routed = routeIntent(get(), get().selectedId, intent);
+      if (routed?.kind === "rings") {
+        if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("forge:smoke-ring", { detail: { count: routed.count } }));
         pushLog([
           { tone: "user", title: "Intent", body: intent },
-          { tone: "engine", title: "Smoke", body: rings.count > 1 ? `${rings.count} smoke rings roll out the way you look; watch the back one leapfrog through.` : "A smoke ring rolls out the way you look." },
+          { tone: "engine", title: "Smoke", body: routed.count > 1 ? `${routed.count} smoke rings roll out the way you look; watch the back one leapfrog through.` : "A smoke ring rolls out the way you look." },
         ]);
         return;
       }
-      // Dominoes and Jenga ("line up 30 dominoes", "build a jenga tower", "knock them over") (rigid.ts).
-      const rigidCall = rigidIntent(intent);
-      if (rigidCall) {
+      if (routed) {
         const before = get();
-        const ran = executeProposal(before, { kind: "tool_call", toolName: rigidCall.tool, arguments: rigidCall.arguments });
-        commit(ran.ok ? ran.world : before, before.selectedId, [
-          { tone: "user", title: "Intent", body: intent },
-          { tone: ran.ok ? "engine" : "warn", title: "Toys", body: ran.result },
-        ]);
-        return;
-      }
-      // Growth ("grow moss on the column", "frost the bench", "let the steel rust") (growth.ts).
-      const growCall = growthIntent(intent);
-      if (growCall) {
-        const before = get();
-        const ran = executeProposal(before, { kind: "tool_call", toolName: growCall.tool, arguments: growCall.arguments });
-        commit(ran.ok ? ran.world : before, before.selectedId, [
-          { tone: "user", title: "Intent", body: intent },
-          { tone: ran.ok ? "engine" : "warn", title: "Growth", body: ran.result },
-        ]);
-        return;
-      }
-      // Fire ("set the bench on fire", "light a campfire", "put out the fire") (fire.ts).
-      const fireCall = fireIntent(intent);
-      if (fireCall) {
-        const before = get();
-        const ran = executeProposal(before, { kind: "tool_call", toolName: fireCall.tool, arguments: fireCall.arguments });
-        commit(ran.ok ? ran.world : before, before.selectedId, [
-          { tone: "user", title: "Intent", body: intent },
-          { tone: ran.ok ? "engine" : "warn", title: "Fire", body: ran.result },
-        ]);
-        return;
-      }
-      // Capes and flags ("give me a red cape", "raise a flag") (cloth.ts).
-      const clothCall = clothIntent(intent);
-      if (clothCall) {
-        const before = get();
-        const ran = executeProposal(before, { kind: "tool_call", toolName: clothCall.tool, arguments: clothCall.arguments });
-        const spawned = ran.world.nextId > before.nextId ? ran.world.nextId - 1 : before.selectedId;
+        const ran = executeProposal(before, { kind: "tool_call", toolName: routed.tool, arguments: routed.arguments });
+        const spawned = routed.spawns && ran.world.nextId > before.nextId ? ran.world.nextId - 1 : before.selectedId;
         commit(ran.ok ? ran.world : before, spawned, [
           { tone: "user", title: "Intent", body: intent },
-          { tone: ran.ok ? "engine" : "warn", title: "Cloth", body: ran.result },
+          { tone: ran.ok ? "engine" : "warn", title: routed.title, body: routed.showArgs ? `${routed.tool} ${argLine(routed.arguments)}\n${ran.result}` : ran.result },
         ]);
         return;
       }
-      // Ropes, cables and string lights ("string lights between the bench and the terminal") (rope.ts).
-      const ropeCall = ropeIntent(intent);
-      if (ropeCall) {
-        const before = get();
-        const ran = executeProposal(before, { kind: "tool_call", toolName: ropeCall.tool, arguments: ropeCall.arguments });
-        const spawned = ran.world.nextId > before.nextId ? ran.world.nextId - 1 : before.selectedId;
-        commit(ran.ok ? ran.world : before, spawned, [
-          { tone: "user", title: "Intent", body: intent },
-          { tone: ran.ok ? "engine" : "warn", title: "Ropes", body: ran.result },
-        ]);
-        return;
-      }
-      // Townsfolk ("fill the plaza with people", "what did Mia do today?", "send Leo to the bench") (town.ts).
-      const townCall = townIntent(intent, get());
-      if (townCall) {
-        const before = get();
-        const ran = executeProposal(before, { kind: "tool_call", toolName: townCall.tool, arguments: townCall.arguments });
-        commit(ran.ok ? ran.world : before, before.selectedId, [
-          { tone: "user", title: "Intent", body: intent },
-          { tone: ran.ok ? "engine" : "warn", title: "Town", body: ran.result },
-        ]);
-        return;
-      }
-      // Skills ("do that again, but taller", "remember that as lamp", "lamp to the left") (skillbook.ts).
-      const skillCall = skillIntent(intent, get());
-      if (skillCall) {
-        const before = get();
-        const ran = executeProposal(before, { kind: "tool_call", toolName: skillCall.tool, arguments: skillCall.arguments });
-        const spawned = ran.world.nextId > before.nextId ? ran.world.nextId - 1 : before.selectedId;
-        commit(ran.ok ? ran.world : before, spawned, [
-          { tone: "user", title: "Intent", body: intent },
-          { tone: ran.ok ? "engine" : "warn", title: "Skills", body: ran.result },
-        ]);
-        return;
-      }
-      // Weather and time ("make it rain at dusk", "foggy morning", "7pm") come from fixed tables (weather.ts).
-      const weatherCall = weatherIntent(intent);
-      if (weatherCall) {
-        const before = get();
-        const ran = executeProposal(before, { kind: "tool_call", toolName: weatherCall.tool, arguments: weatherCall.arguments });
-        commit(ran.ok ? ran.world : before, before.selectedId, [
-          { tone: "user", title: "Intent", body: intent },
-          { tone: ran.ok ? "engine" : "warn", title: "Weather", body: ran.result },
-        ]);
-        return;
-      }
-      // Sounds and sparkle ("make the door creak like a ghost ship", "score this scene", "make it sparkle").
-      const soundCall = soundIntent(intent, get(), get().selectedId);
-      if (soundCall) {
-        const before = get();
-        const ran = executeProposal(before, { kind: "tool_call", toolName: soundCall.tool, arguments: soundCall.arguments });
-        commit(ran.ok ? ran.world : before, before.selectedId, [
-          { tone: "user", title: "Intent", body: intent },
-          { tone: ran.ok ? "engine" : "warn", title: soundCall.tool === "set_sound" ? "Sound" : "Finish", body: ran.result },
-        ]);
-        return;
-      }
-      // Gauge requests ("add a neon thermometer", "make the gauges brass", "build the engine room") are
-      // plain picks from fixed lists (gauges.ts), so they run now, with the model off or busy.
-      const gaugeCall = gaugeIntent(intent, get());
-      if (gaugeCall) {
-        const before = get();
-        const ran = executeProposal(before, { kind: "tool_call", toolName: gaugeCall.tool, arguments: gaugeCall.arguments });
-        const spawned = ran.world.nextId > before.nextId ? ran.world.nextId - 1 : before.selectedId;
-        commit(ran.ok ? ran.world : before, spawned, [
-          { tone: "user", title: "Intent", body: intent },
-          { tone: ran.ok ? "engine" : "warn", title: "Gauges", body: `${gaugeCall.tool} ${argLine(gaugeCall.arguments)}\n${ran.result}` },
-        ]);
+      // Forge's own planner (planner.ts): things to make, change, move, throw, count and find. A sure
+      // reading runs at once, model or not; a guess runs only when there is no model to ask.
+      const plan = planIntent({ world: get(), selectedId: get().selectedId, group: planGroup }, intent);
+      if (plan && (plan.sure >= 0.85 || !get().residentPower)) {
+        runPlan(plan, intent);
         return;
       }
       if (get().busy) return;
       const spec = residentById(get().residentId);
       if (!get().residentPower) {
+        const close = suggest(intent);
         pushLog([
           { tone: "user", title: "Intent", body: intent },
-          { tone: "warn", title: "Model off", body: `${spec.short} is powered down. Turn it on to forge.` },
+          { tone: "warn", title: "Forge", body: `I didn't catch that. Closest things I know: ${close.map((line) => `“${line}”`).join(", ")}. Say “help” for more, or turn ${spec.short} on for free-form requests.` },
         ]);
         return;
       }
@@ -886,7 +779,7 @@ export const useForge = create<ForgeState>((set, get) => {
             model: data.model?.path ? { ...demoModel(), ...data.model } : demoModel(),
             ticksPerIntent: data.ticksPerIntent || 3,
             residentId: isResidentId(data.residentId) ? data.residentId : DEFAULT_RESIDENT_ID,
-            residentPower: typeof data.residentPower === "boolean" ? data.residentPower : true,
+            residentPower: data.residentOn === true && data.residentPower === true,
             criticPower: typeof data.criticPower === "boolean" ? data.criticPower : false,
             library: cleanLibrary(data.library),
             mechanics: cleanMechanics(data.mechanics),
@@ -923,7 +816,7 @@ export const useForge = create<ForgeState>((set, get) => {
           model: data.model?.path ? { ...demoModel(), ...data.model } : demoModel(),
           ticksPerIntent: data.ticksPerIntent || 3,
           residentId: isResidentId(data.residentId) ? data.residentId : DEFAULT_RESIDENT_ID,
-          residentPower: typeof data.residentPower === "boolean" ? data.residentPower : true,
+          residentPower: data.residentOn === true && data.residentPower === true,
           criticPower: typeof data.criticPower === "boolean" ? data.criticPower : false,
           library: cleanLibrary(data.library),
           mechanics: cleanMechanics(data.mechanics),
@@ -1060,6 +953,7 @@ export function startPersist() {
         ticksPerIntent: state.ticksPerIntent,
         residentId: state.residentId,
         residentPower: state.residentPower || state.residentHeld,
+        residentOn: state.residentPower || state.residentHeld,
         criticPower: state.criticPower,
         library: (state.library ?? []).slice(-24),
         mechanics: state.mechanics,

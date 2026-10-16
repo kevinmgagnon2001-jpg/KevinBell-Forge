@@ -247,7 +247,7 @@ function num(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-function defaultScale(asset: string): Vec3 {
+export function defaultScale(asset: string): Vec3 {
   switch (asset) {
     case "platform":
       return V3(3.2, 0.16, 3.2);
@@ -305,10 +305,12 @@ function defaultName(asset: string): string {
 /** Sit a y=0 spawn on the grid instead of burying its center. */
 function presentY(asset: string, scale: Vec3, y: number): number {
   if (Math.abs(y) > 1e-6) return y;
-  if (asset === "gaussian") return 1.2;
-  if (asset === "ring") return 0.85;
-  if (asset === "card") return 0.78;
-  if (asset === "vase") return 0.7;
+  // Sized up or down, the lift above the ground scales with it.
+  const k = scale.y / (defaultScale(asset).y || 1);
+  if (asset === "gaussian") return 1.2 * k;
+  if (asset === "ring") return 0.85 * k;
+  if (asset === "card") return 0.78 * k;
+  if (asset === "vase") return 0.7 * k;
   return scale.y / 2;
 }
 
@@ -385,7 +387,10 @@ export function createAgent(id: number, name: string, role: string, slot: number
 export function makeSpawned(id: number, args: Record<string, string>): Entity {
   const asset = (args.asset || "cube").trim() || "cube";
   const name = (args.name || "").trim() || defaultName(asset);
-  const scale = defaultScale(asset);
+  // size: an even factor on the asset's own size (the planner's "big", "tiny"), kept to 0.25..4.
+  const size = Math.min(4, Math.max(0.25, num(args.size, 1)));
+  const base = defaultScale(asset);
+  const scale = size === 1 ? base : V3(base.x * size, base.y * size, base.z * size);
   const requestedY = num(args.y, 0);
   const physicsOn = args.physics === "true";
   const tags = args.tags
@@ -439,7 +444,7 @@ function piledOnCenter(args: Record<string, string>): boolean {
 
 export function seatOffCenter(world: World, entity: Entity, args: Record<string, string>): Entity {
   if (assetKind(entity) === "platform" || entity.tags.includes("architect")) return entity;
-  if (!piledOnCenter(args)) return entity;
+  if (!piledOnCenter(args) || args.exact === "1") return entity;
   const platforms = Object.values(world.entities).filter((item) => assetKind(item) === "platform");
   const host = platforms[0];
   if (!host) return entity;

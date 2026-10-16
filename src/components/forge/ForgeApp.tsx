@@ -21,12 +21,12 @@ import { LookProvider, useLook } from "./look";
 import { listen, useCanListen } from "./speech";
 
 const CHIPS: { label: string; intent: string }[] = [
-  { label: "Walk forward", intent: "Walk the avatar forward" },
-  { label: "Turn left", intent: "Turn the avatar left" },
-  { label: "Paint me gold", intent: "Paint the avatar gold" },
-  { label: "Spawn critic", intent: "Spawn a critic agent named Critic" },
-  { label: "Pull marble", intent: "Pull a marble texture onto the avatar" },
-  { label: "Platform at origin", intent: "Create a small platform near the origin" },
+  { label: "Row of cubes", intent: "a row of five rainbow cubes in front of me" },
+  { label: "Tower", intent: "stack 6 crates on the bench" },
+  { label: "Paint it", intent: "paint it violet" },
+  { label: "Throw it", intent: "throw it" },
+  { label: "Campfire", intent: "light a campfire" },
+  { label: "What's here?", intent: "what's here?" },
 ];
 
 function fmt(n: number) {
@@ -109,8 +109,8 @@ function ManifoldBanner({ opening, fault }: { opening: boolean; fault: string })
     <aside className={quiet ? "manifold-banner is-quiet" : "manifold-banner"}>
       <div className="panel-head">
         <h2>Manifold</h2>
-        <span className={status === "ready" && !fault ? "live-pill is-on" : "live-pill"}>
-          {fault ? "3D off" : status === "ready" ? "Live" : status === "error" ? "Model failed" : `Model ${Math.round(progress)}%`}
+        <span className={(status === "ready" || !power) && !fault ? "live-pill is-on" : "live-pill"}>
+          {fault ? "3D off" : !power || status === "ready" ? "Live" : status === "error" ? "Model failed" : `Model ${Math.round(progress)}%`}
         </span>
       </div>
       <p className="panel-lead">
@@ -195,7 +195,7 @@ function ResidentBay() {
   const progress = useForge((s) => s.residentProgress);
   const spec = residentById(id);
   const statusLine = !power
-    ? "Off"
+    ? "Off · own planner"
     : status === "ready"
       ? "In this page"
       : status === "error"
@@ -326,12 +326,12 @@ function IntentDock() {
 
   const submit = (value: string) => {
     const next = value.trim();
-    if (!next || busy || !power) return;
+    if (!next || busy) return;
     void useForge.getState().submitIntent(next);
     setIntent("");
   };
 
-  const forgeLabel = !power ? "Off" : busy || status === "loading" ? "Loading…" : "Forge";
+  const forgeLabel = busy ? "Working…" : "Forge";
   const [listening, setListening] = useState(false);
   const speech = useCanListen();
   // Say it instead of typing (speech.ts): the words land in the box and go straight to the forge.
@@ -360,18 +360,17 @@ function IntentDock() {
           className="field"
           value={intent}
           maxLength={400}
-          placeholder={power ? "Create a small platform near the origin" : `Turn ${spec.short} on to forge`}
+          placeholder={power && status === "ready" ? `Ask ${spec.short} anything, or: a row of five red cubes` : "a row of five red cubes · paint it blue · throw it · help"}
           onChange={(event) => setIntent(event.target.value)}
           autoComplete="off"
-          disabled={!power}
         />
         {speech ? (
           <button type="button" className="btn dock-mic" aria-label={listening ? "Listening" : "Speak an intent"} onClick={() => void speak()} disabled={listening}>
             {listening ? "…" : "🎙"}
           </button>
         ) : null}
-        <button type="submit" className="btn btn-primary" disabled={!intent.trim() || (!/forge:\/\/\S+/i.test(intent) && (busy || !power))}>
-          {busy && status === "ready" ? "Writing…" : forgeLabel}
+        <button type="submit" className="btn btn-primary" disabled={!intent.trim() || (!/forge:\/\/\S+/i.test(intent) && busy)}>
+          {busy && power && status === "ready" ? "Writing…" : forgeLabel}
         </button>
       </div>
       <div className="chips">
@@ -380,7 +379,7 @@ function IntentDock() {
             key={chip.label}
             type="button"
             className="chip"
-            disabled={busy || !power}
+            disabled={busy}
             onClick={() => void useForge.getState().submitIntent(chip.intent)}
           >
             {chip.label}
