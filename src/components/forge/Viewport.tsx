@@ -16,7 +16,7 @@ import { scenePalette } from "./palette";
 import { Pilot } from "./pilot";
 import { RoomPicture } from "./picture";
 import { probeHardware, qualityFor, sceneryRequested, softRenderRequested, type SceneryLevel } from "@/engine/hardware";
-import { Scenery } from "./Scenery";
+import { FlatStage, Scenery } from "./Scenery";
 import { PerfOverlay, PerfProbe, startQuality, togglePerf, usePerf } from "./PerfOverlay";
 import { LADDER, startRung } from "@/engine/perf";
 import { faceLook, lookStick, pilotKeys, pilotStick, pointerClaim, setAimPoint, setGazeLock, useGazeId, useLook } from "./look";
@@ -1310,15 +1310,7 @@ function Stage({ scenery, shadows, post }: { scenery: SceneryLevel | "off"; shad
     <>
       {scenery === "off" ? (
         <>
-          <color attach="background" args={[scenePalette.bg]} />
-          <fog attach="fog" args={[scenePalette.fog, 36, 72]} />
-          <hemisphereLight args={[scenePalette.key, scenePalette.fill, 0.7]} />
-          <ambientLight intensity={0.38} />
-          <directionalLight position={[7, 11, 5]} intensity={1.55} color={scenePalette.key} />
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.012, 0]}>
-            <circleGeometry args={[30, 80]} />
-            <meshStandardMaterial color="#1c2128" roughness={1} metalness={0} />
-          </mesh>
+          <FlatStage />
           <gridHelper args={[40, 40, scenePalette.gridMajor, scenePalette.grid]} position={[0, 0, 0]} />
         </>
       ) : (

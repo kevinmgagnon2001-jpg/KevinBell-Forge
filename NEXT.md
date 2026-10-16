@@ -18,7 +18,6 @@ agents for arcade games. Smaller follow-ups:
 - Check rung "11" (PostFX.tsx) with the Stats overlay on the phone; it may run at 30-45 fps.
 - Feel the vault, mantle and climb on the phone (PARKOUR thresholds in parkour.ts, PRESS_CLIMB and
   the trigger speed in pilot.tsx); townsfolk and visited islands do not vault yet.
-- Weather on the "off" scenery rung (flat stage) still shows the old dark look.
 
 ## Where things stand
 

@@ -1104,3 +1104,10 @@ and mountains around it, under a late-afternoon sky.
   in the air for a rope hung from nothing.
 - Checked: typecheck, lint (no errors), `npm run test:engine` (293 pass, 8 new); in Chromium at
   midnight in the lab: a rope, two strings of lights and a cable between exhibits; no console errors.
+
+## Weather on the flat stage
+- The lowest rung (?scenery=off) now follows the weather too (FlatStage in Scenery.tsx): background
+  and fog from the sky's horizon, sun and fill colours, a floor that shines when wet, and rain or
+  snow at the lightest count. Still no land, sky dome or reflections there.
+- Checked: typecheck, lint, engine tests; in Chromium with ?scenery=off, sunny noon and rainy dusk
+  (rain falling); no console errors.
