@@ -37,6 +37,8 @@ import { addGlint, glintsAllowed, setGlintsAllowed } from "./glint";
 import { SoundStage } from "./SoundStage";
 import { PostFX } from "./PostFX";
 import { HyperBubble } from "./Hyper";
+import { Ropes } from "./Rope";
+import { ROPE_TAG } from "@/engine/rope";
 import type { ShapeName } from "@/engine/polytope";
 import { Activity, ArrowBigUp, Eye, House, LayoutGrid, Maximize2, Minimize2, Move, PersonStanding, PlaneLanding, RotateCw, ScanEye, Wind } from "lucide-react";
 import type { Post } from "@/engine/perf";
@@ -915,6 +917,8 @@ function BodyInner({ entity, selected }: { entity: Entity; selected: boolean }) 
       />
     ) : null;
   if (entity.customData.method === "nanite") return <ClusterCut />;
+  // Ropes are drawn in world space by <Ropes>; the entity is only their handle.
+  if (entity.tags.includes(ROPE_TAG)) return null;
   if (entity.customData.hyper) return <HyperBubble shape={entity.customData.hyper as ShapeName} />;
   if (entity.tags.includes(SCREEN_TAG)) return <DeviceMesh entity={entity} />;
   if (entity.tags.includes(TV_TAG)) return <TvMesh />;
@@ -1340,6 +1344,7 @@ function Stage({ scenery, shadows, post }: { scenery: SceneryLevel | "off"; shad
       <Settle paused={dragging} />
       <SoundStage />
       <Town />
+      <Ropes />
       <OrbitControls
         makeDefault
         enableDamping

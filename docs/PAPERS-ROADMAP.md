@@ -119,10 +119,13 @@ Notes on what was built differently from the plan:
 - [ ] **Soft bodies and cloth on the same core** (M). *Vertex Block Descent (SIGGRAPH 2024)*
   (related).
   - Jelly blocks, flags, capes and inflatables, using meshes under about 5k vertices on the CPU.
-- [ ] **Ropes, cables and hair** (M). *Stable Cosserat Rods (SIGGRAPH 2025), TMP "This New
+- [x] **Ropes, cables and hair** (M). *Stable Cosserat Rods (SIGGRAPH 2025), TMP "This New
   Physics Engine Is 45x Faster!"*
   - Ropes, grappling hooks, hanging cables, swaying grass and avatar hair.
   - A few hundred rods on the CPU.
+  - Done (rope.ts, Rope.tsx): ropes, cables and string lights by position-based dynamics with
+    tethers and collisions; no twist (not a full Cosserat rod). Not done: grappling hooks,
+    swaying grass, avatar hair on the same solver.
 - [ ] **Builder agents for arcade games** (M–L). *ChatDev (2023), TMP "OpenAI's ChatGPT Makes A
   Game For $1!"* (likely)
   - "Make me a breakout machine by the window." A designer agent writes the spec, a coder agent

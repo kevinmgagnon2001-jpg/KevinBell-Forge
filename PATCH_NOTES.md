@@ -1091,3 +1091,16 @@ and mountains around it, under a late-afternoon sky.
   not), at once, and it eases back out when clear. Pulled in close it rises to look over the head.
 - Checked: typecheck, lint (no errors), `npm run test:engine` (285 pass); in Chromium, a 2.6 m wall
   right behind the body brings the camera in over the shoulder; no console errors.
+
+## Ropes, cables and string lights (Papers roadmap: Cosserat rods, light)
+- rope.ts (tested): a particle chain by position-based dynamics (Verlet, four substeps, stretch and
+  skip-one bending links, long-range tethers so it never stretches), collisions with the world's
+  boxes, the land and people (who push it aside), wind from the weather; ends are points or things,
+  followed live. Tool `hang_rope` and plain requests ("hang a rope", "string lights between the
+  column and the terminal", "run a cable from the bench to the pillar").
+- Rope.tsx: each rope is a tube rebuilt in place every frame on a Catmull-Rom curve with
+  parallel-transport frames; a braided texture on ropes, a clear-coated jacket on cables, warm
+  shimmering bulbs with soft glows on string lights (they bloom where the rung has bloom); a ring
+  in the air for a rope hung from nothing.
+- Checked: typecheck, lint (no errors), `npm run test:engine` (293 pass, 8 new); in Chromium at
+  midnight in the lab: a rope, two strings of lights and a cable between exhibits; no console errors.

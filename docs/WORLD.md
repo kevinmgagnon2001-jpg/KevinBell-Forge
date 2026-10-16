@@ -84,3 +84,17 @@ devices. Nothing is downloaded or sent anywhere.
   tesseract turns by the name.
 - Code: `src/engine/polytope.ts` (the shapes, checked), `src/engine/hyper.ts`,
   `src/components/forge/Hyper.tsx`, `src/components/forge/HyperBackdrop.tsx`.
+
+## Ropes, cables and string lights
+
+Say "hang a rope", "string lights between the column and the terminal" or "run a cable from the
+bench to the pillar" (tool `hang_rope`, `src/engine/rope.ts`, drawn by `Rope.tsx`). A rope hangs
+from a ring in front of you, or from a thing you name, and swings when you or the townsfolk walk
+into it. Cables and string lights are slung between two things (or "here") with a little sag and
+follow those things when they move. They drape over exhibits and lie on the ground instead of
+passing through, and the weather's wind sways them. String lights carry warm bulbs that glow (and
+bloom on the rungs with bloom).
+
+The simulation is a chain of particles solved by position-based dynamics: links held at length,
+skip-one links for bending, long-range tethers so a long chain never stretches, collisions with
+the world's boxes, the land and people. It is a light stand-in for Stable Cosserat Rods (no twist).

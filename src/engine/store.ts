@@ -8,6 +8,7 @@ import { cleanWeather, weatherIntent } from "./weather";
 import { soundIntent } from "./sounds";
 import { cleanTown, townIntent } from "./town";
 import { hyperIntent } from "./hyper";
+import { ropeIntent } from "./rope";
 import { cleanRecent, MAX_SKILLS, skillIntent, skillBrief } from "./skillbook";
 import { bootWorld, ensureAvatar, ensureHelm, labWorld, stepWorld } from "./manifold";
 import { DEFAULT_MODEL_PATH, MEMORY_BUDGET_MB, TOOL_NAMES } from "./os";
@@ -358,6 +359,18 @@ export const useForge = create<ForgeState>((set, get) => {
         commit(ran.ok ? ran.world : before, spawned, [
           { tone: "user", title: "Intent", body: intent },
           { tone: ran.ok ? "engine" : "warn", title: "4D", body: ran.result },
+        ]);
+        return;
+      }
+      // Ropes, cables and string lights ("string lights between the bench and the terminal") (rope.ts).
+      const ropeCall = ropeIntent(intent);
+      if (ropeCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: ropeCall.tool, arguments: ropeCall.arguments });
+        const spawned = ran.world.nextId > before.nextId ? ran.world.nextId - 1 : before.selectedId;
+        commit(ran.ok ? ran.world : before, spawned, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Ropes", body: ran.result },
         ]);
         return;
       }

@@ -257,6 +257,12 @@ export const TOOLS: ToolSchema[] = [
     optional: ["shape", "x", "z", "size", "name"],
   },
   {
+    name: "hang_rope",
+    description: "Hang a rope (kind rope: hangs from a point in front of you, or from a thing named in from, and swings when walked into), a cable, or string lights (kind cable or lights: between from and to, names of things or here). length in metres, sag the extra share of length over the span.",
+    parameters: { kind: "string", from: "string", to: "string", length: "f32", sag: "f32", color: "string", name: "string" },
+    optional: ["kind", "from", "to", "length", "sag", "color", "name"],
+  },
+  {
     name: "wield",
     description: "Hold the hyper sword (item hyper-sword), whose blade is a hypercube turning through 4D, or put it away (item none).",
     parameters: { item: "string" },
