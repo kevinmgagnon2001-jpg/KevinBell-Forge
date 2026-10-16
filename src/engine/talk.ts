@@ -196,3 +196,53 @@ export function nearestPerson(world: World, at: { x: number; z: number }, live: 
   }
   return best?.e ?? null;
 }
+
+// ---------- mouth shapes ----------
+
+/** A mouth key: when (seconds from the start of the line), how open (0..1), how round (0..1). */
+export type MouthKey = { at: number; open: number; round: number };
+
+/**
+ * Mouth shapes for a line, from its letters (a light stand-in for visemes): each syllable opens by
+ * its vowel (a and o wide, e and i half, u and o round), closes on b, m and p, and pauses at
+ * commas and full stops. `rate` is the speaking rate (1 is normal).
+ */
+export function mouthTrack(text: string, rate = 1): MouthKey[] {
+  const keys: MouthKey[] = [{ at: 0, open: 0, round: 0 }];
+  const syllable = 0.17 / Math.max(0.4, rate);
+  let t = 0.05;
+  for (const token of text.toLowerCase().match(/[a-z']+|[.,!?;:…]/g) ?? []) {
+    if (/^[.,!?;:…]$/.test(token)) {
+      t += /[,;:]/.test(token) ? 0.18 : 0.32;
+      keys.push({ at: t, open: 0, round: 0 });
+      continue;
+    }
+    // Vowel groups are syllables; the consonant before each sets how it starts.
+    const parts = token.match(/[^aeiouy]*[aeiouy]+/g) ?? [token];
+    for (const part of parts) {
+      const vowel = part.replace(/[^aeiouy]/g, "");
+      const lips = /[bmp]$/.test(part.replace(/[aeiouy]+$/, ""));
+      const open = /[ao]/.test(vowel) ? 0.95 : /[ei]/.test(vowel) ? 0.6 : 0.45;
+      const round = /[ou]/.test(vowel) && !/a/.test(vowel) ? 0.8 : 0.1;
+      if (lips) keys.push({ at: t + syllable * 0.15, open: 0, round: 0 });
+      keys.push({ at: t + syllable * 0.5, open, round });
+      t += syllable;
+    }
+    keys.push({ at: t, open: 0.15, round: 0 });
+    t += syllable * 0.25;
+  }
+  keys.push({ at: t + 0.08, open: 0, round: 0 });
+  return keys;
+}
+
+/** How open and round the mouth is `t` seconds into a track (closed outside it). */
+export function mouthAt(track: MouthKey[], t: number): { open: number; round: number } {
+  if (!track.length || t <= 0 || t >= track[track.length - 1].at) return { open: 0, round: 0 };
+  let i = 1;
+  while (i < track.length - 1 && track[i].at < t) i += 1;
+  const a = track[i - 1];
+  const b = track[i];
+  const k = b.at > a.at ? Math.max(0, Math.min(1, (t - a.at) / (b.at - a.at))) : 1;
+  const s = k * k * (3 - 2 * k);
+  return { open: a.open + (b.open - a.open) * s, round: a.round + (b.round - a.round) * s };
+}

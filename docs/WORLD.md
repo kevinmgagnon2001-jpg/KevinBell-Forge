@@ -57,7 +57,8 @@ devices. Nothing is downloaded or sent anywhere.
   answer in a speech bubble over their head and out loud in a voice of their own (the device's
   speech). With the resident model loaded they answer in their own words, in character (their
   traits, what they are doing, their day, whether they know you); without it, from the same facts.
-  They remember the talk ("talked with you about ..."), and next time they say so. Walk away or Esc
+  They remember the talk ("talked with you about ..."), and next time they say so. Townsfolk have
+  faces now: they blink, and their mouths move with the words. Walk away or Esc
   to end it. Code: `src/engine/talk.ts`, `src/components/forge/Talk.tsx`.
 
 ## The body

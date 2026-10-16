@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { activity, cleanReply, heard, nearestPerson, personaPrompt, placePhrase, scriptedReply, voiceOf } from "./talk.ts";
+import { activity, cleanReply, heard, mouthAt, mouthTrack, nearestPerson, personaPrompt, placePhrase, scriptedReply, voiceOf } from "./talk.ts";
 import { executeProposal } from "./harness.ts";
 import { labWorld } from "./manifold.ts";
 import { NPC_TAG } from "./town.ts";
@@ -71,4 +71,20 @@ test("plans read as things you can be doing, somewhere", () => {
   assert.equal(placePhrase("home"), "at home");
   assert.equal(placePhrase("the lamps"), "at the lamps");
   assert.equal(placePhrase("Bench"), "by the Bench");
+});
+
+test("mouth shapes follow the words: open on vowels, shut on b m p, still between lines", () => {
+  const track = mouthTrack("Hello, my name is Bob.");
+  const end = track[track.length - 1].at;
+  assert.ok(end > 0.8 && end < 4, `about as long as saying it: ${end.toFixed(2)} s`);
+  for (let i = 1; i < track.length; i += 1) assert.ok(track[i].at >= track[i - 1].at, "in time order");
+  let most = 0;
+  for (let t = 0; t < end; t += 0.01) most = Math.max(most, mouthAt(track, t).open);
+  assert.ok(most > 0.8, "opens wide somewhere");
+  assert.ok(track.some((k) => k.open === 0 && k.at > 0.1 && k.at < end - 0.1), "closes between");
+  assert.ok(track.some((k) => k.round > 0.5), "rounds for o");
+  assert.deepEqual(mouthAt(track, -1), { open: 0, round: 0 });
+  assert.deepEqual(mouthAt(track, end + 1), { open: 0, round: 0 });
+  const fast = mouthTrack("Hello, my name is Bob.", 1.5);
+  assert.ok(fast[fast.length - 1].at < end, "a faster voice is quicker");
 });

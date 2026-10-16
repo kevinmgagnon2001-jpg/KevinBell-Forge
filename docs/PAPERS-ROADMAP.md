@@ -99,8 +99,9 @@ Notes on what was built differently from the plan:
     on-device TTS (Android TTS, or Piper on desktop).
   - Mouth shapes from visemes on the jointed head.
   - Done (talk.ts, Talk.tsx): speech in (speech.ts), the resident model in character with a
-    scripted fallback, the device's own speech out (Web Speech), memory of the talk. Not done:
-    mouth shapes; Piper on desktop.
+    scripted fallback, the device's own speech out (Web Speech), memory of the talk, and mouth shapes from the
+    words (mouthTrack: vowels open, b m p close, pauses at punctuation), started with the voice.
+    Not done: real visemes from the speech engine; Piper on desktop.
 - [x] **Crowds that find their way** (M). *TRACE & PACER (CVPR 2023), TMP "NVIDIA's AI Finally
   Solved Walking In Games"*
   - "Fill the plaza with people." ORCA-style steering stands in for the diffusion planner, and the

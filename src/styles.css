@@ -3749,3 +3749,9 @@ body:has(.app)::before {
     animation: none;
   }
 }
+
+@media (min-width: 700px) {
+  .talk-box {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 5.2rem);
+  }
+}

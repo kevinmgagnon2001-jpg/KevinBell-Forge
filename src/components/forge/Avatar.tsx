@@ -21,7 +21,8 @@ import { groundUnderFoot, solidsFor } from "@/engine/physics";
 import { PHASES, twoBone } from "@/engine/parkour";
 import { alignPhase, jiggle, JIGGLE, spring2, stepPhase, track, tracker } from "@/engine/springs";
 import { useForge } from "@/engine/store";
-import { avatarMotion, townBodies } from "./body-state";
+import { avatarMotion, mouths, townBodies } from "./body-state";
+import { mouthAt } from "@/engine/talk";
 import { HyperSword } from "./Hyper";
 import { currentGaze } from "./look";
 
@@ -170,6 +171,10 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
   const pose = useRef<Pose>(blankPose());
   const clock = useRef({ t: Math.random() * 10, phase: 0, walk: 0, moving: false });
   const antenna = useRef<Group>(null);
+  // Townsfolk have a face: eyes that blink, a mouth that moves with what they say (talk.ts).
+  const face = entity.tags.includes("npc");
+  const mouth = useRef<Group>(null);
+  const eyes = useRef<Group>(null);
   const ponytail = useRef<Group>(null);
   const tail2 = useRef<Group>(null);
   const wobble = useRef({ track: tracker(), antenna: spring2(), pony: spring2(), at: new Vector3() });
@@ -397,6 +402,14 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
       if (tail2.current) tail2.current.rotation.set(0.25 - w.pony.x.x * 0.6, 0, -w.pony.z.x * 0.6);
     }
     if (chestShell.current) chestShell.current.scale.set(p.breathe, 1, p.breathe);
+    if (face) {
+      const line = mouths[entity.id];
+      const shape = line ? mouthAt(line.track, (performance.now() - line.start) / 1000) : { open: 0, round: 0 };
+      if (line && performance.now() - line.start > (line.track.at(-1)?.at ?? 0) * 1000 + 500) delete mouths[entity.id];
+      if (mouth.current) mouth.current.scale.set(1 - shape.round * 0.4, 0.18 + shape.open * 1.1, 1);
+      // A blink every few seconds.
+      if (eyes.current) eyes.current.scale.y = (c.t + entity.id * 0.37) % 3.7 < 0.12 ? 0.1 : 1;
+    }
   });
 
   const skin = tone;
@@ -513,6 +526,24 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
                   </mesh>
                 </group>
               </group>
+              {face ? (
+                <>
+                  <group ref={eyes} position={[0, 0.125, 0.1]}>
+                    {[-0.038, 0.038].map((x) => (
+                      <mesh key={x} position={[x, 0, 0]} scale={[1, 1.25, 0.6]}>
+                        <sphereGeometry args={[0.013, 10, 8]} />
+                        <meshStandardMaterial color="#1a1412" roughness={0.3} />
+                      </mesh>
+                    ))}
+                  </group>
+                  <group ref={mouth} position={[0, 0.055, 0.104]}>
+                    <mesh scale={[1, 0.55, 0.4]}>
+                      <sphereGeometry args={[0.024, 12, 8]} />
+                      <meshStandardMaterial color="#5a2626" roughness={0.6} />
+                    </mesh>
+                  </group>
+                </>
+              ) : null}
               {head ? <group position={[0, 0.1, 0]}>{head}</group> : null}
             </group>
           </group>

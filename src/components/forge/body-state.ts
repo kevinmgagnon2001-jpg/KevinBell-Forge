@@ -5,6 +5,7 @@
  */
 import { useSyncExternalStore } from "react";
 import type { TraverseKind } from "@/engine/parkour";
+import type { MouthKey } from "@/engine/talk";
 import type { Body } from "@/engine/town";
 
 /** What the body is doing, for its animation. Written by the pilot every frame. */
@@ -66,6 +67,9 @@ export const talkNear = store<{ id: number; name: string } | null>(null);
 export const talking = store<TalkState | null>(null);
 export const useTalkNear = () => useSyncExternalStore(talkNear.subscribe, talkNear.get, () => null);
 export const useTalking = () => useSyncExternalStore(talking.subscribe, talking.get, () => null);
+
+/** Who is speaking a line now (by entity id): when it started (performance.now()) and its mouth shapes. */
+export const mouths: Record<number, { start: number; track: MouthKey[] }> = {};
 
 /** Keys for a game on a screen of its own (Breakout): the arcade hands them over, and no one else sees them. */
 export const screenKeys: { down: ((event: KeyboardEvent) => void) | null } = { down: null };

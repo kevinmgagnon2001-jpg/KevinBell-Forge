@@ -11,22 +11,33 @@ import { MessageCircle, Mic, SendHorizontal, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { chatResident, residentReady } from "@/engine/resident";
 import { useForge } from "@/engine/store";
-import { cleanReply, heard, nearestPerson, personaPrompt, scriptedReply, TALK_REACH, voiceOf } from "@/engine/talk";
+import { cleanReply, heard, mouthTrack, nearestPerson, personaPrompt, scriptedReply, TALK_REACH, voiceOf } from "@/engine/talk";
 import type { Group } from "three";
-import { arcadeNear, arcadePlaying, talking, talkNear, townBodies, useTalking, useTalkNear } from "./body-state";
+import { arcadeNear, arcadePlaying, mouths, talking, talkNear, townBodies, useTalking, useTalkNear } from "./body-state";
 import { INTERACT_EVENT, useLook } from "./look";
 import { canListen, listen } from "./speech";
 
 const me = () => Object.values(useForge.getState().entities).find((e) => e.tags.includes("architect"));
 
-/** Say it out loud on the device, in this person's voice, if the device can. */
+/** Say it out loud on the device, in this person's voice, if the device can; the mouth moves with it. */
 function speak(id: number, text: string) {
-  const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
-  if (!synth || !text) return;
   const state = useForge.getState();
   const who = state.entities[id];
-  if (!who) return;
+  if (!who || !text) return;
   const v = voiceOf(who, state.town?.minds[id]?.traits);
+  const lips = () => {
+    mouths[id] = { start: performance.now(), track: mouthTrack(text, v.rate) };
+  };
+  const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
+  if (!synth) {
+    lips();
+    return;
+  }
+  // Start the mouth with the voice; if no voice starts soon, move it anyway.
+  let started = false;
+  const fallback = window.setTimeout(() => {
+    if (!started) lips();
+  }, 400);
   try {
     synth.cancel();
     const u = new SpeechSynthesisUtterance(text);
@@ -35,9 +46,14 @@ function speak(id: number, text: string) {
     if (voices.length) u.voice = voices[v.index % voices.length];
     u.pitch = v.pitch;
     u.rate = v.rate;
+    u.onstart = () => {
+      started = true;
+      window.clearTimeout(fallback);
+      lips();
+    };
     synth.speak(u);
   } catch {
-    // No voice here; the bubble still shows it.
+    // No voice here; the bubble (and the mouth) still show it.
   }
 }
 
@@ -75,6 +91,8 @@ function begin(id: number, name: string) {
 }
 
 function end() {
+  const was = talking.get();
+  if (was) delete mouths[was.id];
   talking.set(null);
   try {
     window.speechSynthesis?.cancel();

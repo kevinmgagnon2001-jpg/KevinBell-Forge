@@ -1141,3 +1141,13 @@ and mountains around it, under a late-afternoon sky.
   the plaza, walk up to Cleo, E, she greets, "What are you up to?" gets an answer in the bubble, Esc
   ends it; no console errors. Speech out and the model answer were not heard here (no audio, model
   not loaded in the check).
+
+## Faces and lip sync for the townsfolk
+- talk.ts mouthTrack and mouthAt (tested): mouth shapes from the letters of a line (vowel groups
+  open by the vowel, round for o and u, shut on b, m and p, pauses at commas and full stops), timed
+  by the person's speaking rate.
+- Avatar.tsx: townsfolk get eyes that blink and a mouth that opens and rounds with the track,
+  started when the device's voice starts (or at once without one).
+- The talk box sits lower on wide screens, clear of the figures.
+- Checked: typecheck, lint, engine tests; in Chromium, Cleo's face (eyes, an open mouth) while she
+  answers; no console errors.
