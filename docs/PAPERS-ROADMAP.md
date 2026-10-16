@@ -128,7 +128,8 @@ Notes on what was built differently from the plan:
   - Ropes, grappling hooks, hanging cables, swaying grass and avatar hair.
   - A few hundred rods on the CPU.
   - Done (rope.ts, Rope.tsx): ropes, cables and string lights by position-based dynamics with
-    tethers and collisions; no twist (not a full Cosserat rod). Not done: grappling hooks,
+    tethers and collisions; no twist (not a full Cosserat rod). Swinging on ropes (catch by
+    jumping, pump, let go). Not done: grappling hooks,
     swaying grass, avatar hair on the same solver.
 - [ ] **Builder agents for arcade games** (M–L). *ChatDev (2023), TMP "OpenAI's ChatGPT Makes A
   Game For $1!"* (likely)

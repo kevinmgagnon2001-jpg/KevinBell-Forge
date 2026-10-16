@@ -6,6 +6,7 @@
 import { useSyncExternalStore } from "react";
 import type { TraverseKind } from "@/engine/parkour";
 import type { MouthKey } from "@/engine/talk";
+import type { RopeSim } from "@/engine/rope";
 import type { Body } from "@/engine/town";
 
 /** What the body is doing, for its animation. Written by the pilot every frame. */
@@ -28,7 +29,7 @@ export const avatarMotion = {
    * A vault, mantle or climb under way (parkour.ts): how far through it is (0..1), and where the
    * hands go on the ledge, relative to the feet (up) and ahead of the body's centre (ahead).
    */
-  parkour: null as null | { kind: TraverseKind; s: number; up: number; ahead: number },
+  parkour: null as null | { kind: TraverseKind | "rope"; s: number; up: number; ahead: number },
 };
 
 /** Live positions of the townsfolk by entity id, stepped by Town.tsx and read by their figures. */
@@ -67,6 +68,10 @@ export const talkNear = store<{ id: number; name: string } | null>(null);
 export const talking = store<TalkState | null>(null);
 export const useTalkNear = () => useSyncExternalStore(talkNear.subscribe, talkNear.get, () => null);
 export const useTalking = () => useSyncExternalStore(talking.subscribe, talking.get, () => null);
+
+/** The live ropes (Rope.tsx steps them), by entity id, and the one you are hanging on (pilot.tsx). */
+export const liveRopes: Record<number, RopeSim> = {};
+export const ropeGrip = { rope: null as number | null, index: 0, push: { x: 0, z: 0 }, cooldown: 0 };
 
 /** Who is speaking a line now (by entity id): when it started (performance.now()) and its mouth shapes. */
 export const mouths: Record<number, { start: number; track: MouthKey[] }> = {};

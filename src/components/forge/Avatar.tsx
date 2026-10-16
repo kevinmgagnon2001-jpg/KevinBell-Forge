@@ -81,11 +81,13 @@ function parkourPose(t: Pose, pk: { kind: string; s: number; up: number; ahead: 
   // How firmly the hands are on the ledge; both, or just the left (a speed vault).
   let grip = 0;
   let both = true;
+  // On a rope both hands close round it, one over the other.
+  const rope = pk.kind === "rope";
   const reachArm = (side: "L" | "R", weight: number) => {
     if (weight <= 0) return;
     const sh = shoulderAt(t.lift, t.chest.x);
     // From the shoulder to the hand's spot, in the leaning chest's frame.
-    const dy = pk.up - sh.up;
+    const dy = pk.up - sh.up + (rope && side === "R" ? -0.1 : 0);
     const dz = pk.ahead - sh.ahead;
     const c = t.chest.x;
     const ly = dy * Math.cos(c) + dz * Math.sin(c);
@@ -95,7 +97,7 @@ function parkourPose(t: Pose, pk: { kind: string; s: number; up: number; ahead: 
     const ej = t[`elbow${side}`];
     sj.x += (ik.root - sj.x) * weight;
     ej.x += (ik.bend - ej.x) * weight;
-    sj.z += ((side === "L" ? 0.12 : -0.12) - sj.z) * weight;
+    sj.z += ((side === "L" ? (rope ? -0.32 : 0.12) : rope ? 0.32 : -0.12) - sj.z) * weight;
   };
   if (pk.kind === "vault") {
     const ph = PHASES.vault;
@@ -129,6 +131,16 @@ function parkourPose(t: Pose, pk: { kind: string; s: number; up: number; ahead: 
     t.kneeR.x = 1.95 * knee;
     t.hipL.x = -0.25 * crouch + 0.15 * knee;
     t.kneeL.x = 0.5 * crouch + 0.3 * knee;
+  } else if (rope) {
+    // Hanging on: legs together, a little bent, swaying with the swing.
+    grip = 1;
+    t.lift = 0.04;
+    t.chest.x = 0.05;
+    t.hipL.x = -0.25;
+    t.hipR.x = -0.12;
+    t.kneeL.x = 0.45;
+    t.kneeR.x = 0.3;
+    t.head.x = -0.2;
   } else {
     const ph = PHASES.climb;
     const jump = 1 - smooth(ph.reach - 0.05, ph.hang, s);

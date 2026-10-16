@@ -8,8 +8,7 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
 props and sounds). Pick items from Phase 1 first; each says what it touches.
 
 **Done from the Papers roadmap (this session):** all of Phase 1, NPCs with memory and a day, and
-crowds; then ropes, cables and string lights (`rope.ts`, guide in `docs/WORLD.md`); then vault and climb (`parkour.ts`, guide in `docs/PLAY.md`). Talking NPCs are in too (`talk.ts`, `Talk.tsx`). Next from the roadmap: grabbing and swinging on
-ropes, the AVBD solver core, builder
+crowds; then ropes, cables and string lights (`rope.ts`, guide in `docs/WORLD.md`); then vault and climb (`parkour.ts`, guide in `docs/PLAY.md`). Talking NPCs are in too (`talk.ts`, `Talk.tsx`). Next from the roadmap: the AVBD solver core, builder
 agents for arcade games. Smaller follow-ups:
 - Ask the resident model to rewrite a person's plan every few minutes, batched (town.ts `planDay`).
 - Check the frame rate on the owner's phone with 24 townsfolk and heavy rain (Stats overlay).

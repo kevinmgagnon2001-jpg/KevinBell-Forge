@@ -1151,3 +1151,14 @@ and mountains around it, under a late-afternoon sky.
 - The talk box sits lower on wide screens, clear of the figures.
 - Checked: typecheck, lint, engine tests; in Chromium, Cleo's face (eyes, an open mouth) while she
   answers; no console errors.
+
+## Swinging on ropes
+- rope.ts (tested): a grip on the rope: that particle is heavy, is pushed by the stick (pumping),
+  and keeps the hanging body above the ground; nearestParticle and particleVelocity for catching
+  and letting go.
+- pilot.tsx: jumping at a hanging rope catches it (the jump's momentum goes into the rope); the
+  stick pumps the swing, most when it goes with it; a fresh jump lets go with the swing's speed
+  and a little lift. Rope.tsx registers live ropes and steps the grip.
+- Avatar.tsx: a rope hang pose: both hands round the rope, one over the other, legs together.
+- Checked: typecheck, lint, engine tests; in Chromium: hang a rope, run and jump at it, caught,
+  W swings it back and forth, Space lets go moving upward; no console errors.

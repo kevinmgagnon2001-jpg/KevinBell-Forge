@@ -11,12 +11,13 @@ import { stageCamera, stageGl } from "./picture";
 import { fovFor } from "@/engine/view";
 import { groundAt, solidsFor, stepWalk, WALK } from "@/engine/physics";
 import { ledgeAhead, sampleTraverse, type Traverse } from "@/engine/parkour";
+import { nearestParticle, particleVelocity } from "@/engine/rope";
 import { boomReach, easeBoom } from "@/engine/camera-boom";
 import { heightAt } from "@/engine/terrain";
 import { chase, chasePoint, driveSpeed, KEY_PUSH } from "@/engine/drive";
 import { frameCamera, gameById } from "@/engine/arcade";
 import type { LookMode } from "./look";
-import { arcadePlaying, avatarMotion, flight, toggleFlight, townBodies } from "./body-state";
+import { arcadePlaying, avatarMotion, flight, liveRopes, ropeGrip, toggleFlight, townBodies } from "./body-state";
 
 const EYE = 0.62;
 const MIN_Y = 0.45;
@@ -94,7 +95,13 @@ const motion = {
   boom: Number.NaN,
   /** How long the body has been pushing into a wall: a held push climbs what a jog would not. */
   press: 0,
+  /** Jump held last frame (a fresh press lets go of a rope). */
+  jumpWas: false,
 };
+/** Hands above the body's centre when hanging from a rope. */
+const HANG_HANDS = 0.85;
+/** Pumping a swing: the stick's push on the hands, m/s². */
+const SWING_PUMP = 7;
 /** Pushing into a ledge this long climbs it without a jump. */
 const PRESS_CLIMB = 0.3;
 const ACCEL = { ground: 11, air: 2.5, fly: 2.2 };
@@ -504,7 +511,10 @@ export function Pilot() {
         motion.vy = 0;
         motion.bank *= Math.max(0, 1 - dt * 6);
       }
-      if (flying || visit) motion.parkour = null;
+      if (flying || visit) {
+        motion.parkour = null;
+        ropeGrip.rope = null;
+      }
       if (motion.parkour) {
         // Mid-vault or climb: the move carries the body; face the ledge.
         yaw = turnToward(yaw, motion.parkour.tr.yaw, TURN_RATE * 1.6, dt);
@@ -552,6 +562,37 @@ export function Pilot() {
         z = shown.z;
         avatarMotion.grounded = true;
         avatarMotion.vy = 0;
+      } else if (ropeGrip.rope != null && !flying && liveRopes[ropeGrip.rope]) {
+        // Hanging on a rope: the body hangs under the hands, the stick pumps the swing, and a jump
+        // lets go with the swing's speed.
+        const sim = liveRopes[ropeGrip.rope];
+        const i = Math.min(sim.n - 1, ropeGrip.index);
+        // Pumping works with the swing: pushing the way it already goes adds the most.
+        const swing = particleVelocity(sim, i, dt);
+        const along = swing.x * wx + swing.z * wz;
+        const pump = SWING_PUMP * (along > 0 ? 1 : 0.35);
+        ropeGrip.push = { x: wx * pump, z: wz * pump };
+        x = sim.pos[i * 3];
+        y = sim.pos[i * 3 + 1] - HANG_HANDS;
+        z = sim.pos[i * 3 + 2];
+        body.vy = 0;
+        body.grounded = false;
+        avatarMotion.grounded = true;
+        avatarMotion.vy = 0;
+        avatarMotion.bumped = false;
+        avatarMotion.parkour = { kind: "rope", s: 0.28, up: HANG_HANDS + WALK.foot, ahead: 0.03 };
+        if (jump && !motion.jumpWas) {
+          const v = particleVelocity(sim, i, dt);
+          ropeGrip.rope = null;
+          ropeGrip.cooldown = 0.5;
+          avatarMotion.parkour = null;
+          motion.vx = v.x;
+          motion.vz = v.z;
+          body.vy = Math.max(0, v.y) + WALK.jump * 0.6;
+        } else {
+          motion.vx = (x - p.x) / Math.max(dt, 1e-3);
+          motion.vz = (z - p.z) / Math.max(dt, 1e-3);
+        }
       } else if (motion.parkour) {
         const run = motion.parkour;
         const { tr } = run;
@@ -603,7 +644,24 @@ export function Pilot() {
         avatarMotion.vy = walked.state.vy;
         avatarMotion.bumped = walked.bumped;
         if (walked.landed > 2) avatarMotion.landed = Math.max(avatarMotion.landed, walked.landed);
+        // Jumping at a hanging rope catches it.
+        ropeGrip.cooldown = Math.max(0, ropeGrip.cooldown - dt);
+        if (!flying && !walked.state.grounded && ropeGrip.cooldown <= 0) {
+          const hands = { x, y: y + HANG_HANDS, z };
+          for (const [id, sim] of Object.entries(liveRopes)) {
+            const near = nearestParticle(sim, hands);
+            if (near.distance < 0.42) {
+              ropeGrip.rope = Number(id);
+              ropeGrip.index = near.index;
+              // Carry the jump's momentum into the rope.
+              const k = near.index * 3;
+              for (const [axis, v] of [[0, motion.vx], [1, walked.state.vy], [2, motion.vz]] as const) sim.prev[k + axis] = sim.pos[k + axis] - (v * dt) / 4;
+              break;
+            }
+          }
+        }
       }
+      motion.jumpWas = jump;
       avatarMotion.flying = flying;
       // How the body moves relative to where it faces, for side steps and walking backwards (Avatar.tsx).
       const sp = Math.hypot(vx, vz);

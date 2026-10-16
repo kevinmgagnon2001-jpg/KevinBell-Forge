@@ -106,3 +106,8 @@ bloom on the rungs with bloom).
 The simulation is a chain of particles solved by position-based dynamics: links held at length,
 skip-one links for bending, long-range tethers so a long chain never stretches, collisions with
 the world's boxes, the land and people. It is a light stand-in for Stable Cosserat Rods (no twist).
+
+**Swing on a rope.** Jump at a hanging rope and you catch it: hands round it, one over the other.
+Push the stick the way you are swinging to pump it higher (it adds most when it goes with the
+swing), and jump to let go with the swing's speed. Your weight is a heavy particle in the rope's
+own simulation, so the rope bends and sways with you.

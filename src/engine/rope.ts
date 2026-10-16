@@ -46,6 +46,11 @@ export type RopeWorld = {
   /** Wind, m/s², across the ground. */
   wind?: { x: number; z: number };
   pushers?: Pusher[];
+  /**
+   * Someone hanging on: that particle is heavy (a small inverse `weight`), is pushed by `push`
+   * (m/s², pumping the swing), and keeps `clear` above the land (their body hangs under it).
+   */
+  grip?: { index: number; weight: number; push: { x: number; z: number }; clear: number };
 };
 
 export const GRAVITY = -9.81;
@@ -163,7 +168,8 @@ export function stepRope(sim: RopeSim, kind: RopeKind, a: P, b: P | null, dt: nu
   if (h <= 0) return;
   const keep = Math.exp(-look.drag * h);
   const wind = world.wind ?? { x: 0, z: 0 };
-  const free = (i: number) => (i === 0 || (b && i === n - 1) ? 0 : 1);
+  const grip = world.grip && world.grip.index > 0 && world.grip.index < n ? world.grip : null;
+  const free = (i: number) => (i === 0 || (b && i === n - 1) ? 0 : grip && i === grip.index ? grip.weight : 1);
   for (let step = 0; step < SUBSTEPS; step += 1) {
     // Move on with what it had (Verlet), under gravity and the wind.
     for (let i = 0; i < n; i += 1) {
@@ -172,7 +178,8 @@ export function stepRope(sim: RopeSim, kind: RopeKind, a: P, b: P | null, dt: nu
         const at = pos[i * 3 + k];
         const v = (at - prev[i * 3 + k]) * keep;
         prev[i * 3 + k] = at;
-        const force = k === 1 ? GRAVITY : k === 0 ? wind.x : wind.z;
+        let force = k === 1 ? GRAVITY : k === 0 ? wind.x : wind.z;
+        if (grip && i === grip.index && k !== 1) force += k === 0 ? grip.push.x : grip.push.z;
         pos[i * 3 + k] = at + v + force * h * h;
       }
     }
@@ -212,9 +219,34 @@ export function stepRope(sim: RopeSim, kind: RopeKind, a: P, b: P | null, dt: nu
         for (let k = 0; k < 3; k += 1) prev[i * 3 + k] += (pos[i * 3 + k] - prev[i * 3 + k]) * 0.4;
       }
     }
+    if (grip) {
+      // The body under the hands does not go through the ground.
+      const g = grip.index * 3;
+      const floor = world.ground(pos[g], pos[g + 2]) + grip.clear;
+      if (pos[g + 1] < floor) {
+        pos[g + 1] = floor;
+        prev[g + 1] += (pos[g + 1] - prev[g + 1]) * 0.5;
+      }
+    }
     // A last stretch pass so what collisions moved stays joined.
     for (let i = 0; i < n - 1; i += 1) link(pos, i, i + 1, rest, free(i), free(i + 1), 1);
   }
+}
+
+/** The particle nearest a point, and how far it is (for catching a rope). */
+export function nearestParticle(sim: RopeSim, at: P): { index: number; distance: number } {
+  let best = { index: 0, distance: Infinity };
+  for (let i = 1; i < sim.n; i += 1) {
+    const d = Math.hypot(sim.pos[i * 3] - at.x, sim.pos[i * 3 + 1] - at.y, sim.pos[i * 3 + 2] - at.z);
+    if (d < best.distance) best = { index: i, distance: d };
+  }
+  return best;
+}
+
+/** How fast a particle is moving, m/s, over the last substep of a frame `dt` long. */
+export function particleVelocity(sim: RopeSim, i: number, dt: number): P {
+  const h = Math.min(0.1, Math.max(1e-4, dt)) / SUBSTEPS;
+  return { x: (sim.pos[i * 3] - sim.prev[i * 3]) / h, y: (sim.pos[i * 3 + 1] - sim.prev[i * 3 + 1]) / h, z: (sim.pos[i * 3 + 2] - sim.prev[i * 3 + 2]) / h };
 }
 
 /** The rope's length now, end to end along its links. */

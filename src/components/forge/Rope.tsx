@@ -5,7 +5,7 @@
  * bloom picks up. People (you and the townsfolk) push them aside; the weather's wind sways them.
  */
 import { useFrame } from "@react-three/fiber";
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { AdditiveBlending, BufferAttribute, BufferGeometry, CanvasTexture, Color, InstancedMesh, Matrix4, RepeatWrapping, SRGBColorSpace, Vector3, type Mesh } from "three";
 import { useShallow } from "zustand/react/shallow";
 import { groundAt, solidsFor, type Solid } from "@/engine/physics";
@@ -13,7 +13,7 @@ import { endPoint, makeRope, parseEnd, ROPE_KINDS, ROPE_LOOK, ROPE_TAG, stepRope
 import { useForge } from "@/engine/store";
 import { weatherOf } from "@/engine/weather";
 import type { Entity } from "@/engine/types";
-import { townBodies } from "./body-state";
+import { liveRopes, ropeGrip, townBodies } from "./body-state";
 
 const SIDES = 8;
 /** Each link is drawn as this many rings (Catmull-Rom between particles), so the curve is smooth. */
@@ -118,6 +118,15 @@ function RopeView({ spec }: { spec: Spec }) {
     const a = endPoint(ends.a, entities) ?? { x: 0, y: 2, z: 0 };
     return makeRope({ kind: spec.kind, a, b: endPoint(ends.b, entities), length: spec.length });
   }, [ends, spec.kind, spec.length]);
+  // Free-hanging ropes can be caught and swung on (pilot.tsx).
+  useEffect(() => {
+    if (spec.kind !== "rope") return;
+    liveRopes[spec.id] = sim;
+    return () => {
+      if (liveRopes[spec.id] === sim) delete liveRopes[spec.id];
+      if (ropeGrip.rope === spec.id) ropeGrip.rope = null;
+    };
+  }, [sim, spec.id, spec.kind]);
   const rings = (sim.n - 1) * SPLIT + 1;
   const radius = look.radius;
   const geometry = useMemo(() => {
@@ -182,15 +191,17 @@ function RopeView({ spec }: { spec: Spec }) {
       sc.near.push(s);
     }
     const pushers: Pusher[] = [];
+    const held = ropeGrip.rope === spec.id;
     for (const e of Object.values(state.entities)) {
-      if (!e.tags.includes("architect") || tied.has(e.id)) continue;
+      if (!e.tags.includes("architect") || tied.has(e.id) || held) continue;
       const p = e.transform.position;
       pushers.push({ x: p.x, y: p.y - 0.62, z: p.z, r: 0.27, h: 1.5 });
     }
     for (const body of Object.values(townBodies)) pushers.push({ x: body.x, y: groundAt(body.x, body.z), z: body.z, r: 0.25, h: 1.5 });
     const w = weatherOf(state).wind;
     const gust = w * 3.2 * (0.6 + 0.4 * Math.sin(sc.clock * 0.7) + 0.25 * Math.sin(sc.clock * 2.3 + spec.id));
-    stepRope(sim, spec.kind, a, b, delta, { solids: sc.near, ground: groundAt, wind: { x: gust * 0.8, z: gust * 0.6 }, pushers });
+    const grip = held ? { index: ropeGrip.index, weight: 0.12, push: ropeGrip.push, clear: 1.47 } : undefined;
+    stepRope(sim, spec.kind, a, b, delta, { solids: sc.near, ground: groundAt, wind: { x: gust * 0.8, z: gust * 0.6 }, pushers, grip });
 
     // A smooth curve through the particles (Catmull-Rom), SPLIT rings per link.
     const P = sim.pos;

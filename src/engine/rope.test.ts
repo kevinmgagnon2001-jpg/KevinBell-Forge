@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { endPoint, makeRope, parseEnd, ropeIntent, ropeLength, ropeMotion, stepRope, type RopeWorld } from "./rope.ts";
+import { endPoint, makeRope, nearestParticle, parseEnd, particleVelocity, ropeIntent, ropeLength, ropeMotion, stepRope, type RopeWorld } from "./rope.ts";
 import { executeProposal } from "./harness.ts";
 import { labWorld } from "./manifold.ts";
 import type { Solid } from "./physics.ts";
@@ -108,4 +108,26 @@ test("plain requests", () => {
   assert.equal(ropeIntent("hang a 5 m rope")?.arguments.length, "5");
   assert.equal(ropeIntent("paint the rope red"), null);
   assert.equal(ropeIntent("make a red cube"), null);
+});
+
+test("hanging on a rope: a heavy grip swings like a pendulum, pumping swings it higher, and it lets go moving", () => {
+  const a = { x: 0, y: 5, z: 0 };
+  const sim = makeRope({ kind: "rope", a, b: null, length: 3 });
+  run(120, () => stepRope(sim, "rope", a, null, 1 / 60, open));
+  const { index } = nearestParticle(sim, { x: 0, y: 2.6, z: 0 });
+  assert.ok(index > sim.n / 2);
+  const grip = (x: number) => ({ ...open, grip: { index, weight: 0.12, push: { x, z: 0 }, clear: 1.4 } });
+  let most = 0;
+  // Pump with the swing for a few seconds.
+  for (let f = 0; f < 360; f += 1) {
+    const v = particleVelocity(sim, index, 1 / 60);
+    stepRope(sim, "rope", a, null, 1 / 60, grip(v.x >= 0 ? 4 : -4));
+    most = Math.max(most, Math.abs(at(sim, index).x));
+  }
+  assert.ok(most > 0.8, `swings out: ${most.toFixed(2)} m`);
+  const p = at(sim, index);
+  assert.ok(Math.hypot(p.x - a.x, p.y - a.y, p.z - a.z) <= ropeLength(sim) + 0.05, "still on the rope");
+  assert.ok(p.y >= 1.4 - 1e-6, "the body stays above the ground");
+  const v = particleVelocity(sim, index, 1 / 60);
+  assert.ok(Number.isFinite(v.x) && Math.hypot(v.x, v.y, v.z) > 0.2, "lets go with the swing's speed");
 });
