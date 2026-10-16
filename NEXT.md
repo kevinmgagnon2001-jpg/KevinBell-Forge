@@ -1,6 +1,14 @@
 # Pick up here
 
-State at the end of the last session (branch `ccr-0b72a8bd-nli9mn`; all work is committed and pushed).
+State at the end of the last session (branch `claude/loading-model-default-state-d7mltv`; all work is committed and pushed).
+
+**This session:** the resident model is off by default and Forge's own planner answers
+(`planner.ts`, `route.ts`, phrases you teach in `phrases.ts`, completions and history in the intent
+box); a Catalog of everything with "new" marks (`catalog.ts`, `Catalog.tsx`); diagnostics #25/#26
+(heat floor in auto quality, draw-call count); height fog, sun scatter, god rays, a cloud deck, PCSS,
+swaying trees and lamp pools at night (`atmosphere.ts`, `PostFX.tsx`, `Scenery.tsx`). Guide:
+`docs/PLAY.md` "Asking without a model" and "The catalog". To feel on the phone: frame rate at 11
+and Ultra with the new air passes (Stats overlay), the heat floor holding at Low, night readability.
 History and details: `PATCH_NOTES.md` (the last sections). Roadmap with status per item: `docs/handoff.html`, section 3.
 
 **Next-generation features:** `docs/PAPERS-ROADMAP.md` is a phased to-do list of research from Two Minute Papers.

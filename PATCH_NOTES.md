@@ -1232,3 +1232,39 @@ and mountains around it, under a late-afternoon sky.
   controls hint shows for the first twelve seconds only; the tick, entities and gravity readout
   shows only on the bench.
 - Checked: typecheck, lint, engine tests; in Chromium at 1280x800 and 390x844, closed and open.
+
+## The model is opt-in; Forge's own planner answers
+- planner.ts (tested): plain requests to tool calls with no model: counts in words, colours,
+  sizes, arrangements (row, circle, stack, grid, pyramid, scatter), places (here, on the bench,
+  next to the gold, coordinates, high up), pronouns (it = selection, them = last group), names with
+  one typo, and make, paint, move, raise, grow, stretch, rename, reshape, texture, copy, delete,
+  clear, throw, kick, drop, undo, walk, turn, select, how many, where is, what's here. Steps split
+  at then / and-before-a-verb. A plan is one undo step (harness executePlan). Unknown words get the
+  closest examples (suggest).
+- route.ts: the fixed-vocabulary readers in their order, out of the store, so they can be tested.
+- The resident model defaults to off, saves from before too (`residentOn` marks a hand-picked on);
+  the intent box, mic and chips work with it off. Talk falls back to scripted answers as before.
+- phrases.ts (tested): "when I say party, ..." teaches a phrase; kept in the world and through a
+  reset. The intent box offers completions (phrases, history, catalog, examples; Tab fills) and
+  Up/Down history.
+- Catalog.tsx + catalog.ts (tested: every entry is understood and its call runs): games, toys,
+  shapes, materials, people, effects, sky, gauges, moves, your phrases, and what is in the world now
+  with Find; "new" marks by catalog version and by entity id since you last looked. Book bubble or B.
+
+## Diagnostics #25, #26
+- Severe heat stepped 11 to Plain in 16 s at 50-60 fps. Now severe heat steps every 8 s and stops at
+  Low, moderate heat at High, unless the frame rate also suffers; critical has no floor (perf.ts).
+- Draw calls always read 1 (the finishing pass's final quad): the counters now sum over the frame.
+
+## Air, sky and night (top rungs)
+- atmosphere.ts: exponential height fog integrated per pixel from depth, Henyey-Greenstein sun
+  scatter; a sun disc for god rays (fade at night and in weather); a gentle grade after AgX; lens
+  fringing at 11. `?nofx=air,rays,ao` leaves passes out for comparison.
+- The sky has a procedural cloud deck (domain-warped fbm, light marched toward the sun, silver
+  linings), coverage from the weather; "partly cloudy" is its own weather.
+- 11: soft contact-hardening shadows (PCSS). Trees sway in the wind.
+- Dusk and night: warm lamp pools on the plaza computed on the floor itself; brighter moonlight.
+  N8AO leaves the chain at deep night (it blotted dim shapes into black squares).
+- Checked: typecheck, lint (no errors), `npm run test:engine` (355 pass); Chromium (software GL) at
+  1280x800 and 390x844: planner chains, phrases, completions, catalog, day/cloudy/night skies; no
+  console errors. Not felt on a phone yet: the cost of the atmosphere, god rays and PCSS at 11.

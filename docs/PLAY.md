@@ -39,6 +39,47 @@ Over the full view the helm is two small round buttons (above Find room on a pho
 
 The "Architect intent" box under the view has the same 🎙 button.
 
+## Asking without a model
+
+The resident model is **off until you turn it on** (the power switch by its name). Forge answers on
+its own: `src/engine/planner.ts` reads plain requests and `src/engine/route.ts` hands each system's
+words to it (moves, fire, weather, townsfolk, ropes, gauges, the arcade, ...). It reads:
+
+- **Making:** "a row of five red cubes", "stack 4 crates on the bench", "a circle of 8 rainbow
+  pillars around me", "a pyramid of 10 gold cubes", "scatter 20 small balls", "a huge gold sphere
+  in the middle", "three big red cubes and two tiny gold balls", "a gem named Spark at 2, 0, 3".
+- **Changing:** "paint it blue", "paint the red cube teal", "make the sphere twice as big", "make
+  the column taller", "turn it into a ring", "give the clay a marble texture", "rename it Bob",
+  "paint them rainbow".
+- **Moving:** "move it up 2", "move the cube left 3", "put the gold on the bench", "bring the ball
+  here", "set it on the ground".
+- **Physics:** "throw the ball", "throw it up", "kick the cubes", "drop the gold".
+- **Copies and clean-up:** "copy it 3 times", "delete the spheres", "clear everything I made",
+  "undo", "undo 3 times".
+- **Questions:** "how many cubes?", "where is the gold?", "what's here?", "what is that?", "help".
+- **You:** "walk forward 3", "turn around", "turn left 45 degrees", "jump".
+- **Several at once:** join steps with "then", "and" before a verb, or full stops: "make a red cube,
+  then throw it". "It" is the selection (what you just made), "them" the last group.
+
+Names forgive a typo ("the colum"). When it does not understand, it says the closest things it
+knows. With a model on, anything the planner reads surely still runs at once; the rest goes to it.
+
+**Your own phrases:** "when I say party, light a campfire then make it rain at dusk then fill the
+plaza with people" — then just say "party". "my phrases" lists them, "forget party" drops one.
+They are kept in the world, so linked devices know them too.
+
+**As you type** the box offers your phrases, past lines, catalog entries and examples that start
+with your words (tap to send, Tab to fill in); Up and Down walk through what you sent.
+
+## The catalog
+
+The book bubble by the view buttons (or **B**) opens the catalog: games, toys, shapes, colours and
+textures, people, effects, weather, gauges, moves, your phrases, and **In this world** (everything
+here now, by kind, with Find). Tap an entry and it runs as the request it shows. Entries and
+things that are new since you last looked are marked **new**. Add an entry in
+`src/engine/catalog.ts`; bump `CATALOG_VERSION` and mark it `added` so it shows as new
+(`catalog.test.ts` checks every entry is understood without a model).
+
 ## Moves: make your own, and the body fills in the rest
 
 Open **Moves** (by the view buttons, or G) and tap one: wave, cheer, clap, point, salute, bow, shrug,
