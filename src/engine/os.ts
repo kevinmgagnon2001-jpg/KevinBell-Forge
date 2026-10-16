@@ -36,7 +36,7 @@ export const TOOLS: ToolSchema[] = [
   },
   {
     name: "edit_entity",
-    description: "Change an existing entity. Use this instead of spawn when the command edits, recolors, moves, resizes, or renames.",
+    description: "Change an existing entity. Use this instead of spawn when the command edits, recolors, moves, resizes, or renames. scale grows it evenly; sx, sy, sz stretch one axis (sy 1.5 is taller).",
     parameters: {
       id: "u64",
       name: "string",
@@ -46,8 +46,29 @@ export const TOOLS: ToolSchema[] = [
       z: "f32",
       asset: "string",
       scale: "f32",
+      sx: "f32",
+      sy: "f32",
+      sz: "f32",
     },
-    optional: ["name", "color", "x", "y", "z", "asset", "scale"],
+    optional: ["name", "color", "x", "y", "z", "asset", "scale", "sx", "sy", "sz"],
+  },
+  {
+    name: "repeat",
+    description:
+      "Do the last change again, or run a saved skill by name. words are tweaks: taller, bigger, smaller, wider, a colour, to the left/right/in front/behind, higher, 3 times. Copies go to the next free spot.",
+    parameters: { skill: "string", words: "string", times: "f32" },
+    optional: ["skill", "words", "times"],
+  },
+  {
+    name: "save_skill",
+    description: "Keep the last count changes (default 1) as a named skill that can be run again by name, anywhere, with tweaks.",
+    parameters: { name: "string", count: "f32", description: "string" },
+    optional: ["count", "description"],
+  },
+  {
+    name: "list_skills",
+    description: "List the skills this world has learned.",
+    parameters: {},
   },
   {
     name: "delete_entity",

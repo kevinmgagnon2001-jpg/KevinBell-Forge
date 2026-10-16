@@ -1,5 +1,6 @@
 import type { Move } from "./motion.ts";
 import type { Weather } from "./weather.ts";
+import type { RecentCall } from "./skillbook.ts";
 export type Vec3 = { x: number; y: number; z: number };
 
 export type Quat = { x: number; y: number; z: number; w: number };
@@ -105,6 +106,8 @@ export type World = {
   moves?: Move[];
   /** Weather, time of day and mood (weather.ts); none means the lab's clear afternoon. */
   weather?: Weather;
+  /** The last few changes that worked, for "do that again" and saving skills (skillbook.ts). */
+  recent?: RecentCall[];
 };
 
 export const IDENTITY: Quat = { x: 0, y: 0, z: 0, w: 1 };

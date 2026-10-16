@@ -5,6 +5,7 @@ import { executeProposal } from "./harness";
 import { gaugeIntent } from "./gauges";
 import { cleanMoves, moveIntent } from "./motion";
 import { cleanWeather, weatherIntent } from "./weather";
+import { cleanRecent, MAX_SKILLS, skillIntent, skillBrief } from "./skillbook";
 import { bootWorld, ensureAvatar, ensureHelm, labWorld, stepWorld } from "./manifold";
 import { DEFAULT_MODEL_PATH, MEMORY_BUDGET_MB, TOOL_NAMES } from "./os";
 import { DEFAULT_RESIDENT_ID, isResidentId, residentById, type ResidentId } from "./resident-catalog";
@@ -237,7 +238,7 @@ function sceneBrief(world: World): string {
     lines.push(`${ids} ${piece} ${color} ${state} tetris x${list.length}`);
   }
   return lines
-    .concat((world.skills ?? []).slice(-4).map((skill) => `skill ${skill.name} (${skill.job})`))
+    .concat(skillBrief(world).slice(-6))
     .join("\n");
 }
 
@@ -342,6 +343,18 @@ export const useForge = create<ForgeState>((set, get) => {
         commit(ran.ok ? ran.world : before, before.selectedId, [
           { tone: "user", title: "Intent", body: intent },
           { tone: ran.ok ? "engine" : "warn", title: "Moves", body: `${moveCall.tool} ${argLine(moveCall.arguments)}\n${ran.result}` },
+        ]);
+        return;
+      }
+      // Skills ("do that again, but taller", "remember that as lamp", "lamp to the left") (skillbook.ts).
+      const skillCall = skillIntent(intent, get());
+      if (skillCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: skillCall.tool, arguments: skillCall.arguments });
+        const spawned = ran.world.nextId > before.nextId ? ran.world.nextId - 1 : before.selectedId;
+        commit(ran.ok ? ran.world : before, spawned, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Skills", body: ran.result },
         ]);
         return;
       }
@@ -694,6 +707,7 @@ export const useForge = create<ForgeState>((set, get) => {
         // Moves you made stay through a reset, like your mechanics.
         moves: state.moves,
         weather: undefined,
+        recent: [],
       })),
     despawn: (id) => {
       const state = get();
@@ -740,6 +754,7 @@ export const useForge = create<ForgeState>((set, get) => {
           compat: Array.isArray(data.world.compat) ? data.world.compat.filter((item): item is string => typeof item === "string").slice(0, 8) : [],
           moves: cleanMoves(data.world.moves),
           weather: cleanWeather(data.world.weather),
+          recent: cleanRecent(data.world.recent),
           gravity: bootWorld().gravity,
           deltaTime: bootWorld().deltaTime,
         }));
@@ -779,7 +794,7 @@ function cleanSkills(value: unknown): Skill[] {
       const row = skill as Skill;
       return typeof row.name === "string" && Array.isArray(row.steps);
     })
-    .slice(-12);
+    .slice(-MAX_SKILLS);
 }
 
 function persistedWorld(state: ForgeState): World {
@@ -792,7 +807,8 @@ function persistedWorld(state: ForgeState): World {
     eventLog: state.eventLog.slice(-64),
     events: state.events.slice(-64),
     undo: (state.undo ?? []).slice(-16),
-    skills: (state.skills ?? []).slice(-12),
+    skills: (state.skills ?? []).slice(-MAX_SKILLS),
+    recent: state.recent ?? [],
     compat: (state.compat ?? []).slice(0, 8),
     moves: state.moves ?? [],
     ...(state.weather ? { weather: state.weather } : {}),
@@ -848,6 +864,7 @@ export function applySharedSave(value: unknown): boolean {
     compat: Array.isArray(save.world.compat) ? save.world.compat.filter((item): item is string => typeof item === "string").slice(0, 8) : [],
     moves: cleanMoves(save.world.moves),
     weather: cleanWeather(save.world.weather),
+    recent: cleanRecent(save.world.recent),
     gravity: bootWorld().gravity,
     deltaTime: bootWorld().deltaTime,
   }));
