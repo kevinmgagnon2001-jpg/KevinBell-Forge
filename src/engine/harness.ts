@@ -8,6 +8,7 @@ import { clusterDag } from "./cluster-lod.ts";
 import { composeMove, keepMove, moveFromKeys, moveLength, movesOf, PRIMITIVES, slug, type Move } from "./motion.ts";
 import { toolByName } from "./os.ts";
 import { applyWeatherArgs } from "./weather.ts";
+import { setSound } from "./sounds.ts";
 import { listSkills, MAX_SKILLS, noteCall, repeatTool, runSteps, saveSkill } from "./skillbook.ts";
 import { allowedAssetUrl, localTexture } from "./asset-url.ts";
 import type { Entity, HarnessEvent, PhysicsBody, ProposedAction, Skill, Snapshot, World } from "./types.ts";
@@ -52,6 +53,7 @@ function remember(world: World): World {
     nextId: world.nextId,
     skills: world.skills ?? [],
     ...(world.weather ? { weather: world.weather } : {}),
+    ...(world.score ? { score: world.score } : {}),
   };
   return { ...world, undo: [...(world.undo ?? []), snap].slice(-16) };
 }
@@ -168,6 +170,8 @@ export function dispatchTool(world: World, name: string, args: Record<string, st
   }
   if (name === "save_skill") return saveSkill(world, args);
   if (name === "list_skills") return { ok: true, detail: listSkills(world), world };
+
+  if (name === "set_sound") return setSound(world, args);
 
   if (name === "set_weather") {
     const made = applyWeatherArgs(world, args);
@@ -381,6 +385,7 @@ export function dispatchTool(world: World, name: string, args: Record<string, st
         nextId: snap.nextId,
         skills: snap.skills ?? [],
         weather: snap.weather,
+        score: snap.score,
         undo: stack.slice(0, -1),
       },
     };
@@ -622,6 +627,15 @@ function patchEntity(entity: Entity, args: Record<string, string>): { entity: En
       },
     };
     changed = true;
+  }
+  const finish = args.finish?.trim().toLowerCase();
+  if (finish === "glint" || finish === "plain") {
+    const has = next.customData.finish === "glint";
+    if ((finish === "glint") !== has) {
+      const { finish: _f, ...rest } = next.customData;
+      next = { ...next, customData: finish === "glint" ? { ...rest, finish: "glint" } : rest };
+      changed = true;
+    }
   }
   const axes = [parseF32(args.sx), parseF32(args.sy), parseF32(args.sz)].map((v) => (v != null && v > 0 ? Math.min(4, Math.max(0.25, v)) : 1));
   if (axes.some((v) => v !== 1)) {

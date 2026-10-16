@@ -33,6 +33,8 @@ import { toggleFlight, useArcadePlaying, useFlight } from "./body-state";
 import { stepBodies } from "@/engine/physics";
 import { rotationLabel, setRotation, useRotation } from "./rotation";
 import { nextRotation } from "@/engine/view";
+import { addGlint, glintsAllowed, setGlintsAllowed } from "./glint";
+import { SoundStage } from "./SoundStage";
 
 const UP = new Vector3(0, 1, 0);
 
@@ -218,6 +220,15 @@ function SplatCloud({
 
 /** A lab texture pack wrapped on this body (surfaces.ts), for the solids inside it. */
 const SurfaceContext = createContext<Surface | null>(null);
+/** Sparkle on this body's surfaces (customData.finish "glint"; glint.ts). */
+const GlintContext = createContext(false);
+
+/** A ref for a body's material that gives it flakes when the body asks for them. */
+function useGlintRef(on: boolean) {
+  return useMemo(() => (material: MeshStandardMaterial | null) => {
+    if (material && on) addGlint(material, 1.2, 70);
+  }, [on]);
+}
 
 function Solid({
   children,
@@ -234,13 +245,16 @@ function Solid({
   polished?: boolean;
 }) {
   const surface = useContext(SurfaceContext);
+  const glint = useContext(GlintContext) && glintsAllowed();
+  const glintRef = useGlintRef(glint);
   if (surface) {
     // A new material per surface: maps appearing or going need the shader rebuilt.
     return (
       <mesh>
         {children}
         <meshStandardMaterial
-          key={surface.key}
+          ref={glintRef}
+          key={`${surface.key}${glint ? "-glint" : ""}`}
           color="#ffffff"
           map={surface.map}
           normalMap={surface.normalMap}
@@ -259,7 +273,8 @@ function Solid({
     <mesh>
       {children}
       <meshStandardMaterial
-        key={map ? "mapped" : "plain"}
+        ref={glintRef}
+        key={`${map ? "mapped" : "plain"}${glint ? "-glint" : ""}`}
         color={map ? "#ffffff" : tone}
         map={map ?? undefined}
         roughness={polished ? 0.2 : 0.62}
@@ -921,7 +936,9 @@ function BodyInner({ entity, selected }: { entity: Entity; selected: boolean }) 
     <>
       {neural}
       {neural ? null : (
-        <AssetMesh asset={rep.assetId} selected={selected} tone={tone} map={map} screen={entity.customData.role === "terminal"} floor={entity.tags.includes("floor")} />
+        <GlintContext.Provider value={entity.customData.finish === "glint"}>
+          <AssetMesh asset={rep.assetId} selected={selected} tone={tone} map={map} screen={entity.customData.role === "terminal"} floor={entity.tags.includes("floor")} />
+        </GlintContext.Provider>
       )}
     </>
   );
@@ -1297,6 +1314,7 @@ function Stage({ scenery, shadows }: { scenery: SceneryLevel | "off"; shadows: b
       ))}
       <Pilot />
       <Settle paused={dragging} />
+      <SoundStage />
       <OrbitControls
         makeDefault
         enableDamping
@@ -1513,6 +1531,7 @@ export function Viewport() {
   const rung = LADDER[perfState.start === null ? begin.start : perfState.rung];
   const scenery = rung.scenery;
   const shadows = rung.shadows && scenery !== "off" && scenery !== "min";
+  setGlintsAllowed(scenery !== "off" && scenery !== "min");
   // The flat software picture is a debug view for machines with no GPU output.
   // It is off by default because it paints over the real renderer.
   const soft = useMemo(() => softRenderRequested(), []);

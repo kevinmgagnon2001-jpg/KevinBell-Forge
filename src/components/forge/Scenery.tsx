@@ -51,6 +51,7 @@ import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferG
 import type { SceneryLevel } from "@/engine/hardware";
 import { useForge } from "@/engine/store";
 import { lightning } from "./body-state";
+import { addGlint } from "./glint";
 import { blendSky, skyFor, weatherOf, type RGB, type Sky, type Weather } from "@/engine/weather";
 import { fbm, heightAt, LAKE, LAND_HALF, noise2, PLAZA_RADIUS, scatter, seeded, slopeAt, WATER_Y } from "@/engine/terrain";
 
@@ -872,6 +873,8 @@ export function Scenery({ level, shadows }: { level: SceneryLevel; shadows: bool
   const clouds = useBuilt(() => makeClouds(level), [level]);
   const motes = useMemo(() => makeMotes(level, time), [level, time]);
   const drops = useBuilt(() => makeDrops(level).points, [level]);
+  // Snow sparkles on the plaza (glint.ts); not on the lowest rung.
+  const floorGlint = useMemo(() => (level === "min" ? null : addGlint(plaza.userData.floor as MeshStandardMaterial, 0, 28)), [plaza, level]);
   useEffect(
     () => () => {
       if (motes) disposeTree(motes);
@@ -916,6 +919,7 @@ export function Scenery({ level, shadows }: { level: SceneryLevel; shadows: bool
     if (glass) glass.emissiveIntensity = 0.5 + sky.lamps * 3;
     if (glow) glow.opacity = 0.12 + sky.lamps * 0.75;
     const floor = plaza.userData.floor as MeshStandardMaterial | undefined;
+    if (floorGlint) floorGlint.uGlint.value = sky.snow * 1.6 + sky.wet * 0.25;
     if (floor) {
       floor.roughness = 0.82 - sky.wet * 0.55;
       floor.color.setScalar(1 - sky.wet * 0.3);

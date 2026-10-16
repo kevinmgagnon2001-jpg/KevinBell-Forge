@@ -5,6 +5,7 @@ import { executeProposal } from "./harness";
 import { gaugeIntent } from "./gauges";
 import { cleanMoves, moveIntent } from "./motion";
 import { cleanWeather, weatherIntent } from "./weather";
+import { soundIntent } from "./sounds";
 import { cleanRecent, MAX_SKILLS, skillIntent, skillBrief } from "./skillbook";
 import { bootWorld, ensureAvatar, ensureHelm, labWorld, stepWorld } from "./manifold";
 import { DEFAULT_MODEL_PATH, MEMORY_BUDGET_MB, TOOL_NAMES } from "./os";
@@ -369,6 +370,17 @@ export const useForge = create<ForgeState>((set, get) => {
         ]);
         return;
       }
+      // Sounds and sparkle ("make the door creak like a ghost ship", "score this scene", "make it sparkle").
+      const soundCall = soundIntent(intent, get(), get().selectedId);
+      if (soundCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: soundCall.tool, arguments: soundCall.arguments });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: soundCall.tool === "set_sound" ? "Sound" : "Finish", body: ran.result },
+        ]);
+        return;
+      }
       // Gauge requests ("add a neon thermometer", "make the gauges brass", "build the engine room") are
       // plain picks from fixed lists (gauges.ts), so they run now, with the model off or busy.
       const gaugeCall = gaugeIntent(intent, get());
@@ -708,6 +720,7 @@ export const useForge = create<ForgeState>((set, get) => {
         moves: state.moves,
         weather: undefined,
         recent: [],
+        score: undefined,
       })),
     despawn: (id) => {
       const state = get();
@@ -755,6 +768,7 @@ export const useForge = create<ForgeState>((set, get) => {
           moves: cleanMoves(data.world.moves),
           weather: cleanWeather(data.world.weather),
           recent: cleanRecent(data.world.recent),
+          score: typeof data.world.score === "string" ? data.world.score.slice(0, 120) : undefined,
           gravity: bootWorld().gravity,
           deltaTime: bootWorld().deltaTime,
         }));
@@ -812,6 +826,7 @@ function persistedWorld(state: ForgeState): World {
     compat: (state.compat ?? []).slice(0, 8),
     moves: state.moves ?? [],
     ...(state.weather ? { weather: state.weather } : {}),
+    ...(state.score ? { score: state.score } : {}),
   };
 }
 
@@ -865,6 +880,7 @@ export function applySharedSave(value: unknown): boolean {
     moves: cleanMoves(save.world.moves),
     weather: cleanWeather(save.world.weather),
     recent: cleanRecent(save.world.recent),
+    score: typeof save.world.score === "string" ? save.world.score.slice(0, 120) : undefined,
     gravity: bootWorld().gravity,
     deltaTime: bootWorld().deltaTime,
   }));

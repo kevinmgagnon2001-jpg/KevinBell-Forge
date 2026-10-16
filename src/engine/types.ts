@@ -79,6 +79,7 @@ export type Snapshot = {
   nextId: number;
   skills: Skill[];
   weather?: Weather;
+  score?: string;
 };
 
 export type HarnessEvent = {
@@ -108,6 +109,8 @@ export type World = {
   weather?: Weather;
   /** The last few changes that worked, for "do that again" and saving skills (skillbook.ts). */
   recent?: RecentCall[];
+  /** The scene's music, as words (sounds.ts); none means quiet. */
+  score?: string;
 };
 
 export const IDENTITY: Quat = { x: 0, y: 0, z: 0, w: 1 };

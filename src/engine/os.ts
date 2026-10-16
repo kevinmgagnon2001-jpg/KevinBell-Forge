@@ -36,7 +36,7 @@ export const TOOLS: ToolSchema[] = [
   },
   {
     name: "edit_entity",
-    description: "Change an existing entity. Use this instead of spawn when the command edits, recolors, moves, resizes, or renames. scale grows it evenly; sx, sy, sz stretch one axis (sy 1.5 is taller).",
+    description: "Change an existing entity. Use this instead of spawn when the command edits, recolors, moves, resizes, or renames. scale grows it evenly; sx, sy, sz stretch one axis (sy 1.5 is taller). finish glint makes it sparkle (snow, glitter, metal flake), plain takes that off.",
     parameters: {
       id: "u64",
       name: "string",
@@ -49,8 +49,9 @@ export const TOOLS: ToolSchema[] = [
       sx: "f32",
       sy: "f32",
       sz: "f32",
+      finish: "string",
     },
-    optional: ["name", "color", "x", "y", "z", "asset", "scale", "sx", "sy", "sz"],
+    optional: ["name", "color", "x", "y", "z", "asset", "scale", "sx", "sy", "sz", "finish"],
   },
   {
     name: "repeat",
@@ -225,6 +226,12 @@ export const TOOLS: ToolSchema[] = [
       "Change the weather, time of day or mood live. words is a phrase (rain at dusk, foggy morning, snow at midnight, rainy tokyo alley, stop the rain, 7pm, speed up time). Or set numbers: hour 0-24, cloud rain snow fog wind storm 0-1, mood neon eerie cozy dreamy cold apocalyptic or none, flow (game minutes per second).",
     parameters: { words: "string", hour: "f32", cloud: "f32", rain: "f32", snow: "f32", fog: "f32", wind: "f32", storm: "f32", mood: "string", flow: "f32" },
     optional: ["words", "hour", "cloud", "rain", "snow", "fog", "wind", "storm", "mood", "flow"],
+  },
+  {
+    name: "set_sound",
+    description:
+      "Give an entity a sound from words (creak, chime, hum, whoosh, drip, beep, crackle, engine, thunder, squeak, knock, bubble, purr, zap, pop, choir; with ghostly, deep, high, loud, quiet, slow, fast, keep looping), or id scene for the scene's music (calm, sad, happy, spooky). words none removes it.",
+    parameters: { id: "string", words: "string" },
   },
   {
     name: "build_gauge_rig",
