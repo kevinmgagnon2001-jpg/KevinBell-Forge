@@ -11,7 +11,9 @@ Read `AGENTS.md`, `NEXT.md` and the last sections of `PATCH_NOTES.md` first.
   stay smooth on phones (auto quality, `src/engine/perf.ts`).
 - **UI:** bubbles. Round, glassy, iridescent controls; a dark theme like the 4D bubbles from
   Adventure Time. Controls show icons, not words (keep `aria-label` and `title` for each).
-- **Feel:** third person moves camera-relative with side steps, not tank turning; flight steers by
+- **Feel:** third person moves camera-relative, never tank turning: the stick puts a point on the
+  ground around you and the body chases it, walking to running smoothly by how far the stick is
+  dragged (`src/engine/drive.ts`); flight steers by
   looking (climb and dive with the view), like Anthem. Interaction prompts only show up close.
 
 ## How to work

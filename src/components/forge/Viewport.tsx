@@ -1531,7 +1531,7 @@ function Visor() {
         {looked ? `Looking at ${looked.name}` : "Looking at the lab"}
         {last ? ` · ${last.title}: ${last.body.replace(/\s+/g, " ").slice(0, 72)}` : ""}
       </p>
-      <p className="visor-hint">WASD moves with the camera, Q/E dash aside, Shift runs, Space jumps. F flies: look to steer, W boosts, S hovers.</p>
+      <p className="visor-hint">The stick walks where you push it: a little walks, all the way runs. WASD jogs, Shift runs, Q/E dash, Space jumps. F flies: look to steer, W boosts, S hovers.</p>
       {immersive ? <HelmAsk /> : null}
     </div>
   );

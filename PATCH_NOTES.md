@@ -1043,3 +1043,12 @@ and mountains around it, under a late-afternoon sky.
   app in Chromium with no console errors. In Chromium (software GL, 1-2 fps, so feel was not judged):
   D steps right without turning the camera, A left; flying, looking up climbs and looking down dives;
   dark and light themes at 1280x800 and 390x844 (the top bar's bubbles wrap on phones).
+
+## Walking by the stick: chase a point, walk to run by how far you push
+- drive.ts (tested): the stick puts a point on the ground around you (direction of the push, further
+  the harder you push) and the body chases it, turning toward it and slowing to a pivot when it is
+  behind. Speed follows the push smoothly: a walk up to half way, then easing up to a run
+  (1.5, 4.6, 7.4 m/s). Keys jog, Shift runs. Replaces the forward-turns, sideways-strafes split and
+  the sudden switch to a run at a full push.
+- Checked in Chromium (software GL): a 45% push walks at 1.3 m/s, a full push runs at 7.4 m/s, a push
+  right turns and steps right; typecheck, lint, engine tests.

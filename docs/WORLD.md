@@ -63,9 +63,11 @@ devices. Nothing is downloaded or sent anywhere.
 
 ## Moving and flying
 
-- Third person: drag (or the right stick) turns the camera; WASD (or the left stick) moves relative
-  to it. Walking forward the body turns to where it goes; sideways and back it side-steps and
-  backpedals. Shift runs, Space jumps, Q and E dash aside.
+- Third person: drag (or the right stick) turns the camera. The left stick puts a point on the ground
+  around you, in the direction you push and further the harder you push, and the body chases it:
+  a light push walks, further jogs, all the way runs, smoothly in between. Push sideways and you turn
+  and step that way; push back and you pivot round first. WASD jogs, Shift runs, Space jumps, Q and E
+  dash aside.
 - F flies: look where you want to go. Look up to climb, down to dive; W boosts (with Shift, more),
   S brakes to a hover, A and D drift. F again lands.
 - Prompts (Play, the phone, the TV) and "looking at" only appear up close.

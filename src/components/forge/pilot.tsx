@@ -11,6 +11,7 @@ import { stageCamera, stageGl } from "./picture";
 import { fovFor } from "@/engine/view";
 import { solidsFor, stepWalk, WALK } from "@/engine/physics";
 import { heightAt } from "@/engine/terrain";
+import { chase, chasePoint, driveSpeed, KEY_PUSH } from "@/engine/drive";
 import { frameCamera, gameById } from "@/engine/arcade";
 import type { LookMode } from "./look";
 import { arcadePlaying, avatarMotion, flight, toggleFlight } from "./body-state";
@@ -18,8 +19,6 @@ import { arcadePlaying, avatarMotion, flight, toggleFlight } from "./body-state"
 const EYE = 0.62;
 const MIN_Y = 0.45;
 const SPEED = 4.6;
-/** Holding Shift (or the stick pushed all the way while walking) runs. */
-const RUN = 7.4;
 const TURN = 1.8;
 const BENCH_EYE = { x: 0.2, y: 16.4, z: 7.6 };
 const BENCH_AT = { x: 0.2, y: 0.2, z: 0.4 };
@@ -322,7 +321,10 @@ export function Pilot() {
     // Flying, Space climbs and Shift (or C) sinks; walking, Space jumps and Shift runs.
     const lift = clamp1((keys.has("Space") ? 1 : 0) - ((flying && keys.has("ShiftLeft")) || keys.has("ControlLeft") || keys.has("KeyC") ? 1 : 0) + padLift);
     const jump = !flying && (keys.has("Space") || pad.jump);
-    const sprint = !flying && (keys.has("ShiftLeft") || keys.has("ShiftRight") || Math.hypot(pilotStick.x, pilotStick.y) > 0.95);
+    const sprint = !flying && (keys.has("ShiftLeft") || keys.has("ShiftRight"));
+    // How hard the walk is pushed: the stick by how far it is dragged; keys jog, or run with Shift.
+    const keyed = ["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].some((code) => keys.has(code));
+    const drive = Math.min(1, Math.max(keyed ? (sprint ? KEY_PUSH.run : KEY_PUSH.jog) : 0, Math.hypot(pilotStick.x, pilotStick.y)));
     const pose = { x: 0, y: 0, z: 0, fx: 0, fz: 1, ok: false };
     useForge.setState((state) => {
       const avatar = Object.values(state.entities).find((entity) => entity.tags.includes("architect"));
@@ -427,7 +429,7 @@ export function Pilot() {
         wz /= push;
       }
       const moving = Math.min(1, push);
-      const pace = sprint && moving > 0.2 ? RUN : SPEED;
+      const pace = driveSpeed(drive);
       let yaw = motion.bodyYaw ?? lookPose.yaw;
       let flyUp = 0;
       if (flying && !motion.flew) motion.vy = Math.max(motion.vy, 5);
@@ -452,17 +454,21 @@ export function Pilot() {
       } else {
         // Walking: momentum, quick on the ground and loose in the air.
         const k = 1 - Math.exp(-dt * (body.grounded ? ACCEL.ground : ACCEL.air));
-        motion.vx += (wx * pace - motion.vx) * k;
-        motion.vz += (wz * pace - motion.vz) * k;
+        let want = { x: wx * pace, z: wz * pace };
+        if (mode === "first") yaw = lookPose.yaw;
+        else if (moving > 0.05) {
+          // Third person: the push puts a point on the ground around you and the body chases it,
+          // turning to step that way (springs back to a pivot when the point is behind).
+          const dir = Math.hypot(wx, wz) || 1;
+          const point = chasePoint(p.x, p.z, wx / dir, wz / dir, drive);
+          const run = chase(yaw, p.x, p.z, point, pace, dt, TURN_RATE);
+          yaw = run.yaw;
+          want = { x: run.vx, z: run.vz };
+        }
+        motion.vx += (want.x - motion.vx) * k;
+        motion.vz += (want.z - motion.vz) * k;
         motion.vy = 0;
         motion.bank *= Math.max(0, 1 - dt * 6);
-        if (mode === "first") yaw = lookPose.yaw;
-        else if (moving > 0.15) {
-          // Forward (or running): turn to where you go. Sideways or back: face ahead and side-step.
-          const goingAhead = gas > 0.3 || sprint;
-          const target = goingAhead ? Math.atan2(wx, wz) : lookPose.yaw;
-          yaw = turnToward(yaw, target, TURN_RATE, dt);
-        }
       }
       if (motion.dash > 0) {
         // A dash aside: a burst, then momentum carries it out.
