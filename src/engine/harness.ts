@@ -3,7 +3,7 @@ import { deckCommand } from "./deck-bridge.ts";
 import { compatCommand } from "./isa.ts";
 import { placePortal } from "./portal-tool.ts";
 import { buildRig, makeGauge, MESHES, rigById, RIGS, SKINS, skinById, statById, STATS, styleGauges, meshById } from "./gauges.ts";
-import { buildBlocks, buildMarble, buildTetris, createAgent, makeSpawned, playTetris, queryByTag, recordEvent, restyle, seatOffCenter, steer } from "./manifold.ts";
+import { buildBlocks, buildBreakout, buildMarble, buildTetris, createAgent, makeSpawned, playTetris, queryByTag, recordEvent, restyle, seatOffCenter, steer } from "./manifold.ts";
 import { clusterDag } from "./cluster-lod.ts";
 import { composeMove, keepMove, moveFromKeys, moveLength, movesOf, PRIMITIVES, slug, type Move } from "./motion.ts";
 import { toolByName } from "./os.ts";
@@ -354,7 +354,10 @@ export function dispatchTool(world: World, name: string, args: Record<string, st
     if (kind === "blocks") {
       return { ok: true, detail: "A Blocks cabinet is by the bench. Walk up to it and press Play.", world: buildBlocks(world) };
     }
-    return { ok: false, detail: "kind must be tetris, marble or blocks", world };
+    if (kind === "breakout") {
+      return { ok: true, detail: "A Hyper Breakout cabinet glows across from Blocks. Walk up to it and press Play.", world: buildBreakout(world) };
+    }
+    return { ok: false, detail: "kind must be tetris, marble, blocks or breakout", world };
   }
 
   if (name === "play_move") {

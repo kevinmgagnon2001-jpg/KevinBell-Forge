@@ -114,6 +114,8 @@ export type World = {
   score?: string;
   /** Townsfolk's minds and the town clock (town.ts). */
   town?: Town;
+  /** The best score in each arcade game, by game id (arcade.ts). */
+  best?: Record<string, number>;
 };
 
 export const IDENTITY: Quat = { x: 0, y: 0, z: 0, w: 1 };

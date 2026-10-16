@@ -145,8 +145,8 @@ agents for arcade games. Smaller follow-ups:
   the "video" input GENMO takes); hands that reach for things (pick up, press the arcade buttons);
   carry your moves through portals like mechanics; a small learned motion model behind the same Pose
   shape, off the main thread, with the code generator as the fallback.
-- Next: more games in `GAMES` (snake, pong, breakout fit the same entry); a high score per game kept in
-  the save; boxes that tumble (only balls turn today);
+- Next: more games in `GAMES` (snake and pong fit the same entry as Hyper Breakout, a screen game);
+  the in-world Tetris bar still has word buttons (Exit, Play again) to turn into icon bubbles; boxes that tumble (only balls turn today);
   foot placement on slopes; on islands you visit, the host's walk does not yet use
   physics (prediction.ts walks flat); check the feel on the owner's phone.
 

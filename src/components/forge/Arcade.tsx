@@ -10,11 +10,12 @@
  * board (pilot.tsx), and Esc, B or Exit puts you back on your feet where you stood.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { EXIT_KEYS, EXIT_PAD, gameById, moveForKey, moveForPad, nearestGame, type GameMove, type GameSpec } from "@/engine/arcade";
+import { bestOf, EXIT_KEYS, EXIT_PAD, gameById, moveForKey, moveForPad, nearestGame, withBest, type GameMove, type GameSpec } from "@/engine/arcade";
 import { useForge } from "@/engine/store";
 import { BlocksGame } from "@/components/blocks/BlocksGame";
+import { BreakoutGame } from "./BreakoutGame";
 import { INTERACT_EVENT, pilotKeys, pilotStick, useLook } from "./look";
-import { arcadeNear, arcadePlaying, useArcadeNear, useArcadePlaying } from "./body-state";
+import { arcadeNear, arcadePlaying, screenKeys, useArcadeNear, useArcadePlaying } from "./body-state";
 
 /** Apply one move to the live world, without an undo step or a log line per keypress. */
 function applyMove(game: GameSpec, move: string) {
@@ -157,8 +158,12 @@ export function Arcade() {
         window.setTimeout(leave, 0);
         return;
       }
-      const move = moveForKey(g, event.code);
       event.stopImmediatePropagation();
+      if (g.screen) {
+        screenKeys.down?.(event);
+        return;
+      }
+      const move = moveForKey(g, event.code);
       if (!move) return;
       event.preventDefault();
       if (event.repeat && !move.repeat) return;
@@ -249,7 +254,11 @@ export function Arcade() {
     // A game with a screen of its own (Blocks): full screen over everything, until you walk away.
     return (
       <div className="arcade-screen" role="dialog" aria-label={playing.label}>
-        <BlocksGame onExit={leave} exitLabel="Walk away" />
+        {game.id === "breakout" ? (
+          <BreakoutGame best={bestOf(useForge.getState(), "breakout")} onBest={(score) => useForge.setState((state) => withBest(state, "breakout", score))} onExit={leave} />
+        ) : (
+          <BlocksGame onExit={leave} exitLabel="Walk away" />
+        )}
       </div>
     );
   }

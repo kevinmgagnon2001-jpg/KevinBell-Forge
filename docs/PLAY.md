@@ -87,6 +87,19 @@ screen, the sticks give way to the game's own buttons, and the game keeps its ow
 
 Esc, the gamepad's B or Exit puts you back on your feet where you stood.
 
+## Hyper Breakout
+
+"Build breakout" (or the bench's Breakout button) puts a glowing cabinet across from Blocks. Play
+it and it fills the screen: neon bricks in the 4D palette (tougher ones take two or three hits and
+show cracks), a ball with a light trail, sparks and a little shake when bricks break, and a glassy
+bubble paddle. Drag anywhere or move the mouse to steer (or the arrow keys); tap, click or Space to
+launch; P pauses; Esc walks away. Capsules drop now and then: three balls, a wide paddle, slow
+time. Clear the wall for the next level (six patterns, a faster ball). Rules in
+`src/engine/breakout.ts`, the screen in `BreakoutGame.tsx`.
+
+Best scores are kept in the save, per game (`world.best`, `arcade.ts` withBest): Breakout's score
+and Tetris's lines; Tetris shows its best in the bar.
+
 ## Adding a game
 
 One entry in `GAMES` in `src/engine/arcade.ts`: how to find it in the world, where it is, what the

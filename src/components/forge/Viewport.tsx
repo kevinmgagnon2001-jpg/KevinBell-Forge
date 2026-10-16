@@ -419,6 +419,9 @@ function LabConsole() {
         <button type="button" onClick={() => act("build_play", { kind: "blocks" })}>
           Blocks
         </button>
+        <button type="button" onClick={() => act("build_play", { kind: "breakout" })}>
+          Breakout
+        </button>
         <button type="button" onClick={() => act("play_move", { move: "left" })}>
           Piece left
         </button>

@@ -60,6 +60,9 @@ export const useFlight = () => useSyncExternalStore(flight.subscribe, flight.get
 
 export type ArcadeSpot = { game: string; label: string };
 
+/** Keys for a game on a screen of its own (Breakout): the arcade hands them over, and no one else sees them. */
+export const screenKeys: { down: ((event: KeyboardEvent) => void) | null } = { down: null };
+
 /** The game you are standing at (offered), and the one you are playing. */
 export const arcadeNear = store<ArcadeSpot | null>(null);
 export const arcadePlaying = store<ArcadeSpot | null>(null);

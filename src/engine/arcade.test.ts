@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { frameCamera, GAMES, gameById, moveForKey, moveForPad, nearestGame } from "./arcade.ts";
-import { buildMarble, buildTetris, labWorld, stepWorld } from "./manifold.ts";
+import { bestOf, cleanBest, frameCamera, GAMES, gameById, moveForKey, moveForPad, nearestGame, withBest } from "./arcade.ts";
+import { buildBreakout, buildMarble, buildTetris, labWorld, stepWorld } from "./manifold.ts";
 import { executeProposal } from "./harness.ts";
 import { solidOf, solidsOverlap } from "./physics.ts";
 
@@ -79,4 +79,22 @@ test("Blocks: a cabinet you walk up to, played on its own screen", () => {
     const s = solidOf(other);
     if (s) assert.ok(!solidsOverlap(s, solid), other.name);
   }
+});
+
+test("a Hyper Breakout cabinet is built, found and played on its own screen", () => {
+  const w = buildBreakout(labWorld());
+  const game = gameById("breakout")!;
+  const board = game.find(w)!;
+  assert.ok(board && game.screen);
+  assert.equal(nearestGame(w, board.transform.position)?.game.id, "breakout");
+});
+
+test("best scores: kept when beaten, ignored otherwise, cleaned from a save", () => {
+  const w = labWorld();
+  assert.equal(bestOf(w, "breakout"), 0);
+  const a = withBest(w, "breakout", 420);
+  assert.equal(bestOf(a, "breakout"), 420);
+  assert.equal(withBest(a, "breakout", 100), a, "a lower score changes nothing");
+  assert.deepEqual(cleanBest({ breakout: 420.7, tetris: 12, "bad id!": 3, neg: -1, str: "9" }), { breakout: 420, tetris: 12 });
+  assert.equal(cleanBest(null), undefined);
 });

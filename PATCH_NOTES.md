@@ -1111,3 +1111,16 @@ and mountains around it, under a late-afternoon sky.
   snow at the lightest count. Still no land, sky dome or reflections there.
 - Checked: typecheck, lint, engine tests; in Chromium with ?scenery=off, sunny noon and rainy dusk
   (rain falling); no console errors.
+
+## Hyper Breakout, and best scores in the save
+- breakout.ts (tested): paddle, balls, six wall patterns by level with bricks of one to three hits,
+  angle off the paddle by where it lands, substepped collisions (never through a brick), capsules
+  (three balls, wide paddle, slow time), lives, levels, combo scoring; seeded and repeatable.
+- BreakoutGame.tsx: a full-screen canvas: bloom-like glows, ball trails, sparks, shake and flashes,
+  an iridescent bubble paddle, little synthesized blips; icon bubbles for pause, leave, play again.
+  The arcade hands its keys over (screenKeys) so walking keys do not move the body meanwhile.
+- A cabinet (buildBreakout, `build_play kind breakout`, "build breakout", a bench button).
+- Best scores per game in the save (`world.best`, cleaned on load; Tetris records its lines).
+- Fixed on the way: string light bulbs and brick tones are whole palette indices.
+- Checked: typecheck, lint (no errors), `npm run test:engine` (302 pass); in Chromium at 412x915:
+  walk up, Play, launch, break bricks, lose a life, pause, Esc; no console errors.

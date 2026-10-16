@@ -9,6 +9,7 @@ import { soundIntent } from "./sounds";
 import { cleanTown, townIntent } from "./town";
 import { hyperIntent } from "./hyper";
 import { ropeIntent } from "./rope";
+import { cleanBest } from "./arcade";
 import { cleanRecent, MAX_SKILLS, skillIntent, skillBrief } from "./skillbook";
 import { bootWorld, ensureAvatar, ensureHelm, labWorld, stepWorld } from "./manifold";
 import { DEFAULT_MODEL_PATH, MEMORY_BUDGET_MB, TOOL_NAMES } from "./os";
@@ -325,6 +326,16 @@ export const useForge = create<ForgeState>((set, get) => {
         pushLog([
           { tone: "user", title: "Intent", body: intent },
           { tone: ok ? "engine" : "warn", title: "Diagnostics", body: ok ? "The report is open as a GitHub issue. Review it and submit; the next build session reads it." : "Could not open the report." },
+        ]);
+        return;
+      }
+      // "build breakout" (the Hyper Breakout cabinet) needs no model.
+      if (/^(?:(?:please|can you|could you)\s+)?(?:build|make|add|put|set up|give me)\b.*\b(breakout|brick ?breaker)\b/i.test(intent) && !/\b(paint|colou?r|texture)\b/i.test(intent)) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: "build_play", arguments: { kind: "breakout" } });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Arcade", body: ran.result },
         ]);
         return;
       }
@@ -809,6 +820,7 @@ export const useForge = create<ForgeState>((set, get) => {
           recent: cleanRecent(data.world.recent),
           score: typeof data.world.score === "string" ? data.world.score.slice(0, 120) : undefined,
           town: cleanTown(data.world.town, data.world.entities),
+          best: cleanBest(data.world.best),
           gravity: bootWorld().gravity,
           deltaTime: bootWorld().deltaTime,
         }));
@@ -868,6 +880,7 @@ function persistedWorld(state: ForgeState): World {
     ...(state.weather ? { weather: state.weather } : {}),
     ...(state.score ? { score: state.score } : {}),
     ...(state.town ? { town: state.town } : {}),
+    ...(state.best ? { best: state.best } : {}),
   };
 }
 
@@ -923,6 +936,7 @@ export function applySharedSave(value: unknown): boolean {
     recent: cleanRecent(save.world.recent),
     score: typeof save.world.score === "string" ? save.world.score.slice(0, 120) : undefined,
     town: cleanTown(save.world.town, save.world.entities),
+    best: cleanBest(save.world.best),
     gravity: bootWorld().gravity,
     deltaTime: bootWorld().deltaTime,
   }));
