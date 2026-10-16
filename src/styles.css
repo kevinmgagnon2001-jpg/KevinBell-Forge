@@ -2320,8 +2320,13 @@
   color: #7ee0c8;
 }
 
-.arcade-exit,
-.arcade-over button {
+.arcade-over-actions {
+  display: flex;
+  gap: 0.9rem;
+}
+
+.arcade-exit:not(.bubble-icon),
+.arcade-over button:not(.bubble-icon) {
   min-height: 36px;
   padding: 0 0.9rem;
   border: 1px solid rgb(255 255 255 / 25%);

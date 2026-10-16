@@ -1121,6 +1121,6 @@ and mountains around it, under a late-afternoon sky.
   The arcade hands its keys over (screenKeys) so walking keys do not move the body meanwhile.
 - A cabinet (buildBreakout, `build_play kind breakout`, "build breakout", a bench button).
 - Best scores per game in the save (`world.best`, cleaned on load; Tetris records its lines).
-- Fixed on the way: string light bulbs and brick tones are whole palette indices.
+- In-world arcade bar: Exit, Play again and Walk away are icon bubbles; the marble's Release is a glyph.
 - Checked: typecheck, lint (no errors), `npm run test:engine` (302 pass); in Chromium at 412x915:
   walk up, Play, launch, break bricks, lose a life, pause, Esc; no console errors.

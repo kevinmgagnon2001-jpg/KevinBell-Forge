@@ -9,6 +9,7 @@
  * The game keeps its own clock (the piece falls even with the world paused), the camera frames the
  * board (pilot.tsx), and Esc, B or Exit puts you back on your feet where you stood.
  */
+import { RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { bestOf, EXIT_KEYS, EXIT_PAD, gameById, moveForKey, moveForPad, nearestGame, withBest, type GameMove, type GameSpec } from "@/engine/arcade";
 import { useForge } from "@/engine/store";
@@ -269,19 +270,21 @@ export function Arcade() {
         <div className="arcade-bar">
           <strong>{playing.label}</strong>
           <span className="arcade-status">{status}</span>
-          <button type="button" className="arcade-exit" onClick={leave}>
-            Exit
+          <button type="button" className="arcade-exit visor-key bubble-icon" aria-label="Exit" title="Exit (Esc)" onClick={leave}>
+            <X aria-hidden />
           </button>
         </div>
         {over ? (
           <div className="arcade-over">
             <p>{status}</p>
-            <button type="button" onClick={() => restart(game)}>
-              Play again
-            </button>
-            <button type="button" onClick={leave}>
-              Walk away
-            </button>
+            <div className="arcade-over-actions">
+              <button type="button" className="visor-key bubble-icon" aria-label="Play again" title="Play again" onClick={() => restart(game)}>
+                <RotateCcw aria-hidden />
+              </button>
+              <button type="button" className="visor-key bubble-icon" aria-label="Walk away" title="Walk away" onClick={leave}>
+                <X aria-hidden />
+              </button>
+            </div>
           </div>
         ) : null}
         <p className="arcade-help">{padName ? "Controller: d-pad moves · A rotates · X drops · B leaves" : keyHelp}</p>

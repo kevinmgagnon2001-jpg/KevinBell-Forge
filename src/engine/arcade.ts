@@ -116,7 +116,7 @@ export const GAMES: GameSpec[] = [
     find: marbleStart,
     spot: () => ({ x: -4.4, y: 1, z: 0.6 }),
     framing: () => ({ at: { x: -4.1, y: 1.2, z: 0.6 }, toward: { x: 0.75, y: 0.5, z: 0.45 }, width: 5, height: 3.4 }),
-    moves: [{ id: "release", label: "Release", keys: ["Space", "Enter"], pad: [0, 2] }],
+    moves: [{ id: "release", label: "⤓", keys: ["Space", "Enter"], pad: [0, 2] }],
     play: (world, move) => (move === "release" ? releaseMarble(world) : world),
     status: (world) => {
       const ball = marbleBall(world);
