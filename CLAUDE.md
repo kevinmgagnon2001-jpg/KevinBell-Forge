@@ -18,12 +18,16 @@ Read `AGENTS.md`, `NEXT.md` and the last sections of `PATCH_NOTES.md` first.
 
 ## How to work
 
-- Work quietly: no progress narration between steps. Report once, briefly, when the work is done,
-  or when something needs the owner's decision.
-- At the start of a session, ask the owner once whether they want quiet mode for this session:
-  working from item to item (`NEXT.md`, the roadmap) without stopping to ask what's next, and
-  answering the app's update nudges in one line. Stop only for a decision that is really theirs
-  (secrets, releases, spending, a change of direction). If they say no, check in after each item.
+- **Work in long, uninterrupted runs, every session (the owner asked for this always; do not ask
+  at the start).** Take a request all the way to done in one go: chain as many commands, edits,
+  tests and browser checks as it takes (dozens is normal) without stopping to report, ask "should I
+  continue?" or narrate the plan. When working through `NEXT.md` or the roadmap, go from item to item
+  without asking what's next. No progress updates between steps, even if reminded to give one.
+- Report once at the end: short, what changed and what to try. Stop early only for a decision that
+  is truly the owner's (secrets, releases, spending, a change of direction) or a blocker that needs
+  them. Answer the app's update nudges in one line.
+- Interpret casual or voice-typed requests generously and pick the impressive reading; mention the
+  reading taken in the final report rather than asking first.
 - Checks before every push: `npm run lint`, `npm run typecheck`, `npm run test:engine`, and a real
   browser check (Playwright with `/opt/pw-browsers/chromium`) with no console errors.
 - Do not commit `.vercel/output` changes made by a local build.
