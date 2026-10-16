@@ -14,7 +14,11 @@ const PREFS_KEY = "forge.blocks.prefs";
 
 /** classic: white board, thin black lines, one blue (the look she knows). bright: the colourful one. */
 type Look = "classic" | "bright";
-type Prefs = { sound: boolean; buzz: boolean; look: Look };
+/** Dark mode for the classic look: follow the phone, or always on or off. */
+type Dark = "auto" | "on" | "off";
+type Prefs = { sound: boolean; buzz: boolean; look: Look; dark: Dark };
+const DARK_NEXT: Record<Dark, Dark> = { auto: "on", on: "off", off: "auto" };
+const DARK_LABEL: Record<Dark, string> = { auto: "same as phone", on: "on", off: "off" };
 /** Every block in the classic look. */
 const CLASSIC_BLUE = "#1677ff";
 type Drag = { slot: number; x: number; y: number; touch: boolean };
@@ -34,10 +38,25 @@ function load(): BlocksState {
 function loadPrefs(): Prefs {
   try {
     const raw = JSON.parse(window.localStorage.getItem(PREFS_KEY) ?? "{}") as Partial<Prefs>;
-    return { sound: raw.sound !== false, buzz: raw.buzz !== false, look: raw.look === "bright" ? "bright" : "classic" };
+    const dark = raw.dark === "on" || raw.dark === "off" ? raw.dark : "auto";
+    return { sound: raw.sound !== false, buzz: raw.buzz !== false, look: raw.look === "bright" ? "bright" : "classic", dark };
   } catch {
-    return { sound: true, buzz: true, look: "classic" };
+    return { sound: true, buzz: true, look: "classic", dark: "auto" };
   }
+}
+
+/** Whether the phone is set to dark mode, kept up to date (false until mounted, so SSR matches). */
+function usePhoneDark(): boolean {
+  const [dark, setDark] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!query) return;
+    const update = () => setDark(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  return dark;
 }
 
 /** Soft little tones, made on the spot (no sound files). */
@@ -86,7 +105,8 @@ function ShapeCells({ shape, cell, gap, style, tint }: { shape: Shape; cell: num
 
 export function BlocksGame({ onExit, exitLabel = "Back" }: { onExit?: () => void; exitLabel?: string }) {
   const [game, setGame] = useState<BlocksState | null>(null);
-  const [prefs, setPrefs] = useState<Prefs>({ sound: true, buzz: true, look: "classic" });
+  const [prefs, setPrefs] = useState<Prefs>({ sound: true, buzz: true, look: "classic", dark: "auto" });
+  const phoneDark = usePhoneDark();
   const [confirmNew, setConfirmNew] = useState(false);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [flash, setFlash] = useState<Flash | null>(null);
@@ -142,6 +162,7 @@ export function BlocksGame({ onExit, exitLabel = "Back" }: { onExit?: () => void
   }, [ready]);
 
   const classic = prefs.look === "classic";
+  const dark = classic && (prefs.dark === "on" || (prefs.dark === "auto" && phoneDark));
   // Classic: the board's black shows through 1 px gaps as the grid lines.
   const pad = classic ? 0 : 6;
   const gap = classic ? 1 : 3;
@@ -266,7 +287,7 @@ export function BlocksGame({ onExit, exitLabel = "Back" }: { onExit?: () => void
   const newBest = game.best > startBest.current && game.best === game.score && game.score > 0;
 
   return (
-    <div className={classic ? "blk is-classic" : "blk"} onContextMenu={(event) => event.preventDefault()}>
+    <div className={classic ? `blk is-classic${dark ? " is-dark" : ""}` : "blk"} onContextMenu={(event) => event.preventDefault()}>
       {classic ? (
         <header className="blk-top is-classic">
           <strong className="blk-score" aria-live="polite">
@@ -308,6 +329,11 @@ export function BlocksGame({ onExit, exitLabel = "Back" }: { onExit?: () => void
           <button type="button" role="menuitemcheckbox" aria-checked={!classic} onClick={() => setPrefs({ ...prefs, look: classic ? "bright" : "classic" })}>
             Colourful blocks {classic ? "off" : "on"}
           </button>
+          {classic ? (
+            <button type="button" role="menuitem" onClick={() => setPrefs({ ...prefs, dark: DARK_NEXT[prefs.dark] })}>
+              Dark mode: {DARK_LABEL[prefs.dark]}
+            </button>
+          ) : null}
           {onExit ? (
             <button type="button" role="menuitem" onClick={onExit}>
               {exitLabel}
