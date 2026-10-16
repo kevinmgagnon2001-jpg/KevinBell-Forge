@@ -1,4 +1,5 @@
 import type { Move } from "./motion.ts";
+import type { Weather } from "./weather.ts";
 export type Vec3 = { x: number; y: number; z: number };
 
 export type Quat = { x: number; y: number; z: number; w: number };
@@ -76,6 +77,7 @@ export type Snapshot = {
   entities: Record<number, Entity>;
   nextId: number;
   skills: Skill[];
+  weather?: Weather;
 };
 
 export type HarnessEvent = {
@@ -101,6 +103,8 @@ export type World = {
   compat?: string[];
   /** Moves made in this world (motion.ts): saved, and shared with your other devices. */
   moves?: Move[];
+  /** Weather, time of day and mood (weather.ts); none means the lab's clear afternoon. */
+  weather?: Weather;
 };
 
 export const IDENTITY: Quat = { x: 0, y: 0, z: 0, w: 1 };

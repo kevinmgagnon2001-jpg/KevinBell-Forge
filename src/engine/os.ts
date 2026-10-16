@@ -199,6 +199,13 @@ export const TOOLS: ToolSchema[] = [
     optional: ["mesh", "skin", "stat"],
   },
   {
+    name: "set_weather",
+    description:
+      "Change the weather, time of day or mood live. words is a phrase (rain at dusk, foggy morning, snow at midnight, rainy tokyo alley, stop the rain, 7pm, speed up time). Or set numbers: hour 0-24, cloud rain snow fog wind storm 0-1, mood neon eerie cozy dreamy cold apocalyptic or none, flow (game minutes per second).",
+    parameters: { words: "string", hour: "f32", cloud: "f32", rain: "f32", snow: "f32", fog: "f32", wind: "f32", storm: "f32", mood: "string", flow: "f32" },
+    optional: ["words", "hour", "cloud", "rain", "snow", "fog", "wind", "storm", "mood", "flow"],
+  },
+  {
     name: "build_gauge_rig",
     description: "Place a whole room of gauges at once (engine-room, steam, cyber). skin overrides the rig's own.",
     parameters: { rig: "string", skin: "string" },

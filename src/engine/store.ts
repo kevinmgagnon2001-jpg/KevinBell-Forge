@@ -4,6 +4,7 @@ import { nearestColorName } from "./color";
 import { executeProposal } from "./harness";
 import { gaugeIntent } from "./gauges";
 import { cleanMoves, moveIntent } from "./motion";
+import { cleanWeather, weatherIntent } from "./weather";
 import { bootWorld, ensureAvatar, ensureHelm, labWorld, stepWorld } from "./manifold";
 import { DEFAULT_MODEL_PATH, MEMORY_BUDGET_MB, TOOL_NAMES } from "./os";
 import { DEFAULT_RESIDENT_ID, isResidentId, residentById, type ResidentId } from "./resident-catalog";
@@ -344,6 +345,17 @@ export const useForge = create<ForgeState>((set, get) => {
         ]);
         return;
       }
+      // Weather and time ("make it rain at dusk", "foggy morning", "7pm") come from fixed tables (weather.ts).
+      const weatherCall = weatherIntent(intent);
+      if (weatherCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: weatherCall.tool, arguments: weatherCall.arguments });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Weather", body: ran.result },
+        ]);
+        return;
+      }
       // Gauge requests ("add a neon thermometer", "make the gauges brass", "build the engine room") are
       // plain picks from fixed lists (gauges.ts), so they run now, with the model off or busy.
       const gaugeCall = gaugeIntent(intent, get());
@@ -681,6 +693,7 @@ export const useForge = create<ForgeState>((set, get) => {
         moverHash: state.moverHash,
         // Moves you made stay through a reset, like your mechanics.
         moves: state.moves,
+        weather: undefined,
       })),
     despawn: (id) => {
       const state = get();
@@ -726,6 +739,7 @@ export const useForge = create<ForgeState>((set, get) => {
           skills: cleanSkills(data.world.skills),
           compat: Array.isArray(data.world.compat) ? data.world.compat.filter((item): item is string => typeof item === "string").slice(0, 8) : [],
           moves: cleanMoves(data.world.moves),
+          weather: cleanWeather(data.world.weather),
           gravity: bootWorld().gravity,
           deltaTime: bootWorld().deltaTime,
         }));
@@ -781,6 +795,7 @@ function persistedWorld(state: ForgeState): World {
     skills: (state.skills ?? []).slice(-12),
     compat: (state.compat ?? []).slice(0, 8),
     moves: state.moves ?? [],
+    ...(state.weather ? { weather: state.weather } : {}),
   };
 }
 
@@ -832,6 +847,7 @@ export function applySharedSave(value: unknown): boolean {
     skills: cleanSkills(save.world.skills),
     compat: Array.isArray(save.world.compat) ? save.world.compat.filter((item): item is string => typeof item === "string").slice(0, 8) : [],
     moves: cleanMoves(save.world.moves),
+    weather: cleanWeather(save.world.weather),
     gravity: bootWorld().gravity,
     deltaTime: bootWorld().deltaTime,
   }));

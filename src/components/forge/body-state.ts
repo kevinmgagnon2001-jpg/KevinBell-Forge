@@ -19,6 +19,9 @@ export const avatarMotion = {
   bumped: false,
 };
 
+/** When lightning last struck (performance.now()), written by the sky (Scenery.tsx), heard as thunder. */
+export const lightning = { at: 0 };
+
 function store<T>(initial: T) {
   let value = initial;
   const listeners = new Set<() => void>();

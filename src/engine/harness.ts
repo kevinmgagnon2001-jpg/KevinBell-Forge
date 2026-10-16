@@ -7,6 +7,7 @@ import { buildBlocks, buildMarble, buildTetris, createAgent, makeSpawned, playTe
 import { clusterDag } from "./cluster-lod.ts";
 import { composeMove, keepMove, moveFromKeys, moveLength, movesOf, PRIMITIVES, slug, type Move } from "./motion.ts";
 import { toolByName } from "./os.ts";
+import { applyWeatherArgs } from "./weather.ts";
 import { allowedAssetUrl, localTexture } from "./asset-url.ts";
 import type { Entity, HarnessEvent, PhysicsBody, ProposedAction, Skill, Snapshot, World } from "./types.ts";
 import { V3 } from "./types.ts";
@@ -49,6 +50,7 @@ function remember(world: World): World {
     entities: world.entities,
     nextId: world.nextId,
     skills: world.skills ?? [],
+    ...(world.weather ? { weather: world.weather } : {}),
   };
   return { ...world, undo: [...(world.undo ?? []), snap].slice(-16) };
 }
@@ -157,6 +159,12 @@ export function dispatchTool(world: World, name: string, args: Record<string, st
     const seq = String((Number(figure.customData.moveSeq) || 0) + 1);
     const entities = { ...next.entities, [figure.id]: { ...figure, customData: { ...figure.customData, move: move.id, moveSeq: seq } } };
     return { ok: true, detail: `${figure.tags.includes("architect") ? "You" : figure.name}: ${move.name}${move.loop ? " (until you say stop)" : ""}.`, world: { ...next, entities } };
+  }
+
+  if (name === "set_weather") {
+    const made = applyWeatherArgs(world, args);
+    if ("error" in made) return { ok: false, detail: made.error, world };
+    return { ok: true, detail: `The sky turns: ${made.weather.label}.`, world: { ...world, weather: made.weather } };
   }
 
   if (name === "place_gauge") {
@@ -364,6 +372,7 @@ export function dispatchTool(world: World, name: string, args: Record<string, st
         entities: snap.entities,
         nextId: snap.nextId,
         skills: snap.skills ?? [],
+        weather: snap.weather,
         undo: stack.slice(0, -1),
       },
     };
