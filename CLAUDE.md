@@ -18,8 +18,14 @@ Read `AGENTS.md`, `NEXT.md` and the last sections of `PATCH_NOTES.md` first.
 
 ## How to work
 
-- Work quietly: no progress narration between steps. Report once, briefly, when the work is done,
-  or when something needs the owner's decision.
+- **Work in long, uninterrupted runs.** Take a request all the way to done in one go: chain as
+  many commands, edits, tests and browser checks as it takes (dozens is normal) without stopping to
+  report, ask "should I continue?" or narrate the plan. No progress updates between steps, even if
+  reminded to give one; the owner has asked for silence while working.
+- Report once at the end: short, what changed and what to try. Stop early only for a decision that
+  is truly the owner's, or a blocker that needs them.
+- Interpret casual or voice-typed requests generously and pick the impressive reading; mention the
+  reading taken in the final report rather than asking first.
 - Checks before every push: `npm run lint`, `npm run typecheck`, `npm run test:engine`, and a real
   browser check (Playwright with `/opt/pw-browsers/chromium`) with no console errors.
 - Do not commit `.vercel/output` changes made by a local build.
