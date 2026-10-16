@@ -3,7 +3,7 @@ import { deckCommand } from "./deck-bridge.ts";
 import { compatCommand } from "./isa.ts";
 import { placePortal } from "./portal-tool.ts";
 import { buildRig, makeGauge, MESHES, rigById, RIGS, SKINS, skinById, statById, STATS, styleGauges, meshById } from "./gauges.ts";
-import { buildMarble, buildTetris, createAgent, makeSpawned, playTetris, queryByTag, recordEvent, restyle, seatOffCenter, steer } from "./manifold.ts";
+import { buildBlocks, buildMarble, buildTetris, createAgent, makeSpawned, playTetris, queryByTag, recordEvent, restyle, seatOffCenter, steer } from "./manifold.ts";
 import { clusterDag } from "./cluster-lod.ts";
 import { composeMove, keepMove, moveFromKeys, moveLength, movesOf, PRIMITIVES, slug, type Move } from "./motion.ts";
 import { toolByName } from "./os.ts";
@@ -322,7 +322,10 @@ export function dispatchTool(world: World, name: string, args: Record<string, st
     if (kind === "marble") {
       return { ok: true, detail: "Marble run is on the left. Run and the ball rides the ramps into the catch.", world: buildMarble(world) };
     }
-    return { ok: false, detail: "kind must be tetris or marble", world };
+    if (kind === "blocks") {
+      return { ok: true, detail: "A Blocks cabinet is by the bench. Walk up to it and press Play.", world: buildBlocks(world) };
+    }
+    return { ok: false, detail: "kind must be tetris, marble or blocks", world };
   }
 
   if (name === "play_move") {

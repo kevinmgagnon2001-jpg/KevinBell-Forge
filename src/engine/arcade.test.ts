@@ -2,6 +2,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { frameCamera, GAMES, gameById, moveForKey, moveForPad, nearestGame } from "./arcade.ts";
 import { buildMarble, buildTetris, labWorld, stepWorld } from "./manifold.ts";
+import { executeProposal } from "./harness.ts";
+import { solidOf, solidsOverlap } from "./physics.ts";
 
 test("walk up to a game: in reach it is offered, across the room it is not", () => {
   const world = buildMarble(buildTetris(labWorld()));
@@ -61,4 +63,20 @@ test("the camera backs off until the whole game fits, wide screen or tall", () =
   const wide = frameCamera(f, 42, 16 / 9);
   const tall = frameCamera(f, 42, 390 / 844);
   assert.ok(tall.eye.z > wide.eye.z, "farther back on a narrow screen");
+});
+
+test("Blocks: a cabinet you walk up to, played on its own screen", () => {
+  const built = executeProposal(labWorld(), { kind: "tool_call", toolName: "build_play", arguments: { kind: "blocks" } });
+  assert.ok(built.ok, built.result);
+  const blocks = gameById("blocks")!;
+  const cabinet = blocks.find(built.world)!;
+  assert.ok(cabinet && blocks.screen);
+  assert.equal(nearestGame(built.world, { x: cabinet.transform.position.x, y: 0, z: cabinet.transform.position.z + 1.5 })?.game.id, "blocks");
+  // It stands clear of everything else in the lab.
+  const solid = solidOf(cabinet)!;
+  for (const other of Object.values(built.world.entities)) {
+    if (other.tags.includes("blocks") || other.tags.includes("floor")) continue;
+    const s = solidOf(other);
+    if (s) assert.ok(!solidsOverlap(s, solid), other.name);
+  }
 });

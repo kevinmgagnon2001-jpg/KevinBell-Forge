@@ -950,3 +950,24 @@ and mountains around it, under a late-afternoon sky.
   390x844 and 1280x800 with a stand-in for the Android bridge: 🎙 heard "wave" and the avatar
   waved, ⌨ opened a focused bar and "do a little dance" ran and the bar closed, the dock's 🎙 sent
   "cheer"; no console errors. The Kotlin is not compiled here; CI's Android build checks it.
+
+## Blocks: the block puzzle without the ads
+- Rules in src/engine/blocks.ts (tested): 8 x 8 board, 37 shapes dealt three at a time by weight,
+  each piece in its own colour, deals that always leave a move, rows and columns clear, scores by
+  lines at once and combos, a 300 all-clear bonus, game over when nothing in hand fits, saves
+  checked on load.
+- Screen in src/components/blocks/BlocksGame.tsx: drag with the piece lifted above the finger, a
+  ghost and the lines it would finish lit, clear animation, popups, soft generated sounds and
+  vibration (both can be turned off), auto-save and best score on the device.
+- Android: a second launcher icon, Blocks (activity-alias .BlocksLauncher, its own vector icon,
+  VIBRATE), opens straight into the game; the start page (src/routes/index.tsx) asks
+  ForgeAndroid.launchedAs and never loads the 3D world or the model then. onNewIntent switches
+  between the two when one icon is tapped while the other is open. The emulator test opens the
+  Blocks icon and checks it reuses the running Forge.
+- Web: /blocks and /?app=blocks. In the world: "build blocks" or the bench's Blocks button places an
+  arcade cabinet; Play opens the game full screen (GameSpec.screen in arcade.ts).
+- Guide: docs/BLOCKS.md.
+- Checked: typecheck, lint (no errors, no new warnings), `npm run test:engine` (233 pass), build. In
+  Chromium at 390x844: 20 pieces placed by dragging with lines cleared, the game back after a reload,
+  ?app=blocks with no 3D canvas, switching to Forge, the cabinet's Play prompt, a piece placed in the
+  arcade's Blocks, Walk away; no console errors. The Kotlin is compiled by CI's Android build.

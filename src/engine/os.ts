@@ -104,7 +104,7 @@ export const TOOLS: ToolSchema[] = [
   },
   {
     name: "build_play",
-    description: "Build a playable Tetris well or a marble run from real objects. kind is tetris or marble.",
+    description: "Build a playable Tetris well, a marble run, or a Blocks arcade cabinet (the drag-and-place block puzzle). kind is tetris, marble or blocks.",
     parameters: { kind: "string" },
   },
   {

@@ -322,6 +322,16 @@ export const useForge = create<ForgeState>((set, get) => {
         ]);
         return;
       }
+      // "build blocks" (the Blocks cabinet) needs no model either.
+      if (/^(?:(?:please|can you|could you)\s+)?(?:build|make|add|put|set up|give me)\b.*\bblocks\b/i.test(intent) && !/\b(paint|colou?r|texture)\b/i.test(intent)) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: "build_play", arguments: { kind: "blocks" } });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Blocks", body: ran.result },
+        ]);
+        return;
+      }
       // Moves ("wave", "do a little dance", "make a move called victory: cheer then flex") are picks
       // and words from a fixed vocabulary (motion.ts), so they run now too.
       const moveCall = moveIntent(intent, get());

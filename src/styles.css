@@ -2628,3 +2628,310 @@
     transform: none;
   }
 }
+
+/* Blocks (src/components/blocks/BlocksGame.tsx): its own bright screen, full height, thumb-sized. */
+.blk {
+  --blk-bg: #10162f;
+  --blk-board: #1a2248;
+  --blk-empty: #232d5c;
+  --blk-text: #f4f6ff;
+  --blk-muted: #9aa6d6;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: hidden;
+  padding: max(0.6rem, env(safe-area-inset-top)) 0.75rem max(0.6rem, env(safe-area-inset-bottom));
+  background: radial-gradient(120% 80% at 50% 0%, #1f2a5c 0%, var(--blk-bg) 60%);
+  color: var(--blk-text);
+  font-family: ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.blk-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.blk-icon {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border: 0;
+  border-radius: 14px;
+  background: rgb(255 255 255 / 7%);
+  color: var(--blk-text);
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.blk-icon.is-blank {
+  background: transparent;
+}
+
+.blk-scores {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.blk-score {
+  font-size: clamp(2.2rem, 9vw, 3.2rem);
+  font-weight: 800;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.blk-best {
+  color: #ffd23f;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.blk-menu {
+  position: absolute;
+  top: calc(max(0.6rem, env(safe-area-inset-top)) + 3.4rem);
+  right: 0.75rem;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-width: 12rem;
+  padding: 0.35rem;
+  border-radius: 16px;
+  background: #222c5a;
+  box-shadow: 0 18px 40px rgb(0 0 0 / 45%);
+}
+
+.blk-menu button {
+  min-height: 46px;
+  padding: 0 0.9rem;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--blk-text);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+}
+
+.blk-menu button:active {
+  background: rgb(255 255 255 / 8%);
+}
+
+.blk-stage {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(1rem, 4dvh, 2.2rem);
+}
+
+.blk-board {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  width: min(94vw, 58dvh, 520px);
+  aspect-ratio: 1;
+  border-radius: 14px;
+  background: var(--blk-board);
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 4%), 0 12px 30px rgb(0 0 0 / 35%);
+}
+
+.blk-cell {
+  border-radius: 6px;
+  background: var(--blk-empty);
+}
+
+/* A block: its colour with a lit top edge and a darker bottom, so it reads as a raised tile. */
+.blk-cell.is-full {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--blk) 70%, white) 0%, var(--blk) 34%, color-mix(in srgb, var(--blk) 78%, black) 100%);
+  box-shadow: inset 0 -3px 0 rgb(0 0 0 / 22%), inset 0 2px 0 rgb(255 255 255 / 28%);
+}
+
+.blk-cell.is-ghost {
+  background: color-mix(in srgb, var(--blk) 45%, var(--blk-empty));
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--blk) 80%, white);
+}
+
+/* The rows and columns this drop would finish. */
+.blk-cell.is-lit:not(.is-ghost) {
+  filter: brightness(1.35);
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 70%);
+}
+
+.blk-cell.is-lit:not(.is-full):not(.is-ghost) {
+  background: color-mix(in srgb, var(--blk) 25%, var(--blk-empty));
+}
+
+.blk-cell.is-clearing {
+  animation: blk-clear 380ms ease-in forwards;
+  pointer-events: none;
+}
+
+@keyframes blk-clear {
+  0% {
+    transform: scale(1);
+    filter: brightness(1.8);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.2) rotate(18deg);
+    opacity: 0;
+  }
+}
+
+.blk-shape {
+  position: relative;
+}
+
+.blk-shape .blk-cell {
+  position: absolute;
+}
+
+.blk-tray {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  width: min(94vw, 520px);
+  height: clamp(110px, 18dvh, 160px);
+}
+
+.blk-slot {
+  display: grid;
+  place-items: center;
+  touch-action: none;
+  cursor: grab;
+}
+
+.blk-slot.is-stuck {
+  opacity: 0.35;
+}
+
+.blk-popup {
+  position: absolute;
+  top: 42%;
+  left: 50%;
+  z-index: 5;
+  margin: 0;
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  background: rgb(10 14 34 / 78%);
+  color: #fff;
+  font-size: 1.05rem;
+  font-weight: 800;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  animation: blk-pop 1.3s ease-out forwards;
+}
+
+.blk-popup.is-big {
+  color: #ffd23f;
+  font-size: 1.3rem;
+}
+
+@keyframes blk-pop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -30%) scale(0.7);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+  75% {
+    opacity: 1;
+    transform: translate(-50%, -60%) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -80%) scale(1);
+  }
+}
+
+.blk-over {
+  position: absolute;
+  inset: 0;
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  background: rgb(8 11 28 / 82%);
+  animation: blk-fade 300ms ease-out;
+}
+
+@keyframes blk-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.blk-over p {
+  margin: 0;
+}
+
+.blk-over-title {
+  color: var(--blk-muted);
+  font-size: 1.2rem;
+  font-weight: 700;
+}
+
+.blk-over-score {
+  font-size: 4rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.blk-over-best {
+  margin-bottom: 1.2rem !important;
+  color: #ffd23f;
+  font-weight: 700;
+}
+
+.blk-play {
+  min-width: 13rem;
+  min-height: 56px;
+  border: 0;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #4ee39a, #2fbf74);
+  color: #08311c;
+  font: inherit;
+  font-size: 1.2rem;
+  font-weight: 800;
+  box-shadow: inset 0 -4px 0 rgb(0 0 0 / 18%);
+}
+
+.blk-link {
+  min-height: 46px;
+  margin-top: 0.4rem;
+  border: 0;
+  background: transparent;
+  color: var(--blk-muted);
+  font: inherit;
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blk-cell.is-clearing,
+  .blk-popup,
+  .blk-over {
+    animation-duration: 1ms;
+  }
+}
+
+/* A game with its own screen (Blocks) over the whole app while you play it at its cabinet. */
+.arcade-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}

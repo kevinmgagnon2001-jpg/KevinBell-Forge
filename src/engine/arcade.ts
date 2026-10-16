@@ -44,6 +44,8 @@ export type GameSpec = {
   status: (world: World, board: Entity) => string;
   over: (world: World, board: Entity) => boolean;
   restart: (world: World) => World;
+  /** Played on a screen of its own instead of in the world (Blocks): Arcade.tsx opens it full screen. */
+  screen?: boolean;
 };
 
 const tetrisBoard = (world: World) => Object.values(world.entities).find((e) => e.customData.play === "tetris");
@@ -133,6 +135,21 @@ export function frameCamera(f: Framing, fovDeg: number, aspect: number, bottom =
   const at = { x: f.at.x, y: f.at.y - drop, z: f.at.z };
   return { at, eye: { x: f.at.x + (f.toward.x / n) * distance, y: f.at.y + (f.toward.y / n) * distance - drop, z: f.at.z + (f.toward.z / n) * distance } };
 }
+
+export const BLOCKS_GAME: GameSpec = {
+  id: "blocks",
+  label: "Blocks",
+  find: (world) => Object.values(world.entities).find((e) => e.customData.play === "blocks"),
+  spot: (_, board) => board.transform.position,
+  framing: (_, board) => ({ at: { ...board.transform.position, y: 1.2 }, toward: { x: 0, y: 0.2, z: 1 }, width: 1.4, height: 1.8 }),
+  moves: [],
+  play: (world) => world,
+  status: () => "",
+  over: () => false,
+  restart: (world) => world,
+  screen: true,
+};
+GAMES.push(BLOCKS_GAME);
 
 export const gameById = (id: string | undefined) => GAMES.find((g) => g.id === id);
 

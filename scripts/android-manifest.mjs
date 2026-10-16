@@ -13,6 +13,11 @@
 //                                 the second was a black screen.)
 //   launchMode singleTask         Only ever one MainActivity, which HomeActivity brings back.
 //   configChanges                 Turning the phone does not restart Forge (screen rotation, rotation.ts).
+//   Blocks                        A second launcher icon, "Blocks", that opens Forge straight into the
+//                                 Blocks game (src/components/blocks): an activity-alias of
+//                                 MainActivity, which tells the page it was opened as Blocks
+//                                 (ForgeApps.launchedAs). Its icon is src-tauri/android/res, copied in
+//                                 by the workflow. VIBRATE lets the game buzz on a clear.
 //   install permissions           Forge can install its own updates (MainActivity.kt, update section):
 //                                 REQUEST_INSTALL_PACKAGES, which the person still has to allow once
 //                                 ("Install unknown apps"), and UPDATE_PACKAGES_WITHOUT_USER_ACTION, so
@@ -38,7 +43,7 @@ export function patchManifest(xml) {
     out = out.slice(0, lineStart) + queries + out.slice(lineStart);
   }
 
-  for (const permission of ["android.permission.REQUEST_INSTALL_PACKAGES", "android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION"]) {
+  for (const permission of ["android.permission.REQUEST_INSTALL_PACKAGES", "android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION", "android.permission.VIBRATE"]) {
     if (out.includes(`"${permission}"`)) continue;
     const at = out.indexOf("<application");
     const lineStart = out.lastIndexOf("\n", at) + 1;
@@ -85,6 +90,25 @@ export function patchManifest(xml) {
     if (end < 0) throw new Error("no </application> in the manifest");
     const lineStart = out.lastIndexOf("\n", end) + 1;
     out = out.slice(0, lineStart) + home + out.slice(lineStart);
+  }
+  if (!out.includes(".BlocksLauncher")) {
+    // After MainActivity: an alias must come after the activity it points at.
+    const blocks = `        <activity-alias
+            android:name=".BlocksLauncher"
+            android:targetActivity=".MainActivity"
+            android:label="Blocks"
+            android:icon="@drawable/blocks_icon"
+            android:roundIcon="@drawable/blocks_icon"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+`;
+    const end = out.lastIndexOf("</application>");
+    const lineStart = out.lastIndexOf("\n", end) + 1;
+    out = out.slice(0, lineStart) + blocks + out.slice(lineStart);
   }
   return out;
 }
