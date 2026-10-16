@@ -27,7 +27,7 @@ export const MAX_RECENT = 10;
 export const MAX_SKILLS = 24;
 
 /** Calls that change nothing worth repeating, or are about skills themselves. */
-const UNREPEATABLE = new Set(["undo", "query_scene", "define_skill", "repeat", "save_skill", "list_skills", "sandbox_list", "sandbox_read", "deck_bridge", "compat_map", "play_move"]);
+const UNREPEATABLE = new Set(["undo", "query_scene", "define_skill", "repeat", "save_skill", "list_skills", "sandbox_list", "sandbox_read", "deck_bridge", "compat_map", "play_move", "ask_town"]);
 /** Builders that place a whole fixed layout: repeated as they are, never moved about. */
 const FIXED = new Set(["build_play", "build_gauge_rig", "place_portal", "apply_method"]);
 

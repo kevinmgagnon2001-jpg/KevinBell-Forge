@@ -35,6 +35,8 @@ import { rotationLabel, setRotation, useRotation } from "./rotation";
 import { nextRotation } from "@/engine/view";
 import { addGlint, glintsAllowed, setGlintsAllowed } from "./glint";
 import { SoundStage } from "./SoundStage";
+import { Town, townBodies } from "./Town";
+import { NPC_TAG } from "@/engine/town";
 
 const UP = new Vector3(0, 1, 0);
 
@@ -918,7 +920,7 @@ function BodyInner({ entity, selected }: { entity: Entity; selected: boolean }) 
       <>
         <AvatarMesh entity={entity} tone={tone} />
         {plate}
-        {neural ?? <SplatCloud seed={entity.id * 17} count={56} color={tone} size={0.028} />}
+        {neural ?? (entity.tags.includes(NPC_TAG) ? null : <SplatCloud seed={entity.id * 17} count={56} color={tone} size={0.028} />)}
       </>
     );
   }
@@ -1065,8 +1067,17 @@ function EntityNode({
     if (ref.current && !reduce) ref.current.scale.setScalar(0.94);
   }, [reduce, entity.id]);
 
+  const turn = useRef<Group>(null);
+  const npc = entity.tags.includes(NPC_TAG);
   useFrame((_, delta) => {
     const group = ref.current;
+    // Townsfolk move between commits: follow the live town (Town.tsx).
+    const live = npc ? townBodies[entity.id] : undefined;
+    if (group && live) {
+      group.position.x = live.x;
+      group.position.z = live.z;
+      turn.current?.quaternion.set(0, Math.sin(live.yaw / 2), 0, Math.cos(live.yaw / 2));
+    }
     if (!group || reduce) return;
     const current = group.scale.x;
     const next = current + (1 - current) * Math.min(1, delta * 8);
@@ -1097,7 +1108,7 @@ function EntityNode({
         setDragging(true);
       }}
     >
-      <group scale={[s.x, s.y, s.z] as Vector3Tuple} quaternion={quat}>
+      <group ref={turn} scale={[s.x, s.y, s.z] as Vector3Tuple} quaternion={quat}>
         <Body entity={entity} selected={selected} />
       </group>
       {entity.physics ? <VelocityMark velocity={entity.physics.velocity} /> : null}
@@ -1315,6 +1326,7 @@ function Stage({ scenery, shadows }: { scenery: SceneryLevel | "off"; shadows: b
       <Pilot />
       <Settle paused={dragging} />
       <SoundStage />
+      <Town />
       <OrbitControls
         makeDefault
         enableDamping

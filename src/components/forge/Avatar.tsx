@@ -21,6 +21,7 @@ import { groundUnderFoot, solidsFor } from "@/engine/physics";
 import { alignPhase, jiggle, JIGGLE, spring2, stepPhase, track, tracker } from "@/engine/springs";
 import { useForge } from "@/engine/store";
 import { avatarMotion } from "./body-state";
+import { townBodies } from "./Town";
 import { currentGaze } from "./look";
 
 const SUIT = "#313c4a";
@@ -74,6 +75,8 @@ function Limb({ length, radius, color }: { length: number; radius: number; color
 }
 
 export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; tone: string; live: boolean; head?: ReactNode }) {
+  // Townsfolk wear their own colour (town.ts); everyone else the suit.
+  const suit = entity.customData.suit || SUIT;
   const joints = useRef<Partial<Record<Joint, Group | null>>>({});
   // The move this figure is doing (motion.ts), and when it started. A one-shot already in the save
   // when the figure appears is not replayed; a looping one carries on.
@@ -104,7 +107,7 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
       const fresh = doing.key !== key;
       playing.current = { key, move, started: fresh || move?.loop ? c.t : Number.NEGATIVE_INFINITY };
     }
-    const m = live ? avatarMotion : { speed: Number(entity.customData.speed) || 0, grounded: true, vy: 0, flying: false, landed: 0 };
+    const m = live ? avatarMotion : { speed: townBodies[entity.id]?.speed ?? (Number(entity.customData.speed) || 0), grounded: true, vy: 0, flying: false, landed: 0 };
     const speed = Math.min(m.speed, 12);
     const air = !m.grounded && !m.flying;
     // One stride (two steps) is ~1.15 m walking, stretching to ~1.9 m at a full run.
@@ -309,7 +312,7 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
           {/* Hips and belt. */}
           <mesh position={[0, 0.02, 0]} scale={[1, 0.75, 0.72]} castShadow>
             <sphereGeometry args={[0.15, 16, 12]} />
-            <meshStandardMaterial color={SUIT} roughness={0.6} metalness={0.1} />
+            <meshStandardMaterial color={suit} roughness={0.6} metalness={0.1} />
           </mesh>
           <mesh position={[0, 0.08, 0]} rotation={[Math.PI / 2, 0, 0]} scale={[1, 0.72, 1]}>
             <torusGeometry args={[0.145, 0.018, 8, 24]} />
@@ -318,13 +321,13 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
           {/* Legs. */}
           {(["L", "R"] as const).map((side) => (
             <group key={side} ref={set(`hip${side}`)} position={[side === "L" ? 0.09 : -0.09, 0, 0]}>
-              <Limb length={THIGH} radius={0.065} color={SUIT} />
+              <Limb length={THIGH} radius={0.065} color={suit} />
               <group ref={set(`knee${side}`)} position={[0, -THIGH, 0]}>
                 <mesh position={[0, 0, 0.02]}>
                   <sphereGeometry args={[0.05, 10, 8]} />
                   <meshStandardMaterial color={SUIT_LIGHT} roughness={0.5} metalness={0.2} />
                 </mesh>
-                <Limb length={SHIN} radius={0.055} color={SUIT} />
+                <Limb length={SHIN} radius={0.055} color={suit} />
                 {/* Boot. */}
                 <mesh position={[0, -SHIN - 0.005, 0.045]} castShadow>
                   <boxGeometry args={[0.1, 0.07, 0.22]} />
@@ -338,7 +341,7 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
             <group ref={chestShell}>
               <mesh position={[0, TORSO / 2, 0]} scale={[1, 1, 0.68]} castShadow>
                 <capsuleGeometry args={[0.15, TORSO - 0.22, 6, 14]} />
-                <meshStandardMaterial color={SUIT} roughness={0.58} metalness={0.12} />
+                <meshStandardMaterial color={suit} roughness={0.58} metalness={0.12} />
               </mesh>
               {/* Chest plate with a lit core, and shoulder pads. */}
               <mesh position={[0, TORSO * 0.66, 0.085]} rotation={[-0.12, 0, 0]}>
@@ -371,9 +374,9 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
                   <sphereGeometry args={[0.065, 12, 10]} />
                   <meshStandardMaterial color={SUIT_LIGHT} roughness={0.45} metalness={0.3} />
                 </mesh>
-                <Limb length={UPPER_ARM} radius={0.048} color={SUIT} />
+                <Limb length={UPPER_ARM} radius={0.048} color={suit} />
                 <group ref={set(`elbow${side}`)} position={[0, -UPPER_ARM, 0]}>
-                  <Limb length={FOREARM} radius={0.042} color={SUIT} />
+                  <Limb length={FOREARM} radius={0.042} color={suit} />
                   <mesh position={[0, -FOREARM - 0.035, 0.005]} scale={[0.85, 1.1, 0.7]}>
                     <sphereGeometry args={[0.045, 10, 8]} />
                     <meshStandardMaterial color={skin} roughness={0.55} metalness={0.05} />

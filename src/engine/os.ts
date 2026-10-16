@@ -234,6 +234,23 @@ export const TOOLS: ToolSchema[] = [
     parameters: { id: "string", words: "string" },
   },
   {
+    name: "fill_town",
+    description: "Add people who live here: each has a plan for the day, remembers what they do, and walks round others. count (default 8), place a named spot to make them its regulars.",
+    parameters: { count: "f32", place: "string" },
+    optional: ["count", "place"],
+  },
+  {
+    name: "ask_town",
+    description: "What a townsperson did today and is doing now (name), or who is about (no name).",
+    parameters: { name: "string" },
+    optional: ["name"],
+  },
+  {
+    name: "send_npc",
+    description: "Send a townsperson (name, or everyone) to a place by name, or home.",
+    parameters: { name: "string", place: "string" },
+  },
+  {
     name: "build_gauge_rig",
     description: "Place a whole room of gauges at once (engine-room, steam, cyber). skin overrides the rig's own.",
     parameters: { rig: "string", skin: "string" },

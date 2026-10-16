@@ -6,6 +6,7 @@ import { gaugeIntent } from "./gauges";
 import { cleanMoves, moveIntent } from "./motion";
 import { cleanWeather, weatherIntent } from "./weather";
 import { soundIntent } from "./sounds";
+import { cleanTown, townIntent } from "./town";
 import { cleanRecent, MAX_SKILLS, skillIntent, skillBrief } from "./skillbook";
 import { bootWorld, ensureAvatar, ensureHelm, labWorld, stepWorld } from "./manifold";
 import { DEFAULT_MODEL_PATH, MEMORY_BUDGET_MB, TOOL_NAMES } from "./os";
@@ -344,6 +345,17 @@ export const useForge = create<ForgeState>((set, get) => {
         commit(ran.ok ? ran.world : before, before.selectedId, [
           { tone: "user", title: "Intent", body: intent },
           { tone: ran.ok ? "engine" : "warn", title: "Moves", body: `${moveCall.tool} ${argLine(moveCall.arguments)}\n${ran.result}` },
+        ]);
+        return;
+      }
+      // Townsfolk ("fill the plaza with people", "what did Mia do today?", "send Leo to the bench") (town.ts).
+      const townCall = townIntent(intent, get());
+      if (townCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: townCall.tool, arguments: townCall.arguments });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Town", body: ran.result },
         ]);
         return;
       }
@@ -721,6 +733,7 @@ export const useForge = create<ForgeState>((set, get) => {
         weather: undefined,
         recent: [],
         score: undefined,
+        town: undefined,
       })),
     despawn: (id) => {
       const state = get();
@@ -769,6 +782,7 @@ export const useForge = create<ForgeState>((set, get) => {
           weather: cleanWeather(data.world.weather),
           recent: cleanRecent(data.world.recent),
           score: typeof data.world.score === "string" ? data.world.score.slice(0, 120) : undefined,
+          town: cleanTown(data.world.town, data.world.entities),
           gravity: bootWorld().gravity,
           deltaTime: bootWorld().deltaTime,
         }));
@@ -827,6 +841,7 @@ function persistedWorld(state: ForgeState): World {
     moves: state.moves ?? [],
     ...(state.weather ? { weather: state.weather } : {}),
     ...(state.score ? { score: state.score } : {}),
+    ...(state.town ? { town: state.town } : {}),
   };
 }
 
@@ -881,6 +896,7 @@ export function applySharedSave(value: unknown): boolean {
     weather: cleanWeather(save.world.weather),
     recent: cleanRecent(save.world.recent),
     score: typeof save.world.score === "string" ? save.world.score.slice(0, 120) : undefined,
+    town: cleanTown(save.world.town, save.world.entities),
     gravity: bootWorld().gravity,
     deltaTime: bootWorld().deltaTime,
   }));

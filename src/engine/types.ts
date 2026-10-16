@@ -1,6 +1,7 @@
 import type { Move } from "./motion.ts";
 import type { Weather } from "./weather.ts";
 import type { RecentCall } from "./skillbook.ts";
+import type { Town } from "./town.ts";
 export type Vec3 = { x: number; y: number; z: number };
 
 export type Quat = { x: number; y: number; z: number; w: number };
@@ -111,6 +112,8 @@ export type World = {
   recent?: RecentCall[];
   /** The scene's music, as words (sounds.ts); none means quiet. */
   score?: string;
+  /** Townsfolk's minds and the town clock (town.ts). */
+  town?: Town;
 };
 
 export const IDENTITY: Quat = { x: 0, y: 0, z: 0, w: 1 };

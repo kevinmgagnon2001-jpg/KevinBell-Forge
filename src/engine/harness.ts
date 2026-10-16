@@ -9,6 +9,7 @@ import { composeMove, keepMove, moveFromKeys, moveLength, movesOf, PRIMITIVES, s
 import { toolByName } from "./os.ts";
 import { applyWeatherArgs } from "./weather.ts";
 import { setSound } from "./sounds.ts";
+import { askTown, fillTown, sendTownsfolk } from "./town.ts";
 import { listSkills, MAX_SKILLS, noteCall, repeatTool, runSteps, saveSkill } from "./skillbook.ts";
 import { allowedAssetUrl, localTexture } from "./asset-url.ts";
 import type { Entity, HarnessEvent, PhysicsBody, ProposedAction, Skill, Snapshot, World } from "./types.ts";
@@ -172,6 +173,9 @@ export function dispatchTool(world: World, name: string, args: Record<string, st
   if (name === "list_skills") return { ok: true, detail: listSkills(world), world };
 
   if (name === "set_sound") return setSound(world, args);
+  if (name === "fill_town") return fillTown(world, args);
+  if (name === "ask_town") return askTown(world, args);
+  if (name === "send_npc") return sendTownsfolk(world, args);
 
   if (name === "set_weather") {
     const made = applyWeatherArgs(world, args);
@@ -735,7 +739,7 @@ export function executeProposal(
     const result = "Tool call missing name";
     return { world: recordEvent(world, result), result, ok: false };
   }
-  const quiet = name === "undo" || name === "query_scene" || name === "list_skills";
+  const quiet = name === "undo" || name === "query_scene" || name === "list_skills" || name === "ask_town";
   const base = quiet ? world : remember(world);
   const outcome = dispatchTool(base, name, proposal.arguments);
   const settled = outcome.ok ? noteCall(base, outcome.world, name, proposal.arguments) : { ...outcome.world, undo: world.undo ?? [] };
