@@ -140,7 +140,19 @@ export function PerfProbe() {
     document.addEventListener("visibilitychange", onShow);
     return () => document.removeEventListener("visibilitychange", onShow);
   }, []);
+  // The renderer's counters reset on every render call, and the picture's finishing (PostFX) ends
+  // each frame with one full-screen pass, so the reading was always 1 draw. Count the whole frame:
+  // keep the totals, read them at the start of the next frame, then clear them.
+  const frameCount = useRef({ calls: 0, triangles: 0 });
+  useEffect(() => {
+    gl.info.autoReset = false;
+    return () => {
+      gl.info.autoReset = true;
+    };
+  }, [gl]);
   useFrame((_, delta) => {
+    frameCount.current = { calls: gl.info.render.calls, triangles: gl.info.render.triangles };
+    gl.info.reset();
     if (isPauseGap(delta * 1000, resumed.current)) {
       resumed.current = false;
       return;
@@ -164,15 +176,15 @@ export function PerfProbe() {
     liveSample.fps = stats.fps;
     liveSample.frameMs = stats.avg;
     liveSample.refresh = fastest;
-    liveSample.draws = info.render.calls;
-    liveSample.triangles = info.render.triangles;
+    liveSample.draws = frameCount.current.calls;
+    liveSample.triangles = frameCount.current.triangles;
     liveSample.heapMb = memory ? memory.usedJSHeapSize / 1048576 : -1;
     const next: Partial<Perf> = {
       fps: stats.fps,
       avg: stats.avg,
       worst: Math.max(...frames.slice(-180)),
-      calls: info.render.calls,
-      triangles: info.render.triangles,
+      calls: frameCount.current.calls,
+      triangles: frameCount.current.triangles,
       textures: info.memory.textures,
       geometries: info.memory.geometries,
       heapMb: memory ? memory.usedJSHeapSize / 1048576 : 0,
