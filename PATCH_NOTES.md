@@ -1067,3 +1067,20 @@ and mountains around it, under a late-afternoon sky.
 - Checked: typecheck, lint (no errors), `npm run test:engine` (271 pass), production build and the
   built app with no console errors; in Chromium at the 11 rung: a 120-cell bubble and the sword in
   hand, glowing.
+
+## Vault and climb (Papers roadmap: PARC, light)
+- parkour.ts (tested): a ledge probe along the way you are going, over the same solids the walker
+  collides with (stacked boxes count as one, rows of crates as one deep obstacle), picks the move
+  by height and depth: vault (up to 1.2 m and 0.9 m deep, at a run or when too thin to stand on),
+  mantle (up to 1.25 m), climb from a hang (up to 2.3 m). It checks head room over the edge and on
+  top and, for a vault, a landing on the far side. Each move is a smooth scripted path that never
+  dips into the obstacle; twoBone solves arms to the ledge.
+- pilot.tsx: running at something low and thin vaults it and keeps the run; jogging at a crate
+  mantles onto it; a jump, or a moment pushing into a wall, climbs. Only when facing it.
+- Avatar.tsx: poses by phase: the speed vault (one hand planted, legs tucked aside, the free arm out,
+  a light landing crouch), the mantle (push up, knee onto the top), the climb (jump to a hang, arms
+  overhead on the ledge, pull, knee over).
+- A test-only probe `__controlsTest.addBox` places plain boxes for browser checks.
+- Checked: typecheck, lint (no errors, no new warnings), `npm run test:engine` (280 pass, 9 new),
+  and in Chromium (software GL) in the lab: a 0.9 m wall vaulted at a run, a 1 m crate mantled
+  walking, a 1.9 m ledge climbed with Space; no console errors.

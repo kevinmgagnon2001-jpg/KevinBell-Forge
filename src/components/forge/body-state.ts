@@ -4,6 +4,7 @@
  * read every frame, plus small subscriptions for the few things buttons show. Not saved.
  */
 import { useSyncExternalStore } from "react";
+import type { TraverseKind } from "@/engine/parkour";
 import type { Body } from "@/engine/town";
 
 /** What the body is doing, for its animation. Written by the pilot every frame. */
@@ -22,6 +23,11 @@ export const avatarMotion = {
   side: 0,
   /** Walking backwards. */
   back: false,
+  /**
+   * A vault, mantle or climb under way (parkour.ts): how far through it is (0..1), and where the
+   * hands go on the ledge, relative to the feet (up) and ahead of the body's centre (ahead).
+   */
+  parkour: null as null | { kind: TraverseKind; s: number; up: number; ahead: number },
 };
 
 /** Live positions of the townsfolk by entity id, stepped by Town.tsx and read by their figures. */

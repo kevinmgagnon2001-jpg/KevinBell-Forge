@@ -4,7 +4,16 @@
 
 You walk now: gravity holds you to whatever is under you (the deck, a box you climbed, the hills
 outside the lab), walls and exhibits stop you, and you slide along them. Kerbs and steps up to 40 cm
-are walked straight onto; anything taller needs a jump.
+are walked straight onto; anything taller needs a jump, or a vault or climb.
+
+**Vault and climb** (`src/engine/parkour.ts`, after PARC): run at a low, thin wall (knee to waist
+high) and you vault it, one hand on the top and legs tucked to the side, landing on the far side
+still running. Walk up to a crate about chest high and push into it (or jog at it) and you mantle
+onto it: hands on the edge, push up, a knee, stand. A ledge up to about 2.3 m takes a jump (Space,
+A, or a moment pushing into it): you jump to a hang, pull up and knee over. A ledge probe looks
+ahead along the way you are going and picks the move by height and depth; it only acts if you
+face the obstacle, there is head room on top, and (for a vault) somewhere to land. The hands reach
+the ledge by two-bone IK.
 
 | Do | Keyboard | Gamepad | Touch |
 | --- | --- | --- | --- |

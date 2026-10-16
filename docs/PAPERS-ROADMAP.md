@@ -103,11 +103,14 @@ Notes on what was built differently from the plan:
   - "Fill the plaza with people." ORCA-style steering stands in for the diffusion planner, and the
     AABB walker plus move library for the RL follower.
   - Keep the paper's loop: replan when stuck.
-- [ ] **Vault and climb** (M). *PARC (SIGGRAPH 2025), TMP "NVIDIA's New AI Cheated At
+- [x] **Vault and climb** (M). *PARC (SIGGRAPH 2025), TMP "NVIDIA's New AI Cheated At
   Parkour…And Got Fixed!"*
   - Moves chosen by obstacle height: step (already in place), vault, climb up, drop.
   - Procedural moves with IK hand targets on the ledge; no neural network.
   - Touches: `physics.ts` (stepWalk ledge probe), `motion.ts`, `pilot.tsx`.
+  - Done in `parkour.ts` (its own ledge probe over the walker's solids, scripted curves, `twoBone`
+    for the hands) rather than inside stepWalk. "Drop" is the existing fall and landing crouch;
+    a hang-and-drop from a ledge is not done.
 - [ ] **New solver core: AVBD for rigid bodies and joints** (M). *Augmented Vertex Block Descent
   (SIGGRAPH 2025), TMP "Roblox Solved The Physics Problem That Stumped Everyone"*
   - Stable stacks, chains, ragdolls and breakable joints; "Jenga collapse" sandboxes.

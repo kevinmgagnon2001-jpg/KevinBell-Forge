@@ -9,7 +9,8 @@ import { carryAlong } from "@/engine/device-apps";
 import { INTERACT_EVENT, LOOK_RATE, lookStick, pilotKeys, pilotStick, pointerClaim, setPilotSpeed, shiftLook, useLook, lookPose, faceLook } from "./look";
 import { stageCamera, stageGl } from "./picture";
 import { fovFor } from "@/engine/view";
-import { solidsFor, stepWalk, WALK } from "@/engine/physics";
+import { groundAt, solidsFor, stepWalk, WALK } from "@/engine/physics";
+import { ledgeAhead, sampleTraverse, type Traverse } from "@/engine/parkour";
 import { heightAt } from "@/engine/terrain";
 import { chase, chasePoint, driveSpeed, KEY_PUSH } from "@/engine/drive";
 import { frameCamera, gameById } from "@/engine/arcade";
@@ -75,7 +76,24 @@ const body = { vy: 0, grounded: true };
  * Flying steers by looking, like Anthem: you fly where the view points, climbing and diving with it;
  * W boosts, S brakes to a hover.
  */
-const motion = { flew: false, vx: 0, vy: 0, vz: 0, bodyYaw: null as number | null, dash: 0, dashX: 0, dashZ: 0, cam: null as { x: number; y: number; z: number } | null, bank: 0 };
+const motion = {
+  flew: false,
+  vx: 0,
+  vy: 0,
+  vz: 0,
+  bodyYaw: null as number | null,
+  dash: 0,
+  dashX: 0,
+  dashZ: 0,
+  cam: null as { x: number; y: number; z: number } | null,
+  bank: 0,
+  /** A vault or climb under way (parkour.ts), with its clock and the speed it was entered at. */
+  parkour: null as { tr: Traverse; t: number; entry: number } | null,
+  /** How long the body has been pushing into a wall: a held push climbs what a jog would not. */
+  press: 0,
+};
+/** Pushing into a ledge this long climbs it without a jump. */
+const PRESS_CLIMB = 0.3;
 const ACCEL = { ground: 11, air: 2.5, fly: 2.2 };
 const FLY = { cruise: 9, boost: 17, sprint: 27, drift: 4 };
 const DASH = { speed: 9, time: 0.2 };
@@ -239,6 +257,16 @@ export function Pilot() {
         });
       },
       build: (kind: string) => useForge.getState().dispatchManual("build_play", { kind }),
+      /** A plain box standing on the ground at (x, z), w by d across and h tall (for the parkour checks). */
+      addBox: (x: number, z: number, w: number, d: number, h: number) => {
+        const name = `ProbeBox${Date.now() % 100000}${Math.floor(Math.random() * 1000)}`;
+        useForge.getState().dispatchManual("spawn_entity", { name, x: String(x), y: String(h / 2), z: String(z), asset: "cube" });
+        useForge.setState((state) => {
+          const e = Object.values(state.entities).find((entity) => entity.name === name);
+          if (!e) return state;
+          return { entities: { ...state.entities, [e.id]: { ...e, physics: null, transform: { ...e.transform, position: { x, y: h / 2, z }, scale: { x: w, y: h, z: d } } } } };
+        });
+      },
       setSteer: (value: number) => {
         pilotKeys.delete("KeyA");
         pilotKeys.delete("KeyD");
@@ -351,6 +379,7 @@ export function Pilot() {
       const mover = state.moverHash ? runtimeNow(state.moverHash) : null;
       const pkg = mover ? state.mechanics.find((m) => m.hash === state.moverHash) : undefined;
       if (mover && pkg && !(visit && !visit.rule)) {
+        motion.parkour = null;
         let saved: number[] | undefined;
         try {
           const parsed = JSON.parse(avatar.customData.mover || "null") as unknown;
@@ -470,6 +499,11 @@ export function Pilot() {
         motion.vy = 0;
         motion.bank *= Math.max(0, 1 - dt * 6);
       }
+      if (flying || visit) motion.parkour = null;
+      if (motion.parkour) {
+        // Mid-vault or climb: the move carries the body; face the ledge.
+        yaw = turnToward(yaw, motion.parkour.tr.yaw, TURN_RATE * 1.6, dt);
+      }
       if (motion.dash > 0) {
         // A dash aside: a burst, then momentum carries it out.
         motion.dash -= dt;
@@ -485,6 +519,22 @@ export function Pilot() {
       let z = p.z + vz * dt;
       let y = Math.max(MIN_Y, p.y + lift * SPEED * dt);
       let shoved: { id: number; vx: number; vz: number }[] = [];
+      const solids = solidsFor(state.entities);
+      const feet = { x: p.x, y: p.y - WALK.foot, z: p.z };
+      if (!visit && !motion.parkour && !flying && body.grounded && moving > 0.3) {
+        // Running at something knee to chest high vaults or climbs onto it; taller ledges take a
+        // jump, or a moment pushing into them. It goes the way you are going, if you face it.
+        const sp = Math.hypot(vx, vz);
+        const dir = sp > 0.3 ? { x: vx / sp, z: vz / sp } : { x: wx / push, z: wz / push };
+        motion.press = avatarMotion.bumped ? motion.press + dt : 0;
+        if (dir.x * face.x + dir.z * face.z > 0.7) {
+          const tr = ledgeAhead(feet, dir, sp, solids, groundAt, 0.12 + sp * 0.07);
+          if (tr && (jump || motion.press > PRESS_CLIMB || (tr.kind !== "climb" && sp >= 2.2))) {
+            motion.parkour = { tr, t: 0, entry: Math.max(sp, pace) };
+            motion.press = 0;
+          }
+        }
+      } else motion.press = 0;
       // On a visited island its host decides where you are: walk with prediction (prediction.ts), so it
       // still moves on this frame, and let the host correct it.
       if (visit) {
@@ -497,13 +547,40 @@ export function Pilot() {
         z = shown.z;
         avatarMotion.grounded = true;
         avatarMotion.vy = 0;
+      } else if (motion.parkour) {
+        const run = motion.parkour;
+        const { tr } = run;
+        run.t += dt;
+        const s = Math.min(1, run.t / tr.duration);
+        const at = sampleTraverse(tr, s);
+        x = at.x;
+        y = at.y + WALK.foot;
+        z = at.z;
+        motion.vx = (x - p.x) / Math.max(dt, 1e-3);
+        motion.vz = (z - p.z) / Math.max(dt, 1e-3);
+        body.vy = 0;
+        avatarMotion.grounded = true;
+        avatarMotion.vy = 0;
+        avatarMotion.bumped = false;
+        avatarMotion.parkour = { kind: tr.kind, s, up: tr.hand.y - at.y, ahead: (tr.hand.x - at.x) * tr.dir.x + (tr.hand.z - at.z) * tr.dir.z };
+        if (s >= 1) {
+          // Out of it: a vault lands running on, a climb stands on the top.
+          motion.parkour = null;
+          avatarMotion.parkour = null;
+          body.grounded = true;
+          const keep = tr.kind === "vault" ? run.entry * 0.92 : 0;
+          motion.vx = tr.dir.x * keep;
+          motion.vz = tr.dir.z * keep;
+          if (tr.kind === "vault") avatarMotion.landed = Math.max(avatarMotion.landed, 2.6 + Math.max(0, tr.top - tr.to.y) * 2);
+        }
       } else {
         // Here at home the body has weight: it walks on what is under it, steps up kerbs, stops at
         // walls, jumps, falls, and shoves loose things. Flying keeps the walls but drops gravity.
+        avatarMotion.parkour = null;
         const walked = stepWalk(
           { x: p.x, y: p.y - WALK.foot, z: p.z, vy: body.vy, grounded: body.grounded },
           { vx, vz, jump, fly: flying ? (Math.abs(flyUp) < 0.01 ? 0 : Math.sign(flyUp)) : null, flySpeed: Math.max(0.01, Math.abs(flyUp)) },
-          solidsFor(state.entities),
+          solids,
           dt,
         );
         body.vy = walked.state.vy;
@@ -627,9 +704,10 @@ declare global {
       setStick: (x: number, y: number) => void;
       getStick: () => { x: number; y: number };
       setLook: (x: number, y: number) => void;
-      getMotion: () => { speed: number; grounded: boolean; vy: number; flying: boolean; playing: string | null };
+      getMotion: () => { speed: number; grounded: boolean; vy: number; flying: boolean; playing: string | null; parkour: { kind: string; s: number } | null };
       place: (x: number, z: number, yaw: number, y?: number) => void;
       build: (kind: string) => void;
+      addBox: (x: number, z: number, w: number, d: number, h: number) => void;
     };
   }
 }

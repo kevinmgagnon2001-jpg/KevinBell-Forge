@@ -18,6 +18,7 @@ import { Vector3, type Group } from "three";
 import type { Entity } from "@/engine/types";
 import { inpaint, LEGS, legIk, movesOf, sampleMove, type Move } from "@/engine/motion";
 import { groundUnderFoot, solidsFor } from "@/engine/physics";
+import { PHASES, twoBone } from "@/engine/parkour";
 import { alignPhase, jiggle, JIGGLE, spring2, stepPhase, track, tracker } from "@/engine/springs";
 import { useForge } from "@/engine/store";
 import { avatarMotion, townBodies } from "./body-state";
@@ -64,6 +65,87 @@ const smooth = (a: number, b: number, t: number) => {
   return k * k * (3 - 2 * k);
 };
 
+/** How far the shoulder sits above the feet and ahead of the body's centre, for a chest leaning `lean`. */
+function shoulderAt(lift: number, lean: number): { up: number; ahead: number } {
+  const arm = TORSO - 0.02;
+  return { up: 0.62 + HIP_Y + lift + 0.07 + arm * Math.cos(lean), ahead: arm * Math.sin(lean) };
+}
+
+/**
+ * Vault, mantle and climb (parkour.ts): the hands reach the ledge by two-bone IK, from the hand's
+ * place relative to the feet, and the legs tuck, hang and knee over by the move's phase.
+ */
+function parkourPose(t: Pose, pk: { kind: string; s: number; up: number; ahead: number }) {
+  const s = pk.s;
+  // How firmly the hands are on the ledge; both, or just the left (a speed vault).
+  let grip = 0;
+  let both = true;
+  const reachArm = (side: "L" | "R", weight: number) => {
+    if (weight <= 0) return;
+    const sh = shoulderAt(t.lift, t.chest.x);
+    // From the shoulder to the hand's spot, in the leaning chest's frame.
+    const dy = pk.up - sh.up;
+    const dz = pk.ahead - sh.ahead;
+    const c = t.chest.x;
+    const ly = dy * Math.cos(c) + dz * Math.sin(c);
+    const lz = -dy * Math.sin(c) + dz * Math.cos(c);
+    const ik = twoBone(lz, ly, UPPER_ARM, FOREARM + 0.035, -1);
+    const sj = t[`shoulder${side}`];
+    const ej = t[`elbow${side}`];
+    sj.x += (ik.root - sj.x) * weight;
+    ej.x += (ik.bend - ej.x) * weight;
+    sj.z += ((side === "L" ? 0.12 : -0.12) - sj.z) * weight;
+  };
+  if (pk.kind === "vault") {
+    const ph = PHASES.vault;
+    const tuck = smooth(0.08, ph.reach + 0.05, s) * (1 - smooth(ph.over - 0.05, 0.95, s));
+    const out = smooth(ph.over - 0.08, 1, s);
+    grip = smooth(0.08, 0.26, s) * (1 - smooth(0.58, 0.72, s));
+    both = false;
+    t.lift = -0.4 * tuck;
+    t.chest.x = 0.15 + 0.35 * tuck;
+    t.root.z = -0.28 * tuck;
+    t.hipL.x = -1.35 * tuck - 0.25 * out;
+    t.hipR.x = -1.0 * tuck + 0.1 * out;
+    t.kneeL.x = 1.9 * tuck + 0.45 * out;
+    t.kneeR.x = 1.45 * tuck + 0.2 * out;
+    t.hipL.z = 0.4 * tuck;
+    t.hipR.z = 0.32 * tuck;
+    // The free arm swings up and out for balance, then both open for the landing.
+    t.shoulderR.x = -1.6 * tuck - 0.3 * out;
+    t.shoulderR.z = -0.5 * tuck - 0.7 * out;
+    t.shoulderL.z = 0.12 + 0.7 * out * (1 - grip);
+    t.elbowR.x = -0.5;
+    t.head.x = -0.15 * tuck;
+  } else if (pk.kind === "mantle") {
+    const ph = PHASES.mantle;
+    const knee = smooth(0.45, ph.up, s) * (1 - smooth(0.85, 1, s));
+    const crouch = smooth(0, ph.reach, s) * (1 - smooth(ph.reach, ph.reach + 0.18, s));
+    grip = smooth(0, 0.18, s) * (1 - smooth(ph.up, 0.92, s));
+    t.lift = -0.14 * crouch;
+    t.chest.x = 0.15 + 0.35 * smooth(0.1, 0.5, s) * (1 - smooth(0.8, 1, s));
+    t.hipR.x = -1.5 * knee;
+    t.kneeR.x = 1.95 * knee;
+    t.hipL.x = -0.25 * crouch + 0.15 * knee;
+    t.kneeL.x = 0.5 * crouch + 0.3 * knee;
+  } else {
+    const ph = PHASES.climb;
+    const jump = 1 - smooth(ph.reach - 0.05, ph.hang, s);
+    const hang = smooth(ph.reach - 0.05, ph.hang, s) * (1 - smooth(ph.hang, ph.hang + 0.15, s));
+    const pull = smooth(ph.hang, ph.up, s) * (1 - smooth(0.88, 1, s));
+    grip = smooth(0.04, 0.18, s) * (1 - smooth(ph.up, 0.92, s));
+    t.lift = 0.06 * hang;
+    t.chest.x = 0.05 + 0.45 * pull;
+    t.hipL.x = -0.45 * jump * (1 - hang) - 0.12 * hang - 1.6 * pull;
+    t.hipR.x = -0.2 * jump * (1 - hang) - 0.05 * hang - 0.55 * pull;
+    t.kneeL.x = 0.7 * jump * (1 - hang) + 0.3 * hang + 2.0 * pull;
+    t.kneeR.x = 0.4 * jump * (1 - hang) + 0.45 * hang + 1.1 * pull;
+    t.head.x = -0.3 * hang - 0.15 * pull;
+  }
+  reachArm("L", grip);
+  if (both) reachArm("R", grip);
+}
+
 function Limb({ length, radius, color }: { length: number; radius: number; color: string }) {
   // A capsule hanging down from its joint.
   return (
@@ -107,7 +189,7 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
       const fresh = doing.key !== key;
       playing.current = { key, move, started: fresh || move?.loop ? c.t : Number.NEGATIVE_INFINITY };
     }
-    const m = live ? avatarMotion : { speed: townBodies[entity.id]?.speed ?? (Number(entity.customData.speed) || 0), grounded: true, vy: 0, flying: false, landed: 0, side: 0, back: false };
+    const m = live ? avatarMotion : { speed: townBodies[entity.id]?.speed ?? (Number(entity.customData.speed) || 0), grounded: true, vy: 0, flying: false, landed: 0, side: 0, back: false, parkour: null };
     const speed = Math.min(m.speed, 12);
     const air = !m.grounded && !m.flying;
     // One stride (two steps) is ~1.15 m walking, stretching to ~1.9 m at a full run.
@@ -208,6 +290,8 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
       if (live) avatarMotion.landed *= Math.exp(-dt * 5);
     }
 
+    if (m.parkour) parkourPose(t, m.parkour);
+
     // Looking at something: the head turns to it when nothing else is using the head.
     if (live && idle > 0.5) {
       const gaze = currentGaze();
@@ -243,7 +327,7 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
 
     // Feet on the real ground: each foot reaches the step, kerb or slope actually under it, and the
     // pelvis drops when one foot has to reach down (the walker stands on the highest thing under it).
-    if (live && m.grounded && !m.flying) {
+    if (live && m.grounded && !m.flying && !m.parkour) {
       const state = useForge.getState();
       const solids = solidsFor(state.entities);
       const p = entity.transform.position;
@@ -277,7 +361,8 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
 
     // Ease every joint toward its target, so changes of gait blend instead of snapping.
     const p = pose.current;
-    const k = 1 - Math.exp(-dt * 14);
+    // Quicker through a vault or climb, so the hands keep to the ledge.
+    const k = 1 - Math.exp(-dt * (m.parkour ? 26 : 14));
     for (const name of Object.keys(posed) as (keyof Pose)[]) {
       if (name === "lift" || name === "breathe") continue;
       const from = p[name] as { x: number; y: number; z: number };
