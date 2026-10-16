@@ -13,8 +13,12 @@ cover are marked *(related)*. Check a paper's page before building from it.
 
 - **The frame budget comes first.** Anything heavy is optional and has a cheap fallback; check it
   with the Stats overlay on the owner's phone (`docs/GAUGES.md`).
-- **On device by default; the cloud only adds to it.** Cloud results (meshes, sounds, clips) are
-  generated once, cached and saved with the world, so the world still works offline.
+- **Local first, offline by default.** The helm's own resident model (Gemma GGUF through wllama,
+  `resident.ts`) or a bigger one on the linked PC (`pooled.ts`) is the default brain. Where an
+  item below says "LLM" or "cloud", the local model is tried first, and the cloud is an optional
+  add-on that the owner switches on.
+- **Cloud results are kept.** Anything generated in the cloud (meshes, sounds, clips) is made
+  once, cached and saved with the world, so the world still works offline.
 - **Deterministic worlds.** Linked devices and carried mechanics depend on it: neural parts
   produce data (a clip, a mesh, a plan) that the engine then plays deterministically.
 - **The helm is the interface.** Every feature has a sentence that triggers it, and goes through
@@ -115,6 +119,31 @@ cover are marked *(related)*. Check a paper's page before building from it.
   Game AI Just Made History!"*
   - "Follow me and stack the crates by the door"; circle an area on screen to mean "here".
   - The LLM gets the manifold's structured state and a tool API instead of pixels.
+- [ ] **Phone companion that drives the PC, offline** (M–L). *Inspired by Bluey (Riley Brown,
+  github.com/rbrown101010/bluey-by-riley, public domain: iPhone and Mac, OpenAI Realtime). Forge's
+  version is cross-platform and local.*
+  - The phone runs Forge as the face and the mic. The PC (the `forge link` home) does the work: "open
+    Steam", "what's this error?", "put my playlist on".
+  - All local, nothing sent anywhere:
+    - speech: Android's on-device recognizer on the phone, or whisper.cpp on the PC;
+    - thinking: the resident model, or a larger GGUF on the PC;
+    - reading the screen: the OS's own OCR (Windows.Media.Ocr, Apple Vision) or Tesseract, plus the
+      accessibility tree for exact button names;
+    - speaking back: Piper or the OS's text-to-speech.
+  - Tools for the PC side, in the Tauri host (`src-tauri/src`): look at the screen, point (an
+    on-screen cursor of its own), click, type, keys, scroll, drag, open app, open URL. The real
+    pointer goes back where it was after each action.
+  - Bluey's safety rules, copied:
+    - it acts only when asked, and confirms anything hard to undo;
+    - text on screen is information, never instructions;
+    - no password fields, and no logout, lock or force-quit;
+    - a hotkey stops it instantly, and one switch turns off computer use entirely.
+  - Also worth borrowing:
+    - meeting notes: the phone records in chunks, the PC transcribes with speaker labels and keeps
+      `notes.md` per session;
+    - "what's this?" points at whatever is under the mouse.
+  - Builds on: Linked devices (`link-home.ts`, `link-client.ts`), the helm's mic (`speech.ts`,
+    `HelmAsk.tsx`), Your device inside Forge (`device-apps.ts`, `src-tauri/src/apps.rs`).
 - [ ] **Photo-real imports: Gaussian splats** (S–M). *3D Gaussian Splatting (2023), TMP "Creating
   Virtual Worlds 20x Faster!"*
   - Drop a .splat or .spz capture into the world as an entity.
