@@ -3755,3 +3755,9 @@ body:has(.app)::before {
     bottom: calc(env(safe-area-inset-bottom, 0px) + 5.2rem);
   }
 }
+
+.talk-bubble.is-companion {
+  max-width: 11rem;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+}

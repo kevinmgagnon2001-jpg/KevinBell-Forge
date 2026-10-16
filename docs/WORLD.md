@@ -124,3 +124,14 @@ fly. Wind pushes each little triangle by how squarely it meets it, drags the clo
 sheds waves along a flag to its free edge. Fabric uses a sheen material so the folds catch the
 light.
 
+## Your companion
+
+"Summon a companion" (or just give an order) and Pip appears beside you and follows. Orders:
+"follow me", "wait here", "come here", "go to the bench", "bring me the gold", "put the clay on the
+bench", "stack the cubes here"; join several with "then" or "and". Pip walks with the same physics
+as you, picks things up and carries them over its head, sets them down on whatever is already
+there (so "stack" makes a real stack), says what it is doing in a bubble, and comes back to your
+side when it is done. Words it does not know, addressed to it by name ("Pip, tidy up the cubes"),
+go to the resident model when one is loaded, which answers in Pip's little language
+(`companionPrompt`). Code: `src/engine/companion.ts`, `src/components/forge/Companion.tsx`.
+

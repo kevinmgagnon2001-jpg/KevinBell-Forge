@@ -1173,3 +1173,14 @@ and mountains around it, under a late-afternoon sky.
   tesseract, rainbow, pirate, white); double-sided sheen fabric; the weather's gusting wind.
 - Checked: typecheck, lint, `npm run test:engine`; in Chromium: a violet cape streaming in the wind
   and a 4D flag flying; no console errors.
+
+## A companion that does what you ask (Papers roadmap: SIMA, light)
+- companion.ts (tested): orders to a task queue (follow, wait, come, go, bring, put on, stack here,
+  joined with then/and); things found by name or kind ("the cubes", "balls"); a step that walks with
+  stepWalk (steps round what blocks it), picks up, carries over its head, sets down on top of what
+  is there; tools `summon_companion`, `order_companion`; a prompt for the resident model when the
+  words are not understood, read back in the same language.
+- Companion.tsx: steps it every frame, live position in companionBodies (like the townsfolk), what
+  it carries written to the world; a small speech bubble. Companions have faces too.
+- Checked: typecheck, lint, `npm run test:engine` (318 pass); in Chromium: "follow me", "bring me
+  the gold": Pip fetched the gold to in front of you and said "Done!"; no console errors.

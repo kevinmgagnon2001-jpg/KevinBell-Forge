@@ -10,6 +10,7 @@ import { cleanTown, townIntent } from "./town";
 import { hyperIntent } from "./hyper";
 import { ropeIntent } from "./rope";
 import { clothIntent } from "./cloth";
+import { companionIntent, companionOf, companionPrompt, ordersFromModel } from "./companion";
 import { cleanBest } from "./arcade";
 import { cleanRecent, MAX_SKILLS, skillIntent, skillBrief } from "./skillbook";
 import { bootWorld, ensureAvatar, ensureHelm, labWorld, stepWorld } from "./manifold";
@@ -19,7 +20,7 @@ import { completeCritic, criticReady, ensureCritic, releaseCritic } from "./crit
 import { mergeLibrary, type NeuralAsset } from "./library";
 import type { BondedModel, LogEntry, PluginKind, ProposedAction, Skill, World } from "./types";
 import { ENGINE_VERSION, GROK_MODEL } from "./types";
-import { completeResident, ensureResident, releaseResident, residentReady } from "./resident";
+import { chatResident, completeResident, ensureResident, releaseResident, residentReady } from "./resident";
 import { researchTask } from "./research-call";
 import { runModuleD } from "./module-d-call";
 import { settleIntent } from "./turn";
@@ -371,6 +372,31 @@ export const useForge = create<ForgeState>((set, get) => {
         commit(ran.ok ? ran.world : before, spawned, [
           { tone: "user", title: "Intent", body: intent },
           { tone: ran.ok ? "engine" : "warn", title: "4D", body: ran.result },
+        ]);
+        return;
+      }
+      // The companion ("follow me", "bring me the gold", "stack the cubes here") (companion.ts).
+      const companionCall = companionIntent(intent, get());
+      if (companionCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: companionCall.tool, arguments: companionCall.arguments });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Companion", body: ran.result },
+        ]);
+        return;
+      }
+      // Spoken to by name in words it does not know ("Pip, tidy up the cubes"): the resident model
+      // rewrites them in the companion's little language.
+      const buddy = companionOf(get());
+      if (buddy && intent.trim().toLowerCase().startsWith(buddy.name.toLowerCase()) && get().residentPower && residentReady(get().residentId)) {
+        const words = intent.trim().slice(buddy.name.length).replace(/^[,:\s]+/, "");
+        const line = ordersFromModel(await chatResident(companionPrompt(words, get())).catch(() => ""));
+        const before = get();
+        const ran = line ? executeProposal(before, { kind: "tool_call", toolName: "order_companion", arguments: { words: line } }) : null;
+        commit(ran?.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran?.ok ? "engine" : "warn", title: "Companion", body: ran ? `${line}\n${ran.result}` : `${buddy.name} doesn't know how to do that yet.` },
         ]);
         return;
       }

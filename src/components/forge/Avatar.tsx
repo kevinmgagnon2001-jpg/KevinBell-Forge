@@ -21,7 +21,7 @@ import { groundUnderFoot, solidsFor } from "@/engine/physics";
 import { PHASES, twoBone } from "@/engine/parkour";
 import { alignPhase, jiggle, JIGGLE, spring2, stepPhase, track, tracker } from "@/engine/springs";
 import { useForge } from "@/engine/store";
-import { avatarMotion, mouths, townBodies } from "./body-state";
+import { avatarMotion, companionBodies, mouths, townBodies } from "./body-state";
 import { mouthAt } from "@/engine/talk";
 import { HyperSword } from "./Hyper";
 import { currentGaze } from "./look";
@@ -184,7 +184,7 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
   const clock = useRef({ t: Math.random() * 10, phase: 0, walk: 0, moving: false });
   const antenna = useRef<Group>(null);
   // Townsfolk have a face: eyes that blink, a mouth that moves with what they say (talk.ts).
-  const face = entity.tags.includes("npc");
+  const face = entity.tags.includes("npc") || entity.tags.includes("companion");
   const mouth = useRef<Group>(null);
   const eyes = useRef<Group>(null);
   const ponytail = useRef<Group>(null);
@@ -206,7 +206,7 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
       const fresh = doing.key !== key;
       playing.current = { key, move, started: fresh || move?.loop ? c.t : Number.NEGATIVE_INFINITY };
     }
-    const m = live ? avatarMotion : { speed: townBodies[entity.id]?.speed ?? (Number(entity.customData.speed) || 0), grounded: true, vy: 0, flying: false, landed: 0, side: 0, back: false, parkour: null };
+    const m = live ? avatarMotion : { speed: (townBodies[entity.id] ?? companionBodies[entity.id])?.speed ?? (Number(entity.customData.speed) || 0), grounded: true, vy: 0, flying: false, landed: 0, side: 0, back: false, parkour: null };
     const speed = Math.min(m.speed, 12);
     const air = !m.grounded && !m.flying;
     // One stride (two steps) is ~1.15 m walking, stretching to ~1.9 m at a full run.

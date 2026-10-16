@@ -35,6 +35,9 @@ export const avatarMotion = {
 /** Live positions of the townsfolk by entity id, stepped by Town.tsx and read by their figures. */
 export const townBodies: Record<number, Body> = {};
 
+/** The companion's live position, stepped by Companion.tsx (same shape as a townsperson's). */
+export const companionBodies: Record<number, { x: number; y: number; z: number; yaw: number; speed: number }> = {};
+
 /** When lightning last struck (performance.now()), written by the sky (Scenery.tsx), heard as thunder. */
 export const lightning = { at: 0 };
 

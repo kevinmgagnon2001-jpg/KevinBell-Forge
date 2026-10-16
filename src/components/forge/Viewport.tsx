@@ -29,7 +29,7 @@ import { AvatarFigure } from "./Avatar";
 import { Arcade } from "./Arcade";
 import { MovesButton, MovesOverlay } from "./Moves";
 import { HelmAsk } from "./HelmAsk";
-import { toggleFlight, townBodies, useArcadePlaying, useFlight } from "./body-state";
+import { companionBodies, toggleFlight, townBodies, useArcadePlaying, useFlight } from "./body-state";
 import { stepBodies } from "@/engine/physics";
 import { rotationLabel, setRotation, useRotation } from "./rotation";
 import { nextRotation } from "@/engine/view";
@@ -40,6 +40,7 @@ import { HyperBubble } from "./Hyper";
 import { Ropes } from "./Rope";
 import { Talk, TalkBubble } from "./Talk";
 import { Cape, Flags } from "./Cloth";
+import { Companion } from "./Companion";
 import { ROPE_TAG } from "@/engine/rope";
 import type { ShapeName } from "@/engine/polytope";
 import { Activity, ArrowBigUp, Eye, House, LayoutGrid, Maximize2, Minimize2, Move, PersonStanding, PlaneLanding, RotateCw, ScanEye, Wind } from "lucide-react";
@@ -1084,13 +1085,15 @@ function EntityNode({
 
   const turn = useRef<Group>(null);
   const npc = entity.tags.includes(NPC_TAG);
+  const companion = entity.tags.includes("companion");
   useFrame((_, delta) => {
     const group = ref.current;
     // Townsfolk move between commits: follow the live town (Town.tsx).
-    const live = npc ? townBodies[entity.id] : undefined;
+    const live = npc ? townBodies[entity.id] : companion ? companionBodies[entity.id] : undefined;
     if (group && live) {
       group.position.x = live.x;
       group.position.z = live.z;
+      if ("y" in live) group.position.y = live.y;
       turn.current?.quaternion.set(0, Math.sin(live.yaw / 2), 0, Math.cos(live.yaw / 2));
     }
     if (!group || reduce) return;
@@ -1345,6 +1348,7 @@ function Stage({ scenery, shadows, post }: { scenery: SceneryLevel | "off"; shad
       <TalkBubble />
       <Cape />
       <Flags />
+      <Companion />
       <OrbitControls
         makeDefault
         enableDamping

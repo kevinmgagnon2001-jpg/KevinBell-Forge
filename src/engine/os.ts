@@ -274,6 +274,17 @@ export const TOOLS: ToolSchema[] = [
     optional: ["style", "x", "z", "height", "name"],
   },
   {
+    name: "summon_companion",
+    description: "A companion appears beside you and follows you. It carries things and does small jobs when asked (order_companion).",
+    parameters: { name: "string" },
+    optional: ["name"],
+  },
+  {
+    name: "order_companion",
+    description: "Tell the companion what to do, in words: follow me, wait, come here, go to <place>, bring me <thing>, stack <things> here, put <thing> on <place>; join several with then.",
+    parameters: { words: "string" },
+  },
+  {
     name: "wield",
     description: "Hold the hyper sword (item hyper-sword), whose blade is a hypercube turning through 4D, or put it away (item none).",
     parameters: { item: "string" },

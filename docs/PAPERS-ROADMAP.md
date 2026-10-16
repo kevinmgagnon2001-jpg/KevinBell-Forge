@@ -138,9 +138,12 @@ Notes on what was built differently from the plan:
   - "Make me a breakout machine by the window." A designer agent writes the spec, a coder agent
     writes the WASM program, and a tester agent plays it in the VM headless.
   - The game reaches the arcade (`arcade.ts` GAMES) only if the tester passes it.
-- [ ] **Companion that follows instructions** (M). *SIMA / SIMA 2 (DeepMind), TMP "DeepMind's New
+- [x] **Companion that follows instructions** (M). *SIMA / SIMA 2 (DeepMind), TMP "DeepMind's New
   Game AI Just Made History!"*
   - "Follow me and stack the crates by the door"; circle an area on screen to mean "here".
+  - Done (companion.ts, Companion.tsx): orders read without a model (follow, wait, come, go,
+    bring, put, stack), the resident model as a fallback in the same language, walking with the
+    walker's physics, carrying and stacking. Not done: circling an area on screen.
   - The LLM gets the manifold's structured state and a tool API instead of pixels.
 - [ ] **Phone companion that drives the PC, offline** (M–L). *Inspired by Bluey (Riley Brown,
   github.com/rbrown101010/bluey-by-riley, public domain: iPhone and Mac, OpenAI Realtime). Forge's
