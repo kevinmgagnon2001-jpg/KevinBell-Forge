@@ -3,6 +3,7 @@
  * pick it up; pull it out and your real apps are on it; open one and Forge steps aside. Drop it
  * anywhere, and summon it back to your hand when it is lost.
  */
+import { Laptop, Smartphone } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { carryOf, countApps, deviceDistance, deviceKind, deviceOf, drop, ensureScreen, FLIGHT_MS, homeState, listApps, openApp, OPEN_DEVICE_EVENT, pickUp, pullOut, putAway, SCREEN_REACH, SCREEN_TAG, setHome, summonStep, type Carry, type DeviceApp, type DeviceKind, type HomeState } from "@/engine/device-apps";
 import { INTERACT_EVENT } from "./look";
@@ -208,8 +209,8 @@ export function DeviceButton({ className }: { className?: string }) {
   const name = now.kind === "phone" ? "phone" : "computer";
   const label = now.carry === "out" ? "Put away" : now.carry === "pocket" ? (now.kind === "phone" ? "Phone" : "Computer") : now.near ? `Pick up ${name}` : `Summon ${name}`;
   return (
-    <button type="button" className={`${className ?? ""} ${now.carry === "lying" && !now.near ? "is-summon" : ""}`} onClick={() => interact(now.kind, now.near)}>
-      {label}
+    <button type="button" className={`${className ?? ""} ${now.carry === "lying" && !now.near ? "is-summon" : ""}`} aria-label={label} title={label} onClick={() => interact(now.kind, now.near)}>
+      {className?.includes("bubble-icon") ? now.kind === "phone" ? <Smartphone aria-hidden="true" /> : <Laptop aria-hidden="true" /> : label}
     </button>
   );
 }

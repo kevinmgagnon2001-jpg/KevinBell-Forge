@@ -154,7 +154,7 @@ GAMES.push(BLOCKS_GAME);
 export const gameById = (id: string | undefined) => GAMES.find((g) => g.id === id);
 
 /** How close counts as "at the machine", metres across the floor. */
-export const PLAY_REACH = 3.2;
+export const PLAY_REACH = 2.2;
 
 /** The closest game within reach of `at`, or null. */
 export function nearestGame(world: World, at: Vec3, reach = PLAY_REACH): { game: GameSpec; board: Entity; distance: number } | null {

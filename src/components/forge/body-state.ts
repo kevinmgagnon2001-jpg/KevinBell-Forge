@@ -18,6 +18,10 @@ export const avatarMotion = {
   landed: 0,
   /** Ran into a wall this frame. */
   bumped: false,
+  /** Sideways share of the motion, -1..1 (+ to the body's left): a side step. */
+  side: 0,
+  /** Walking backwards. */
+  back: false,
 };
 
 /** Live positions of the townsfolk by entity id, stepped by Town.tsx and read by their figures. */

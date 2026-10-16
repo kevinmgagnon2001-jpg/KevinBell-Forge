@@ -585,8 +585,9 @@ function windy(material: MeshStandardMaterial, time: { value: number }, strength
   material.customProgramCacheKey = () => `forge-wind-${strength}`;
 }
 
-function makeMeadow(level: SceneryLevel, time: { value: number }, motion: boolean, shadows: boolean): Group {
-  const n = COUNTS[level];
+function makeMeadow(level: SceneryLevel, time: { value: number }, motion: boolean, shadows: boolean, dense = 1): Group {
+  const base = COUNTS[level];
+  const n = { ...base, grass: Math.round(base.grass * dense), flowers: Math.round(base.flowers * dense) };
   const group = new Group();
   if (!n.grass) return group;
   const rand = seeded(505);
@@ -862,14 +863,14 @@ function useReducedMotion(): boolean {
   return useMemo(() => typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches, []);
 }
 
-export function Scenery({ level, shadows }: { level: SceneryLevel; shadows: boolean }) {
+export function Scenery({ level, shadows, eleven = false }: { level: SceneryLevel; shadows: boolean; eleven?: boolean }) {
   const motion = !useReducedMotion();
   const time = useMemo(() => ({ value: 0 }), []);
   const land = useBuilt(() => makeLand(COUNTS[level].land), [level]);
   const plaza = useBuilt(makePlaza, []);
   const water = useBuilt(makeWater, []);
   const woods = useBuilt(() => makeWoods(level, shadows), [level, shadows]);
-  const meadow = useBuilt(() => makeMeadow(level, time, motion, shadows), [level, motion, shadows]);
+  const meadow = useBuilt(() => makeMeadow(level, time, motion, shadows, eleven ? 1.8 : 1), [level, motion, shadows, eleven]);
   const clouds = useBuilt(() => makeClouds(level), [level]);
   const motes = useMemo(() => makeMotes(level, time), [level, time]);
   const drops = useBuilt(() => makeDrops(level).points, [level]);
@@ -965,7 +966,7 @@ export function Scenery({ level, shadows }: { level: SceneryLevel; shadows: bool
     }
   });
 
-  const shadowMap = COUNTS[level].shadowMap;
+  const shadowMap = eleven ? 4096 : COUNTS[level].shadowMap;
   return (
     <>
       <color attach="background" args={[SKY.horizon]} />

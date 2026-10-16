@@ -4,6 +4,7 @@
  * Everything goes through the make_move and do_move tools, so the log shows it and the model can do
  * the same.
  */
+import { Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState, useSyncExternalStore, type FormEvent } from "react";
 import { movesOf } from "@/engine/motion";
 import { useForge } from "@/engine/store";
@@ -28,8 +29,8 @@ const useOpen = () =>
 export function MovesButton() {
   const on = useOpen();
   return (
-    <button type="button" className={on ? "is-on" : ""} aria-expanded={on} onClick={() => setOpen(!on)}>
-      Moves
+    <button type="button" className={`bubble-icon ${on ? "is-on" : ""}`} aria-expanded={on} aria-label="Moves" title="Moves (G)" onClick={() => setOpen(!on)}>
+      <Sparkles aria-hidden="true" />
     </button>
   );
 }

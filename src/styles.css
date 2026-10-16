@@ -3162,3 +3162,350 @@
 .blk.is-classic.is-dark .blk-over-best {
   color: #d0d0d0;
 }
+
+/* ==========================================================================
+   Bubbles. Every control is a soap bubble: round, glassy, with a thin-film
+   rim that shimmers through pink, cyan, gold and violet. Dark (the default)
+   is a deep violet night where bubbles glow like the 4D bubbles of Adventure
+   Time; light is a pale pearl day. Controls show icons; names are in
+   aria-label and title.
+   ========================================================================== */
+
+@property --spin {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+:root,
+:root[data-theme="dark"] {
+  --bubble-night: #07041a;
+  --bubble-deep: #120a2e;
+  --bubble-fill: rgb(38 22 84 / 42%);
+  --bubble-fill-hover: rgb(64 36 132 / 55%);
+  --bubble-ink: #f3ecff;
+  --bubble-dim: #b6a8e0;
+  --bubble-glint: rgb(255 255 255 / 70%);
+  --bubble-on: radial-gradient(circle at 32% 28%, rgb(255 255 255 / 85%), rgb(255 255 255 / 0%) 26%), radial-gradient(circle at 70% 75%, rgb(122 252 255 / 70%), rgb(122 252 255 / 0%) 55%), linear-gradient(135deg, #ff7ad9, #a98bff 45%, #7afcff);
+  --bubble-on-ink: #1a0b3a;
+  --film: conic-gradient(from var(--spin), #ff7ad9, #ffd27a, #7afcff, #a98bff, #ff7ad9);
+  --halo: 0 0 18px rgb(169 139 255 / 35%), 0 0 42px rgb(122 252 255 / 12%);
+  --color-bg: #0b0620;
+  --color-elevated: #140b33;
+  --color-subtle: #1d1145;
+  --color-fg: #f3ecff;
+  --color-muted: #b6a8e0;
+  --color-faint: #8676b8;
+  --color-line: #33246b;
+  --color-accent: #c9b6ff;
+  --color-accent-fg: #1a0b3a;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bubble-night: #eef0ff;
+  --bubble-deep: #fdf4ff;
+  --bubble-fill: rgb(255 255 255 / 55%);
+  --bubble-fill-hover: rgb(255 255 255 / 80%);
+  --bubble-ink: #24164f;
+  --bubble-dim: #5d4f8f;
+  --bubble-glint: rgb(255 255 255 / 95%);
+  --bubble-on-ink: #1a0b3a;
+  --halo: 0 6px 18px rgb(120 90 220 / 18%);
+  --color-bg: #f6f3ff;
+  --color-elevated: #ffffff;
+  --color-subtle: #ece6ff;
+  --color-fg: #24164f;
+  --color-muted: #5d4f8f;
+  --color-faint: #8a7fb3;
+  --color-line: #d8cff5;
+  --color-accent: #6f4fe0;
+  --color-accent-fg: #ffffff;
+}
+
+@keyframes bubble-spin {
+  to {
+    --spin: 360deg;
+  }
+}
+
+@keyframes bubble-drift {
+  0% {
+    background-position: 0 0, 0 0, 0 0, 0 0;
+  }
+  100% {
+    background-position: 0 -1200px, 0 -900px, 0 -1500px, 0 0;
+  }
+}
+
+body:has(.app) {
+  background:
+    radial-gradient(circle at 20% 110%, rgb(255 122 217 / 14%), transparent 40%),
+    radial-gradient(circle at 85% -10%, rgb(122 252 255 / 12%), transparent 45%),
+    radial-gradient(circle at 50% 50%, var(--bubble-deep), var(--bubble-night) 75%);
+  background-attachment: fixed;
+  color: var(--color-fg);
+}
+
+/* Faint bubbles rising behind the panels. */
+body:has(.app)::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle at 12% 30%, rgb(255 255 255 / 10%) 0 2px, transparent 3px 26px, rgb(169 139 255 / 18%) 27px, transparent 29px),
+    radial-gradient(circle at 78% 60%, rgb(255 255 255 / 8%) 0 2px, transparent 3px 40px, rgb(122 252 255 / 14%) 41px, transparent 43px),
+    radial-gradient(circle at 46% 85%, rgb(255 255 255 / 8%) 0 1px, transparent 2px 16px, rgb(255 122 217 / 16%) 17px, transparent 19px),
+    radial-gradient(circle at 50% 50%, transparent, transparent);
+  background-size: 420px 520px, 560px 640px, 300px 380px, 100% 100%;
+  animation: bubble-drift 90s linear infinite;
+}
+
+.topbar,
+.dock,
+.side,
+.panel {
+  background: color-mix(in srgb, var(--color-bg) 72%, transparent);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+  border-color: var(--color-line);
+}
+
+.panel {
+  border-radius: 22px;
+}
+
+/* The bubble itself. */
+.app .btn,
+.mode-bar button,
+.visor-key,
+.lift .visor-key,
+.steer-home,
+.helm-round,
+.moves-chip,
+.chip,
+.perf-chip,
+.tv-key,
+.arcade-key,
+.dock-mic {
+  position: relative;
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 30% 24%, var(--bubble-glint), rgb(255 255 255 / 0%) 22%) padding-box,
+    radial-gradient(circle at 72% 82%, rgb(122 252 255 / 22%), rgb(122 252 255 / 0%) 50%) padding-box,
+    linear-gradient(var(--bubble-fill), var(--bubble-fill)) padding-box,
+    var(--film) border-box;
+  color: var(--bubble-ink);
+  box-shadow: var(--halo), inset 0 -6px 14px rgb(169 139 255 / 18%), inset 0 2px 6px rgb(255 255 255 / 12%);
+  backdrop-filter: blur(10px) saturate(1.6);
+  -webkit-backdrop-filter: blur(10px) saturate(1.6);
+  animation: bubble-spin 9s linear infinite;
+  transition:
+    transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+    box-shadow 200ms ease,
+    filter 200ms ease;
+}
+
+.app .btn:hover:not(:disabled),
+.mode-bar button:hover,
+.visor-key:hover,
+.steer-home:hover,
+.helm-round:hover,
+.moves-chip:hover,
+.chip:hover,
+.perf-chip:hover,
+.tv-key:hover {
+  transform: scale(1.08);
+  background:
+    radial-gradient(circle at 30% 24%, var(--bubble-glint), rgb(255 255 255 / 0%) 24%) padding-box,
+    radial-gradient(circle at 72% 82%, rgb(255 122 217 / 28%), rgb(255 122 217 / 0%) 55%) padding-box,
+    linear-gradient(var(--bubble-fill-hover), var(--bubble-fill-hover)) padding-box,
+    var(--film) border-box;
+  box-shadow: var(--halo), 0 0 28px rgb(255 122 217 / 30%), inset 0 -6px 14px rgb(122 252 255 / 22%);
+}
+
+.app .btn:active:not(:disabled),
+.mode-bar button:active,
+.visor-key:active,
+.steer-home:active {
+  transform: scale(0.92);
+}
+
+/* On: the bubble fills with its own colour and glows. */
+.app .btn-primary,
+.mode-bar button.is-on,
+.lift .visor-key.is-on,
+.moves-chip.is-on,
+.perf-chip.is-on,
+.tv-key.is-on {
+  background: var(--bubble-on) padding-box, var(--film) border-box;
+  color: var(--bubble-on-ink);
+  box-shadow: 0 0 22px rgb(255 122 217 / 45%), 0 0 48px rgb(122 252 255 / 25%), inset 0 -4px 10px rgb(26 11 58 / 25%);
+}
+
+/* Icon bubbles are perfect circles. */
+.bubble-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 2.9rem;
+  min-width: 2.9rem;
+  height: 2.9rem;
+  min-height: 2.9rem;
+  padding: 0 !important;
+  font-size: 0;
+}
+
+.bubble-icon svg {
+  width: 1.3rem;
+  height: 1.3rem;
+  stroke-width: 2.2;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 35%));
+}
+
+.mode-bar .bubble-icon {
+  width: 2.75rem;
+  min-width: 2.75rem;
+  height: 2.75rem;
+  min-height: 2.75rem;
+}
+
+.lift .bubble-icon,
+.steer-home.bubble-icon {
+  width: 3.4rem;
+  min-width: 3.4rem;
+  height: 3.4rem;
+  min-height: 3.4rem;
+}
+
+.lift .bubble-icon svg,
+.steer-home.bubble-icon svg {
+  width: 1.5rem;
+  height: 1.5rem;
+}
+
+.steer-home.is-summon {
+  box-shadow: 0 0 22px rgb(122 252 255 / 55%), var(--halo);
+}
+
+/* Thumbsticks: a big clear bubble with a glowing pearl. */
+.stick {
+  border: 1.5px solid transparent;
+  background:
+    radial-gradient(circle at 30% 22%, rgb(255 255 255 / 32%), rgb(255 255 255 / 0%) 26%) padding-box,
+    radial-gradient(circle, rgb(38 22 84 / 18%), rgb(38 22 84 / 48%) 72%) padding-box,
+    var(--film) border-box;
+  box-shadow: var(--halo), inset 0 -10px 24px rgb(122 252 255 / 14%);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: bubble-spin 12s linear infinite;
+}
+
+.stick-knob {
+  border: 0;
+  background:
+    radial-gradient(circle at 34% 28%, #ffffff, rgb(255 255 255 / 0%) 32%),
+    radial-gradient(circle at 70% 75%, #7afcff, rgb(122 252 255 / 0%) 60%),
+    linear-gradient(135deg, #ff7ad9, #a98bff 55%, #7afcff);
+  box-shadow: 0 0 18px rgb(255 122 217 / 55%), 0 0 36px rgb(122 252 255 / 30%);
+}
+
+.stick-label {
+  bottom: 0.4rem;
+  color: var(--bubble-ink);
+  opacity: 0.75;
+}
+
+.stick-label svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.field,
+.dock input,
+.visor-ask input,
+.moves-make input {
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  background:
+    linear-gradient(color-mix(in srgb, var(--color-bg) 80%, transparent), color-mix(in srgb, var(--color-bg) 80%, transparent)) padding-box,
+    var(--film) border-box;
+  color: var(--color-fg);
+  padding-inline: 1rem;
+  animation: bubble-spin 14s linear infinite;
+}
+
+.visor-read,
+.visor-hint {
+  border-radius: 999px;
+  padding: 0.3rem 0.8rem;
+  background: rgb(18 10 46 / 45%);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--bubble-ink);
+}
+
+.visor-hint {
+  border-radius: 18px;
+}
+
+:root[data-theme="light"] .visor-read,
+:root[data-theme="light"] .visor-hint {
+  background: rgb(255 255 255 / 60%);
+}
+
+.hud-readout span {
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body::before,
+  .app .btn,
+  .mode-bar button,
+  .visor-key,
+  .steer-home,
+  .stick,
+  .field {
+    animation: none;
+  }
+}
+
+/* Text bubbles keep a clear, readable fill; the shimmer stays on the rim. */
+.app .btn:not(.bubble-icon):not(.btn-primary),
+.chip,
+.moves-chip:not(.is-on),
+.perf-chip:not(.is-on),
+.field,
+.dock input,
+.visor-ask input,
+.moves-make input {
+  background:
+    radial-gradient(circle at 18% 20%, rgb(255 255 255 / 22%), rgb(255 255 255 / 0%) 30%) padding-box,
+    linear-gradient(color-mix(in srgb, var(--color-bg) 90%, transparent), color-mix(in srgb, var(--color-bg) 90%, transparent)) padding-box,
+    var(--film) border-box;
+}
+
+.hud-readout {
+  width: fit-content;
+  padding: 0.25rem 0.8rem;
+  border-radius: 999px;
+  background: rgb(18 10 46 / 50%);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  color: var(--bubble-ink);
+}
+
+:root[data-theme="light"] .hud-readout {
+  background: rgb(255 255 255 / 62%);
+}
+
+.top-actions {
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.hud-readout {
+  border-radius: 18px;
+}

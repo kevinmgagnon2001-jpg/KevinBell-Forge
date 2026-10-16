@@ -13,6 +13,9 @@ character, on-device speech out), vault and climb, ropes and cables, the AVBD so
 agents for arcade games. Smaller follow-ups:
 - Ask the resident model to rewrite a person's plan every few minutes, batched (town.ts `planDay`).
 - Check the frame rate on the owner's phone with 24 townsfolk and heavy rain (Stats overlay).
+- Feel the new third person and flight on the owner's phone and PC (only checked for direction in a
+  software-GL browser at 1-2 fps); tune ACCEL, FLY and the camera lag in pilot.tsx.
+- Check rung "11" (PostFX.tsx) with the Stats overlay on the phone; it may run at 30-45 fps.
 - Weather on the "off" scenery rung (flat stage) still shows the old dark look.
 
 ## Where things stand

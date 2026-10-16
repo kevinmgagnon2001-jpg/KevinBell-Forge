@@ -22,7 +22,7 @@ export const Route = createRootRoute({
     ],
   }),
   component: () => (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" data-theme="dark" suppressHydrationWarning>
       <head>
         <HeadContent />
       </head>

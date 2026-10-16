@@ -8,23 +8,32 @@
  */
 import type { Quality, SceneryChoice } from "./hardware.ts";
 
-export type Rung = { name: string; scenery: SceneryChoice; dpr: number; shadows: boolean };
+/**
+ * post: the picture's finishing (PostFX.tsx). "eleven" is everything: ambient occlusion at full
+ * size, bloom, AgX tone mapping, SMAA, a vignette and grain, 4096 shadows and a denser meadow; it may
+ * run at 30-45 fps. "high" keeps occlusion at half size and bloom; "lite" is bloom and SMAA.
+ */
+export type Post = "eleven" | "high" | "lite" | "none";
+export type Rung = { name: string; scenery: SceneryChoice; dpr: number; shadows: boolean; post: Post };
 
 export const LADDER: Rung[] = [
-  { name: "Ultra", scenery: "full", dpr: 2, shadows: true },
-  { name: "High", scenery: "full", dpr: 1.5, shadows: true },
-  { name: "Medium", scenery: "lite", dpr: 1.5, shadows: true },
-  { name: "Low", scenery: "lite", dpr: 1.25, shadows: false },
-  { name: "Lowest", scenery: "min", dpr: 1, shadows: false },
-  { name: "Plain", scenery: "off", dpr: 1, shadows: false },
+  { name: "11", scenery: "full", dpr: 2, shadows: true, post: "eleven" },
+  { name: "Ultra", scenery: "full", dpr: 2, shadows: true, post: "high" },
+  { name: "High", scenery: "full", dpr: 1.5, shadows: true, post: "lite" },
+  { name: "Medium", scenery: "lite", dpr: 1.5, shadows: true, post: "none" },
+  { name: "Low", scenery: "lite", dpr: 1.25, shadows: false, post: "none" },
+  { name: "Lowest", scenery: "min", dpr: 1, shadows: false, post: "none" },
+  { name: "Plain", scenery: "off", dpr: 1, shadows: false, post: "none" },
 ];
+
+const at = (name: string) => LADDER.findIndex((r) => r.name === name);
 
 /** Where the hardware tier starts on the ladder (and the best it may climb to). */
 export function startRung(quality: Quality): number {
   const i = LADDER.findIndex((r) => r.scenery === quality.scenery && r.shadows === quality.shadows);
-  if (quality.scenery === "full") return quality.dpr[1] >= 2 ? 0 : 1;
-  if (quality.scenery === "lite") return 2;
-  if (quality.scenery === "min") return 4;
+  if (quality.scenery === "full") return quality.dpr[1] >= 2 ? at("11") : at("High");
+  if (quality.scenery === "lite") return at("Medium");
+  if (quality.scenery === "min") return at("Lowest");
   return i >= 0 ? i : LADDER.length - 1;
 }
 

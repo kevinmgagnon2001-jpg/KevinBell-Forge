@@ -106,7 +106,7 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
       const fresh = doing.key !== key;
       playing.current = { key, move, started: fresh || move?.loop ? c.t : Number.NEGATIVE_INFINITY };
     }
-    const m = live ? avatarMotion : { speed: townBodies[entity.id]?.speed ?? (Number(entity.customData.speed) || 0), grounded: true, vy: 0, flying: false, landed: 0 };
+    const m = live ? avatarMotion : { speed: townBodies[entity.id]?.speed ?? (Number(entity.customData.speed) || 0), grounded: true, vy: 0, flying: false, landed: 0, side: 0, back: false };
     const speed = Math.min(m.speed, 12);
     const air = !m.grounded && !m.flying;
     // One stride (two steps) is ~1.15 m walking, stretching to ~1.9 m at a full run.
@@ -124,7 +124,9 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
     }
     c.moving = moving;
     c.phase = stepPhase(c.phase, air || m.flying ? 0 : speed, stride, dt);
-    const ph = c.phase;
+    // Walking backwards runs the cycle in reverse; a side step swings the legs apart and together.
+    const ph = m.back ? -c.phase : c.phase;
+    const aside = Math.min(1, Math.abs(m.side) * 1.2);
     const idle = 1 - Math.min(1, speed / 0.6);
     const t = blankPose();
     const swing = (0.42 + run * 0.38) * walk;
@@ -140,6 +142,15 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
     t.shoulderR.z = -0.07 - idle * 0.03;
     t.elbowL.x = -(0.12 + walk * 0.2 + run * 1.1);
     t.elbowR.x = -(0.12 + walk * 0.2 + run * 1.1);
+    if (aside > 0.05) {
+      const open = Math.sign(m.side);
+      t.hipL.x *= 1 - aside * 0.8;
+      t.hipR.x *= 1 - aside * 0.8;
+      t.hipL.z = Math.max(0, Math.sin(ph) * open) * 0.32 * aside * walk;
+      t.hipR.z = -Math.max(0, -Math.sin(ph) * open) * 0.32 * aside * walk;
+      t.shoulderL.x *= 1 - aside * 0.6;
+      t.shoulderR.x *= 1 - aside * 0.6;
+    }
     t.pelvis.y = Math.sin(ph) * 0.12 * walk;
     t.chest.y = -Math.sin(ph) * 0.16 * walk;
     t.chest.x = 0.04 * walk + 0.2 * run;

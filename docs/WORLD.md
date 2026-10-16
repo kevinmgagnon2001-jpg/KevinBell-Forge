@@ -60,3 +60,12 @@ devices. Nothing is downloaded or sent anywhere.
 - Stopping finishes the step you are in, so both feet land; starting to walk begins the cycle in step
   with your legs.
 - Code: `src/engine/springs.ts`, `src/components/forge/Avatar.tsx`.
+
+## Moving and flying
+
+- Third person: drag (or the right stick) turns the camera; WASD (or the left stick) moves relative
+  to it. Walking forward the body turns to where it goes; sideways and back it side-steps and
+  backpedals. Shift runs, Space jumps, Q and E dash aside.
+- F flies: look where you want to go. Look up to climb, down to dive; W boosts (with Shift, more),
+  S brakes to a hover, A and D drift. F again lands.
+- Prompts (Play, the phone, the TV) and "looking at" only appear up close.

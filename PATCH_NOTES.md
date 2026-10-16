@@ -1019,3 +1019,27 @@ and mountains around it, under a late-afternoon sky.
 - Checked: typecheck, lint (no new warnings), `npm run test:engine` (262 pass, 34 new), production
   build. In Chromium at 1280x800: rain at dusk, a neon alley, snow at midnight and at noon, a
   sparkling Clay with a ghost-ship creak, a score, ten townsfolk walking in the rain; no console errors.
+
+## Bubbles, a modern third person, Anthem flight, and graphics at 11
+- UI (styles.css, theme.ts): every control is a soap bubble with a shimmering thin-film rim; a dark
+  "4D bubble" night theme (default) and a pearl light theme (sun/moon bubble in the top bar,
+  remembered per device). Controls are icons (lucide) with aria-label and title; the sticks carry
+  move and look glyphs.
+- Third person (pilot.tsx): an orbit camera over the shoulder with a little lag; WASD and the stick
+  move relative to the camera with momentum; forward turns the body to where it goes, sideways and
+  back side-step and backpedal (the legs step aside or cycle backwards, Avatar.tsx); Q and E dash.
+  Mechanics (car, plane) still steer with A and D.
+- Flight: steer by looking. You fly where the view points, climbing and diving with it; W boosts
+  (Shift more), S brakes to a hover, A and D drift; the camera pulls back with speed and banks into
+  turns. The Up and Down buttons are gone.
+- Interaction range: the crosshair only picks things within about 2 m past the body; the Play prompt
+  shows within 2.2 m (was 3.2), the phone within 1.6 m (was 2.4), the TV remote within 2.6 m (was 5).
+- Graphics: a new top rung "11" (perf.ts, PostFX.tsx): N8AO ambient occlusion at full size, bloom,
+  AgX tone mapping, SMAA, vignette and grain, 4096 shadow maps and a 1.8x denser meadow. Ultra keeps
+  half-size AO and bloom; High has bloom and SMAA. Allowed to run at 30-45 fps; auto quality steps
+  down below 28.
+- CLAUDE.md records what the owner wants from every session (showcase quality, bubbles, the feel).
+- Checked: typecheck, lint (no errors), `npm run test:engine` (262 pass), production build, the built
+  app in Chromium with no console errors. In Chromium (software GL, 1-2 fps, so feel was not judged):
+  D steps right without turning the camera, A left; flying, looking up climbs and looking down dives;
+  dark and light themes at 1280x800 and 390x844 (the top bar's bubbles wrap on phones).
