@@ -192,3 +192,35 @@ function kindLabel(e: Entity): string {
   const asset = r.kind === "mesh" ? r.assetId : r.kind === "gaussian" ? "splat" : r.kind;
   return `${asset[0].toUpperCase()}${asset.slice(1)}s`;
 }
+
+/**
+ * What the intent box offers as you type: phrases you taught, catalog entries and examples whose
+ * words start with what you typed, best first (start of the line, then start of a word, then
+ * anywhere), no repeats, never the line itself.
+ */
+export function completions(typed: string, pool: string[], count = 4): string[] {
+  const text = typed.toLowerCase().replace(/\s+/g, " ").trimStart();
+  if (text.trim().length < 2) return [];
+  const seen = new Set<string>();
+  const scored: { line: string; score: number; order: number }[] = [];
+  pool.forEach((line, order) => {
+    const lower = line.toLowerCase();
+    if (seen.has(lower) || lower === text.trim()) return;
+    seen.add(lower);
+    let score = 0;
+    if (lower.startsWith(text)) score = 3;
+    else if (lower.includes(` ${text.trim()}`)) score = 2;
+    else if (text.trim().length >= 3 && lower.includes(text.trim())) score = 1;
+    else {
+      // Every typed word starts some word of the line ("red row" finds "a row of five red cubes").
+      const words = text.trim().split(" ");
+      const its = lower.split(/[^a-z0-9]+/);
+      if (words.length > 1 && words.every((w) => its.some((x) => x.startsWith(w)))) score = 1;
+    }
+    if (score) scored.push({ line, score, order });
+  });
+  return scored
+    .sort((a, b) => b.score - a.score || a.line.length - b.line.length || a.order - b.order)
+    .slice(0, count)
+    .map((s) => s.line);
+}

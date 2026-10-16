@@ -4,6 +4,7 @@ import { nearestColorName } from "./color";
 import { executePlan, executeProposal } from "./harness";
 import { planIntent, splitClauses, suggest, type Plan } from "./planner";
 import { routeIntent } from "./route";
+import { cleanPhrases, forget as forgetPhrase, phraseFor, readPhraseRequest, teach as teachPhrase } from "./phrases";
 import { cleanMoves } from "./motion";
 import { cleanWeather } from "./weather";
 import { cleanTown } from "./town";
@@ -253,6 +254,8 @@ let residentBoot: Promise<void> | null = null;
 
 /** The last group the planner made or changed: what "them" means next time (planner.ts). */
 let planGroup: number[] = [];
+/** How deep a taught phrase has called others (a phrase that says itself stops). */
+let phraseDepth = 0;
 
 export const useForge = create<ForgeState>((set, get) => {
   const pushLog = (entries: Omit<LogEntry, "id">[]) => {
@@ -349,6 +352,43 @@ export const useForge = create<ForgeState>((set, get) => {
     submitIntent: async (intentRaw) => {
       const intent = intentRaw.trim().slice(0, 400);
       if (!intent) return;
+      // Your own words (phrases.ts): "when I say party, light a campfire then make it rain".
+      const phraseCall = readPhraseRequest(intent);
+      if (phraseCall) {
+        const before = get();
+        const phrases =
+          phraseCall.kind === "teach" ? teachPhrase(before.phrases, phraseCall.say, phraseCall.does) : phraseCall.kind === "forget" ? forgetPhrase(before.phrases, phraseCall.say) : before.phrases;
+        if (phraseCall.kind !== "list") set({ phrases });
+        const body =
+          phraseCall.kind === "teach"
+            ? `Got it. Say “${phraseCall.say}” and I'll ${phraseCall.does}.`
+            : phraseCall.kind === "forget"
+              ? (before.phrases ?? []).some((p) => p.say === phraseCall.say)
+                ? `Forgot “${phraseCall.say}”.`
+                : `I don't know “${phraseCall.say}”.`
+              : phrases?.length
+                ? phrases.map((p) => `“${p.say}” → ${p.does}`).join("\n")
+                : "No phrases yet. Try: when I say party, light a campfire then make it rain.";
+        pushLog([
+          { tone: "user", title: "Intent", body: intent },
+          { tone: "engine", title: "Phrases", body },
+        ]);
+        return;
+      }
+      const taught = phraseFor(get().phrases, intent);
+      if (taught && phraseDepth < 3) {
+        pushLog([
+          { tone: "user", title: "Intent", body: intent },
+          { tone: "engine", title: "Phrase", body: taught },
+        ]);
+        phraseDepth += 1;
+        try {
+          await get().submitIntent(taught);
+        } finally {
+          phraseDepth -= 1;
+        }
+        return;
+      }
       // Several steps in one breath ("make a red cube, then throw it"): each runs in turn, so "it"
       // in a later step is what the earlier one made. Orders for the companion stay whole.
       const buddyName = companionOf(get())?.name.toLowerCase();
@@ -744,8 +784,9 @@ export const useForge = create<ForgeState>((set, get) => {
         library: state.library,
         mechanics: state.mechanics,
         moverHash: state.moverHash,
-        // Moves you made stay through a reset, like your mechanics.
+        // Moves you made stay through a reset, like your mechanics; so do your phrases.
         moves: state.moves,
+        phrases: state.phrases,
         weather: undefined,
         recent: [],
         score: undefined,
@@ -800,6 +841,7 @@ export const useForge = create<ForgeState>((set, get) => {
           score: typeof data.world.score === "string" ? data.world.score.slice(0, 120) : undefined,
           town: cleanTown(data.world.town, data.world.entities),
           best: cleanBest(data.world.best),
+          phrases: cleanPhrases(data.world.phrases),
           gravity: bootWorld().gravity,
           deltaTime: bootWorld().deltaTime,
         }));
@@ -860,6 +902,7 @@ function persistedWorld(state: ForgeState): World {
     ...(state.score ? { score: state.score } : {}),
     ...(state.town ? { town: state.town } : {}),
     ...(state.best ? { best: state.best } : {}),
+    ...(state.phrases?.length ? { phrases: state.phrases } : {}),
   };
 }
 
@@ -916,6 +959,7 @@ export function applySharedSave(value: unknown): boolean {
     score: typeof save.world.score === "string" ? save.world.score.slice(0, 120) : undefined,
     town: cleanTown(save.world.town, save.world.entities),
     best: cleanBest(save.world.best),
+    phrases: cleanPhrases(save.world.phrases),
     gravity: bootWorld().gravity,
     deltaTime: bootWorld().deltaTime,
   }));

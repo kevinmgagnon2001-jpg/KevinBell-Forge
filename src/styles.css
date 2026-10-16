@@ -4176,3 +4176,11 @@ body:has(.app)::before {
     height: 1.1rem;
   }
 }
+
+/* Offers as you type (ForgeApp IntentDock): the line itself, cut short if long. */
+.chip-offer {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

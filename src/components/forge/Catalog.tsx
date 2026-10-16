@@ -86,6 +86,7 @@ function CatalogPanel() {
   const entities = useForge((s) => s.entities);
   const selectedId = useForge((s) => s.selectedId);
   const busy = useForge((s) => s.busy);
+  const phrases = useForge((s) => s.phrases);
   const hits = useMemo(() => searchCatalog(query), [query]);
   const groups = useMemo(() => worldRows({ entities }, seen.id), [entities, seen.id]);
   const newCount = CATALOG.filter((item) => isNew(item, seen.v)).length;
@@ -100,7 +101,7 @@ function CatalogPanel() {
     [],
   );
 
-  const run = (item: CatalogItem) => {
+  const run = (item: Pick<CatalogItem, "id" | "intent">) => {
     if (busy) return;
     setRan(item.id);
     void useForge.getState().submitIntent(item.intent);
@@ -158,6 +159,38 @@ function CatalogPanel() {
             </details>
           );
         })}
+        {!searching ? (
+          <details className="catalog-section" open={(phrases?.length ?? 0) > 0 && freshThings === 0}>
+            <summary>
+              <span className="catalog-glyph" aria-hidden="true">🗣</span>
+              <span className="catalog-title">Your phrases</span>
+              <span className="catalog-count">{phrases?.length ?? 0}</span>
+            </summary>
+            <p className="catalog-blurb">
+              Teach Forge your own words: “when I say party, light a campfire then make it rain then fill the plaza with people”. Then just say “party”.
+            </p>
+            <div className="catalog-grid">
+              {(phrases ?? []).map((phrase) => (
+                <button key={phrase.say} type="button" className={`catalog-card ${ran === `phrase-${phrase.say}` ? "is-ran" : ""}`} disabled={busy} onClick={() => run({ id: `phrase-${phrase.say}`, intent: phrase.say })} title={phrase.does}>
+                  <span className="catalog-glyph" aria-hidden="true">💬</span>
+                  <span className="catalog-card-text">
+                    <span className="catalog-card-name">{phrase.say}</span>
+                    <span className="catalog-card-blurb">{phrase.does}</span>
+                  </span>
+                  <Play aria-hidden="true" className="catalog-go" />
+                </button>
+              ))}
+              <button type="button" className="catalog-card" disabled={busy} onClick={() => run({ id: "phrase-teach", intent: "when I say party, light a campfire then make it rain at dusk then fill the plaza with people" })}>
+                <span className="catalog-glyph" aria-hidden="true">✍</span>
+                <span className="catalog-card-text">
+                  <span className="catalog-card-name">Teach “party”</span>
+                  <span className="catalog-card-blurb">An example phrase: a campfire, rain at dusk, townsfolk.</span>
+                </span>
+                <Play aria-hidden="true" className="catalog-go" />
+              </button>
+            </div>
+          </details>
+        ) : null}
         {!searching ? (
           <details className="catalog-section" open={freshThings > 0}>
             <summary>

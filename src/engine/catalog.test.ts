@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CATALOG, CATALOG_VERSION, SECTIONS, isNew, searchCatalog, worldRows } from "./catalog.ts";
+import { CATALOG, CATALOG_VERSION, SECTIONS, completions, isNew, searchCatalog, worldRows } from "./catalog.ts";
 import { executeProposal } from "./harness.ts";
 import { labWorld } from "./manifold.ts";
 import { planIntent } from "./planner.ts";
@@ -47,4 +47,14 @@ test("in this world: grouped by kind, fresh after what you last saw", () => {
   assert.ok(lab && lab.rows.length > 5);
   assert.ok(groups.flatMap((g) => g.rows).some((r) => r.fresh));
   assert.ok(!groups.flatMap((g) => g.rows).some((r) => r.name === "Helm"));
+});
+
+test("completions: start of line first, then word starts, then anywhere", () => {
+  const pool = ["light a campfire", "a row of five red cubes", "make it rain at dusk", "paint it red", "put out the fire"];
+  assert.deepEqual(completions("li", pool), ["light a campfire"]);
+  assert.deepEqual(completions("red", pool), ["paint it red", "a row of five red cubes"]);
+  assert.deepEqual(completions("fire", pool), ["put out the fire", "light a campfire"]);
+  assert.deepEqual(completions("row red", pool), ["a row of five red cubes"]);
+  assert.deepEqual(completions("p", pool), [], "one letter is too few");
+  assert.deepEqual(completions("paint it red", pool), [], "never the line itself");
 });

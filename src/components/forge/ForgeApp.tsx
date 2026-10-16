@@ -1,4 +1,4 @@
-import { Component, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { Component, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Compass, Maximize2, Minimize2, Moon, Pause, Play, RotateCcw, ScrollText, SkipForward, Sun, Undo2 } from "lucide-react";
 import { setTheme, startTheme, useTheme } from "./theme";
 import { HyperBackdrop, HyperMark } from "./HyperBackdrop";
@@ -7,6 +7,8 @@ import { NAMED_COLORS } from "@/engine/color";
 import { RESIDENT_MODELS, residentById } from "@/engine/resident-catalog";
 import { meteredConnection, residentCached } from "@/engine/resident";
 import { startPersist, useForge } from "@/engine/store";
+import { CATALOG, completions } from "@/engine/catalog";
+import { EXAMPLES } from "@/engine/planner";
 import { DropRunner, PortalWatcher } from "./Bridge";
 import { DevicesCard } from "./Devices";
 import { MechanicsCard } from "./Mechanics";
@@ -28,6 +30,25 @@ const CHIPS: { label: string; intent: string }[] = [
   { label: "Campfire", intent: "light a campfire" },
   { label: "What's here?", intent: "what's here?" },
 ];
+
+const PAST_KEY = "forge-intent-history";
+
+function readPast(): string[] {
+  try {
+    const raw = JSON.parse(globalThis.localStorage?.getItem(PAST_KEY) ?? "[]") as unknown;
+    return Array.isArray(raw) ? raw.filter((line): line is string => typeof line === "string").slice(-40) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePast(lines: string[]) {
+  try {
+    globalThis.localStorage?.setItem(PAST_KEY, JSON.stringify(lines.slice(-40)));
+  } catch {
+    /* private mode: history lasts the visit */
+  }
+}
 
 function fmt(n: number) {
   return Number.isFinite(n) ? String(Math.round(n * 100) / 100) : "0";
@@ -324,10 +345,22 @@ function IntentDock() {
   const modelId = useForge((s) => s.residentId);
   const spec = residentById(modelId);
 
+  const phrases = useForge((s) => s.phrases);
+  // Up and Down walk back through what you sent (kept on this device).
+  const [past, setPast] = useState<string[]>(() => readPast());
+  const [back, setBack] = useState(-1);
+  // As you type: your phrases, the catalog and examples that start with your words (Tab takes the first).
+  const pool = useMemo(() => [...(phrases ?? []).map((p) => p.say), ...past.slice().reverse(), ...CATALOG.map((item) => item.intent), ...EXAMPLES], [phrases, past]);
+  const offers = useMemo(() => completions(intent, pool), [intent, pool]);
+
   const submit = (value: string) => {
     const next = value.trim();
     if (!next || busy) return;
     void useForge.getState().submitIntent(next);
+    const kept = [...past.filter((line) => line !== next), next].slice(-40);
+    setPast(kept);
+    writePast(kept);
+    setBack(-1);
     setIntent("");
   };
 
@@ -361,8 +394,28 @@ function IntentDock() {
           value={intent}
           maxLength={400}
           placeholder={power && status === "ready" ? `Ask ${spec.short} anything, or: a row of five red cubes` : "a row of five red cubes · paint it blue · throw it · help"}
-          onChange={(event) => setIntent(event.target.value)}
+          onChange={(event) => {
+            setIntent(event.target.value);
+            setBack(-1);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Tab" && offers.length && !event.shiftKey) {
+              event.preventDefault();
+              setIntent(offers[0]);
+            } else if (event.key === "ArrowUp" && past.length) {
+              event.preventDefault();
+              const at = back < 0 ? past.length - 1 : Math.max(0, back - 1);
+              setBack(at);
+              setIntent(past[at]);
+            } else if (event.key === "ArrowDown" && back >= 0) {
+              event.preventDefault();
+              const at = back + 1;
+              setBack(at >= past.length ? -1 : at);
+              setIntent(at >= past.length ? "" : past[at]);
+            }
+          }}
           autoComplete="off"
+          aria-describedby={offers.length ? "intent-offers" : undefined}
         />
         {speech ? (
           <button type="button" className="btn dock-mic" aria-label={listening ? "Listening" : "Speak an intent"} onClick={() => void speak()} disabled={listening}>
@@ -373,8 +426,21 @@ function IntentDock() {
           {busy && power && status === "ready" ? "Writing…" : forgeLabel}
         </button>
       </div>
-      <div className="chips">
-        {CHIPS.map((chip) => (
+      <div className="chips" id="intent-offers" aria-live="polite">
+        {offers.length
+          ? offers.map((line) => (
+              <button
+                key={line}
+                type="button"
+                className="chip chip-offer"
+                disabled={busy}
+                title="Tap to send (Tab fills it in)"
+                onClick={() => submit(line)}
+              >
+                {line}
+              </button>
+            ))
+          : CHIPS.map((chip) => (
           <button
             key={chip.label}
             type="button"
