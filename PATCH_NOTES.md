@@ -971,3 +971,19 @@ and mountains around it, under a late-afternoon sky.
   Chromium at 390x844: 20 pieces placed by dragging with lines cleared, the game back after a reload,
   ?app=blocks with no 3D canvas, switching to Forge, the cabinet's Play prompt, a piece placed in the
   arcade's Blocks, Walk away; no console errors. The Kotlin is compiled by CI's Android build.
+
+## Diagnostics: no phantom 1 fps after switching apps
+- Reports #17 and #18 (0.6.10, Galaxy S26 Ultra class, Ultra quality): 115 fps average, 120 most of
+  the time, 29–31 °C, headroom 0.6, no errors. #18 showed "min 1 fps, worst frame 1000 ms": the first
+  frame after Forge came back from the background (the report had opened GitHub) spans the time away.
+  PerfProbe now skips that frame (`isPauseGap` in perf.ts, tested): on returning to the page, and for
+  any frame over 2 s.
+- #17 arrived without the diagnostics label (GitHub drops a pre-filled label the repository does not
+  have yet); the label exists now, and `npm run forge:diagnostics` also matches the "[diagnostics]"
+  title.
+
+## The Android test opens Forge's own icon
+- v0.6.12 (Blocks) published no APK: the emulator test opened the package with `monkey`, which picks
+  any launcher activity, and with two icons now it could open Blocks, which never loads the world,
+  so "the page never reported the phone's apps". The test now opens `.MainActivity` by name, and
+  then opens `.BlocksLauncher` on its own to check the Blocks icon.

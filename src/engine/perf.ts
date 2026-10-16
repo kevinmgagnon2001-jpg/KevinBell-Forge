@@ -91,6 +91,16 @@ export function autoStep(state: AutoState, sample: Sample): AutoState {
 }
 
 /** Frames per second, the average frame time and the worst frame, from frame times in ms. */
+/**
+ * Whether a frame's time is a pause, not a slow frame: the first frame after the page comes back
+ * (another app, the lock screen, the GitHub page a report opens) spans the whole time away. Without
+ * knowing, a frame over two seconds is taken as a pause too; a real stall that long is not a frame
+ * rate problem but a freeze, and errors or Android's "not responding" catch those.
+ */
+export function isPauseGap(deltaMs: number, resumed: boolean): boolean {
+  return resumed || deltaMs > 2000;
+}
+
 export function frameStats(times: number[]): { fps: number; avg: number; worst: number } {
   if (!times.length) return { fps: 0, avg: 0, worst: 0 };
   const total = times.reduce((a, b) => a + b, 0);

@@ -12,7 +12,9 @@ adb wait-for-device
 for _ in $(seq 1 60); do adb shell pm list packages > /dev/null 2>&1 && break; sleep 2; done
 adb install -r "$APK" || { echo "::error title=Android smoke test::the APK did not install"; exit 1; }
 adb logcat -c
-adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 > /dev/null
+# Forge's own icon by name: the package has two launcher icons now (Forge and Blocks), and "any
+# launcher activity of the package" (monkey) can pick the Blocks one, which never loads the world.
+adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$PKG/.MainActivity" > /dev/null
 sleep 20
 adb exec-out screencap -p > "$OUT/screen-20s.png"
 sleep 40
@@ -60,12 +62,30 @@ if ! adb shell pm enable "$PKG/.HomeActivity" > "$OUT/home-setup.txt" 2>&1 \
   echo "::error title=Android smoke test::could not make Forge the home screen on the emulator (a test setup problem, not the app); see home-setup.txt"; exit 1
 fi
 # Switching a component on from the shell also stops the app (Forge's own button does not: it passes
-# DONT_KILL_APP), so open Forge again and take the process to compare from here.
-adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 > /dev/null
-sleep 15
+# DONT_KILL_APP), so open Forge again and take the process to compare from here. Those stops can land
+# a moment after the commands return, so let them settle, then open Forge until its process is up.
+sleep 5
+PID=""
+for attempt in 1 2 3; do
+  adb shell am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n "$PKG/.MainActivity" >> "$OUT/relaunch.txt" 2>&1
+  for _ in $(seq 1 10); do
+    sleep 2
+    PID="$(adb shell pidof "$PKG" | tr -d '\r')"
+    [ -n "$PID" ] && break
+  done
+  [ -n "$PID" ] && break
+  echo "attempt $attempt: no Forge process yet" >> "$OUT/relaunch.txt"
+done
+if [ -z "$PID" ]; then
+  cat "$OUT/relaunch.txt"
+  echo "::error title=Android smoke test::Forge did not start again after the home-screen setup; see relaunch.txt and logcat.txt"; exit 1
+fi
+# Settle before pressing Home, as the 15 s wait used to.
+sleep 10
 PID="$(adb shell pidof "$PKG" | tr -d '\r')"
 if [ -z "$PID" ]; then
-  echo "::error title=Android smoke test::Forge did not start again after the home-screen setup; see logcat.txt"; exit 1
+  cat "$OUT/relaunch.txt"
+  echo "::error title=Android smoke test::Forge started again after the home-screen setup but stopped within 10 s; see relaunch.txt and logcat.txt"; exit 1
 fi
 adb shell input keyevent KEYCODE_HOME
 sleep 3

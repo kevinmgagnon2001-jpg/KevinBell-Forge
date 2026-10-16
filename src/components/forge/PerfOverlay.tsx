@@ -10,7 +10,7 @@
  */
 import { useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { AUTO, autoStart, autoStep, frameStats, LADDER, type AutoState } from "@/engine/perf";
+import { AUTO, autoStart, autoStep, frameStats, isPauseGap, LADDER, type AutoState } from "@/engine/perf";
 import { EMPTY_SAMPLE, type LiveSample } from "@/engine/gauges";
 import { sendDiagnostics, startRecorder } from "./diagnostics-recorder";
 import { GaugePicker } from "./GaugePicker";
@@ -131,7 +131,20 @@ export function togglePerf() {
 export function PerfProbe() {
   const gl = useThree((s) => s.gl);
   const last = useRef(0);
+  // Back from the background: the next frame spans the time away, so it is not counted (isPauseGap).
+  const resumed = useRef(false);
+  useEffect(() => {
+    const onShow = () => {
+      if (document.visibilityState === "visible") resumed.current = true;
+    };
+    document.addEventListener("visibilitychange", onShow);
+    return () => document.removeEventListener("visibilitychange", onShow);
+  }, []);
   useFrame((_, delta) => {
+    if (isPauseGap(delta * 1000, resumed.current)) {
+      resumed.current = false;
+      return;
+    }
     frames.push(Math.min(delta * 1000, 1000));
     if (frames.length > FRAME_KEEP) frames.splice(0, frames.length - FRAME_KEEP);
     const now = performance.now();
