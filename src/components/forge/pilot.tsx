@@ -16,7 +16,7 @@ import { heightAt } from "@/engine/terrain";
 import { chase, chasePoint, driveSpeed, KEY_PUSH } from "@/engine/drive";
 import { frameCamera, gameById } from "@/engine/arcade";
 import type { LookMode } from "./look";
-import { arcadePlaying, avatarMotion, flight, toggleFlight } from "./body-state";
+import { arcadePlaying, avatarMotion, flight, toggleFlight, townBodies } from "./body-state";
 
 const EYE = 0.62;
 const MIN_Y = 0.45;
@@ -260,6 +260,8 @@ export function Pilot() {
         });
       },
       build: (kind: string) => useForge.getState().dispatchManual("build_play", { kind }),
+      /** Where the townsfolk are now (for the talk checks). */
+      getTownsfolk: () => Object.entries(townBodies).map(([id, b]) => ({ id: Number(id), x: b.x, z: b.z })),
       /** A plain box standing on the ground at (x, z), w by d across and h tall (for the parkour checks). */
       addBox: (x: number, z: number, w: number, d: number, h: number) => {
         const name = `ProbeBox${Date.now() % 100000}${Math.floor(Math.random() * 1000)}`;
@@ -718,6 +720,7 @@ declare global {
       place: (x: number, z: number, yaw: number, y?: number) => void;
       build: (kind: string) => void;
       addBox: (x: number, z: number, w: number, d: number, h: number) => void;
+      getTownsfolk: () => { id: number; x: number; z: number }[];
     };
   }
 }

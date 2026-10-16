@@ -94,10 +94,13 @@ Notes on what was built differently from the plan:
   - The LLM is asked every few minutes and in batches, never per frame. Between plans, movement
     and moves run on device.
   - "Fill the café with regulars", "what did Mia do today?".
-- [ ] **Talking NPCs** (M). *NVIDIA ACE, TMP "NVIDIA's New AI: Making Games Come Alive!"* (likely)
+- [x] **Talking NPCs** (M). *NVIDIA ACE, TMP "NVIDIA's New AI: Making Games Come Alive!"* (likely)
   - Speak to an avatar: speech-to-text (already in `speech.ts`), then the LLM in character, then
     on-device TTS (Android TTS, or Piper on desktop).
   - Mouth shapes from visemes on the jointed head.
+  - Done (talk.ts, Talk.tsx): speech in (speech.ts), the resident model in character with a
+    scripted fallback, the device's own speech out (Web Speech), memory of the talk. Not done:
+    mouth shapes; Piper on desktop.
 - [x] **Crowds that find their way** (M). *TRACE & PACER (CVPR 2023), TMP "NVIDIA's AI Finally
   Solved Walking In Games"*
   - "Fill the plaza with people." ORCA-style steering stands in for the diffusion planner, and the

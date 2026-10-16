@@ -60,6 +60,13 @@ export const useFlight = () => useSyncExternalStore(flight.subscribe, flight.get
 
 export type ArcadeSpot = { game: string; label: string };
 
+/** Talking with a townsperson (Talk.tsx): who is close enough, and who you are talking with. */
+export type TalkState = { id: number; name: string; reply: string; thinking: boolean };
+export const talkNear = store<{ id: number; name: string } | null>(null);
+export const talking = store<TalkState | null>(null);
+export const useTalkNear = () => useSyncExternalStore(talkNear.subscribe, talkNear.get, () => null);
+export const useTalking = () => useSyncExternalStore(talking.subscribe, talking.get, () => null);
+
 /** Keys for a game on a screen of its own (Breakout): the arcade hands them over, and no one else sees them. */
 export const screenKeys: { down: ((event: KeyboardEvent) => void) | null } = { down: null };
 

@@ -7,7 +7,7 @@ import { Laptop, Smartphone } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { carryOf, countApps, deviceDistance, deviceKind, deviceOf, drop, ensureScreen, FLIGHT_MS, homeState, listApps, openApp, OPEN_DEVICE_EVENT, pickUp, pullOut, putAway, SCREEN_REACH, SCREEN_TAG, setHome, summonStep, type Carry, type DeviceApp, type DeviceKind, type HomeState } from "@/engine/device-apps";
 import { INTERACT_EVENT } from "./look";
-import { arcadeNear, arcadePlaying } from "./body-state";
+import { arcadeNear, arcadePlaying, talkNear } from "./body-state";
 import { useForge } from "@/engine/store";
 
 const say = (body: string) => useForge.getState().note([{ tone: "engine", title: "Device", body }]);
@@ -254,7 +254,7 @@ export function DeviceScreen() {
     };
     // At a game, "use" plays it (Arcade.tsx) instead.
     const use = () => {
-      if (arcadeNear.get() || arcadePlaying.get()) return;
+      if (arcadeNear.get() || arcadePlaying.get() || talkNear.get()) return;
       interact(kind, deviceDistance(useForge.getState()) < SCREEN_REACH);
     };
     window.addEventListener(OPEN_DEVICE_EVENT, show);

@@ -52,6 +52,13 @@ devices. Nothing is downloaded or sent anywhere.
   home", "clear the crowd".
 - The town clock runs one town minute per real second.
 - Code: `src/engine/town.ts`, `src/components/forge/Town.tsx`.
+- **Talk to them.** Walk up to someone and a talk bubble with their name appears (E, the gamepad's
+  X, or tap it). They stop, turn to you and say hello. Type, or tap the microphone and speak; they
+  answer in a speech bubble over their head and out loud in a voice of their own (the device's
+  speech). With the resident model loaded they answer in their own words, in character (their
+  traits, what they are doing, their day, whether they know you); without it, from the same facts.
+  They remember the talk ("talked with you about ..."), and next time they say so. Walk away or Esc
+  to end it. Code: `src/engine/talk.ts`, `src/components/forge/Talk.tsx`.
 
 ## The body
 

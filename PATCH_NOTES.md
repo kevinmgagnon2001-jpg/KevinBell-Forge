@@ -1124,3 +1124,20 @@ and mountains around it, under a late-afternoon sky.
 - In-world arcade bar: Exit, Play again and Walk away are icon bubbles; the marble's Release is a glyph.
 - Checked: typecheck, lint (no errors), `npm run test:engine` (302 pass); in Chromium at 412x915:
   walk up, Play, launch, break bricks, lose a life, pause, Esc; no console errors.
+
+## Talking with the townsfolk (Papers roadmap: talking NPCs)
+- talk.ts (tested): a persona prompt from who they are (traits, what they are doing and where, their
+  day, whether they know you, the weather); a scripted answer from the same facts when no model is
+  loaded (greetings, who are you, what are you up to, plans, your day, weather, how are you,
+  remember me, bye), in a voice set by their traits; a model's answer cut to a line or two; the talk
+  kept in their memory; a steady speaking voice per person; plans read as activities ("having
+  lunch by the Bench").
+- Talk.tsx: walk up and a talk prompt shows (E, gamepad X, tap; it stays a little longer for
+  passers-by). They stop and turn to you (Town.tsx), answer in a glass speech bubble over their head
+  (thinking dots while the model works) and out loud through the device's speech. Type or speak
+  (microphone bubble); icon bubbles to send and to stop. Walking away or Esc ends it.
+- resident.ts chatResident: a plain answer without tools, for talking.
+- Checked: typecheck, lint (no errors), `npm run test:engine` (308 pass, 6 new); in Chromium: fill
+  the plaza, walk up to Cleo, E, she greets, "What are you up to?" gets an answer in the bubble, Esc
+  ends it; no console errors. Speech out and the model answer were not heard here (no audio, model
+  not loaded in the check).
