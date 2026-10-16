@@ -1,22 +1,33 @@
 # Pick up here
 
-State at the end of the last session (branch `ccr-cb829fc1-9iqt9m`; all work is committed and pushed).
-History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status per item: `docs/handoff.html`, section 3.
+State at the end of the last session (branch `ccr-0b72a8bd-nli9mn`; all work is committed and pushed).
+History and details: `PATCH_NOTES.md` (the last sections). Roadmap with status per item: `docs/handoff.html`, section 3.
 
-**Next-generation features:** `docs/PAPERS-ROADMAP.md` is a phased to-do list of research from Two Minute Papers
-(NPCs with memory, a skill library from the helm, world events, a new physics solver, crowds, vaulting, generated
-props and sounds). Pick items from Phase 1 first; each says what it touches.
+**Next-generation features:** `docs/PAPERS-ROADMAP.md` is a phased to-do list of research from Two Minute Papers.
+Each item says what it touches.
 
-**Done from the Papers roadmap (this session):** all of Phase 1, NPCs with memory and a day, and
-crowds; then ropes, cables and string lights (`rope.ts`, guide in `docs/WORLD.md`); then vault and climb (`parkour.ts`, guide in `docs/PLAY.md`). Talking NPCs are in too (`talk.ts`, `Talk.tsx`). Next from the roadmap: the AVBD solver core, builder
-agents for arcade games. Smaller follow-ups:
+**Done from the Papers roadmap:** all of Phase 1, NPCs with memory and a day, crowds; and this
+session: vault, mantle and climb (`parkour.ts`), ropes, cables and string lights with swinging
+(`rope.ts`), talking townsfolk with faces and lip sync (`talk.ts`), capes and flags (`cloth.ts`), a
+companion that follows orders (`companion.ts`), fire you can put out (`fire.ts`), moss, frost, rust
+and crystal (`growth.ts`). Also new: the camera pulls in when a wall is behind you
+(`camera-boom.ts`), Hyper Breakout and best scores in the save (`breakout.ts`), weather on the flat
+stage. Guides: `docs/WORLD.md`, `docs/PLAY.md`.
+
+Next from the roadmap: the AVBD solver core (boxes that tumble, stacks, ragdolls; jelly and
+inflatables on it), builder agents for arcade games, smoke rings, the town economy. Smaller
+follow-ups:
+- Feel all of the new movement on the owner's phone and PC (only checked in a software-GL browser at
+  1-2 fps): vault and climb thresholds (`PARKOUR`, `PRESS_CLIMB`), rope pumping (`SWING_PUMP`), the
+  camera boom's ease-out (`BOOM.outRate`), ACCEL, FLY and the camera lag in pilot.tsx.
+- Hear the townsfolk talk (device speech) and try them with the resident model loaded; check the
+  lip sync against the voice.
+- Check the frame rate on the phone with fire, a cape, flags and 24 townsfolk (Stats overlay); fire
+  and cloth have no rung of their own yet.
 - Ask the resident model to rewrite a person's plan every few minutes, batched (town.ts `planDay`).
-- Check the frame rate on the owner's phone with 24 townsfolk and heavy rain (Stats overlay).
-- Feel the new third person and flight on the owner's phone and PC (only checked for direction in a
-  software-GL browser at 1-2 fps); tune ACCEL, FLY and the camera lag in pilot.tsx.
 - Check rung "11" (PostFX.tsx) with the Stats overlay on the phone; it may run at 30-45 fps.
-- Feel the vault, mantle and climb on the phone (PARKOUR thresholds in parkour.ts, PRESS_CLIMB and
-  the trigger speed in pilot.tsx); townsfolk and visited islands do not vault yet.
+- `live-visit.test.ts` "two players beside one island" can fail under heavy load (timing); it
+  passes alone.
 
 ## Where things stand
 
