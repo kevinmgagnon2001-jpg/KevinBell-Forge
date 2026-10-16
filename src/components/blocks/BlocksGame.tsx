@@ -12,7 +12,11 @@ import { COLORS, fits, fitsAnywhere, newGame, place, restore, shapeOf, SIZE, wou
 const SAVE_KEY = "forge.blocks.v1";
 const PREFS_KEY = "forge.blocks.prefs";
 
-type Prefs = { sound: boolean; buzz: boolean };
+/** classic: white board, thin black lines, one blue (the look she knows). bright: the colourful one. */
+type Look = "classic" | "bright";
+type Prefs = { sound: boolean; buzz: boolean; look: Look };
+/** Every block in the classic look. */
+const CLASSIC_BLUE = "#1677ff";
 type Drag = { slot: number; x: number; y: number; touch: boolean };
 type Flash = { key: number; cells: { index: number; color: number }[] };
 type Popup = { key: number; text: string; big: boolean };
@@ -30,9 +34,9 @@ function load(): BlocksState {
 function loadPrefs(): Prefs {
   try {
     const raw = JSON.parse(window.localStorage.getItem(PREFS_KEY) ?? "{}") as Partial<Prefs>;
-    return { sound: raw.sound !== false, buzz: raw.buzz !== false };
+    return { sound: raw.sound !== false, buzz: raw.buzz !== false, look: raw.look === "bright" ? "bright" : "classic" };
   } catch {
-    return { sound: true, buzz: true };
+    return { sound: true, buzz: true, look: "classic" };
   }
 }
 
@@ -68,13 +72,13 @@ const buzz = (ms: number | number[]) => {
   }
 };
 
-function ShapeCells({ shape, cell, gap, style }: { shape: Shape; cell: number; gap: number; style?: CSSProperties }) {
+function ShapeCells({ shape, cell, gap, style, tint }: { shape: Shape; cell: number; gap: number; style?: CSSProperties; tint?: string }) {
   const rows = Math.max(...shape.cells.map(([r]) => r)) + 1;
   const cols = Math.max(...shape.cells.map(([, c]) => c)) + 1;
   return (
     <div className="blk-shape" style={{ width: cols * cell + (cols - 1) * gap, height: rows * cell + (rows - 1) * gap, ...style }}>
       {shape.cells.map(([r, c]) => (
-        <span key={`${r}-${c}`} className="blk-cell is-full" style={{ left: c * (cell + gap), top: r * (cell + gap), width: cell, height: cell, "--blk": COLORS[shape.color] } as CSSProperties} />
+        <span key={`${r}-${c}`} className="blk-cell is-full" style={{ left: c * (cell + gap), top: r * (cell + gap), width: cell, height: cell, "--blk": tint ?? COLORS[shape.color] } as CSSProperties} />
       ))}
     </div>
   );
@@ -82,7 +86,8 @@ function ShapeCells({ shape, cell, gap, style }: { shape: Shape; cell: number; g
 
 export function BlocksGame({ onExit, exitLabel = "Back" }: { onExit?: () => void; exitLabel?: string }) {
   const [game, setGame] = useState<BlocksState | null>(null);
-  const [prefs, setPrefs] = useState<Prefs>({ sound: true, buzz: true });
+  const [prefs, setPrefs] = useState<Prefs>({ sound: true, buzz: true, look: "classic" });
+  const [confirmNew, setConfirmNew] = useState(false);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [flash, setFlash] = useState<Flash | null>(null);
   const [popup, setPopup] = useState<Popup | null>(null);
@@ -136,8 +141,11 @@ export function BlocksGame({ onExit, exitLabel = "Back" }: { onExit?: () => void
     return () => observer.disconnect();
   }, [ready]);
 
-  const pad = 6;
-  const gap = 3;
+  const classic = prefs.look === "classic";
+  // Classic: the board's black shows through 1 px gaps as the grid lines.
+  const pad = classic ? 0 : 6;
+  const gap = classic ? 1 : 3;
+  const colorOf = (c: number) => (classic ? CLASSIC_BLUE : COLORS[c]);
   const cell = (boardPx - pad * 2 - gap * (SIZE - 1)) / SIZE;
 
   /** Where the dragged shape would land: its top-left cell, from where it floats on screen. */
@@ -157,7 +165,7 @@ export function BlocksGame({ onExit, exitLabel = "Back" }: { onExit?: () => void
     const row = Math.round((top - rect.top - pad) / (cell + gap));
     const ok = fits(game.board, shape, row, col);
     return { shape, left, top, row, col, ok, lines: ok ? wouldClear(game.board, shape, row, col) : { rows: [], cols: [] } };
-  }, [drag, game, cell]);
+  }, [drag, game, cell, gap, pad]);
 
   const effects = useCallback(
     (points: number, lines: number, combo: number, allClear: boolean) => {
@@ -222,6 +230,12 @@ export function BlocksGame({ onExit, exitLabel = "Back" }: { onExit?: () => void
     setGame(newGame(seed, game?.best ?? 0));
     setMenu(false);
     setShowOver(false);
+    setConfirmNew(false);
+  };
+  /** New Game asks first when there is a game going, so a stray tap never throws one away. */
+  const askNew = () => {
+    if (game && game.placed > 0 && !game.over) setConfirmNew(true);
+    else restart();
   };
 
   const startDrag = (slot: number) => (event: ReactPointerEvent) => {
@@ -240,11 +254,26 @@ export function BlocksGame({ onExit, exitLabel = "Back" }: { onExit?: () => void
     for (const r of target.lines.rows) for (let c = 0; c < SIZE; c += 1) lit.add(r * SIZE + c);
     for (const c of target.lines.cols) for (let r = 0; r < SIZE; r += 1) lit.add(r * SIZE + c);
   }
-  const trayCell = Math.min(cell * 0.55, 26);
+  const trayCell = classic ? Math.min(cell * 0.62, 30) : Math.min(cell * 0.55, 26);
+  /** A tray piece's cell size: the usual one, smaller for long bars so each fits its third of the tray. */
+  const fitTray = (shape: Shape) => {
+    const cols = Math.max(...shape.cells.map(([, c]) => c)) + 1;
+    const rows = Math.max(...shape.cells.map(([r]) => r)) + 1;
+    const room = boardPx / 3 - 14;
+    const g = classic ? 3 : 2;
+    return Math.min(trayCell, (room - g * (cols - 1)) / cols, (room - g * (rows - 1)) / rows);
+  };
   const newBest = game.best > startBest.current && game.best === game.score && game.score > 0;
 
   return (
-    <div className="blk" onContextMenu={(event) => event.preventDefault()}>
+    <div className={classic ? "blk is-classic" : "blk"} onContextMenu={(event) => event.preventDefault()}>
+      {classic ? (
+        <header className="blk-top is-classic">
+          <strong className="blk-score" aria-live="polite">
+            {game.score}
+          </strong>
+        </header>
+      ) : (
       <header className="blk-top">
         {onExit ? (
           <button type="button" className="blk-icon" onClick={onExit} aria-label={exitLabel}>
@@ -263,9 +292,11 @@ export function BlocksGame({ onExit, exitLabel = "Back" }: { onExit?: () => void
           ⋯
         </button>
       </header>
+      )}
       {menu ? (
-        <div className="blk-menu" role="menu">
-          <button type="button" role="menuitem" onClick={restart}>
+        <div className={classic ? "blk-menu is-classic" : "blk-menu"} role="menu">
+          {classic ? <p className="blk-menu-best">Best score {game.best}</p> : null}
+          <button type="button" role="menuitem" onClick={askNew}>
             New game
           </button>
           <button type="button" role="menuitemcheckbox" aria-checked={prefs.sound} onClick={() => setPrefs({ ...prefs, sound: !prefs.sound })}>
@@ -273,6 +304,9 @@ export function BlocksGame({ onExit, exitLabel = "Back" }: { onExit?: () => void
           </button>
           <button type="button" role="menuitemcheckbox" aria-checked={prefs.buzz} onClick={() => setPrefs({ ...prefs, buzz: !prefs.buzz })}>
             Vibration {prefs.buzz ? "on" : "off"}
+          </button>
+          <button type="button" role="menuitemcheckbox" aria-checked={!classic} onClick={() => setPrefs({ ...prefs, look: classic ? "bright" : "classic" })}>
+            Colourful blocks {classic ? "off" : "on"}
           </button>
           {onExit ? (
             <button type="button" role="menuitem" onClick={onExit}>
@@ -287,7 +321,7 @@ export function BlocksGame({ onExit, exitLabel = "Back" }: { onExit?: () => void
           {game.board.map((color, i) => {
             const isGhost = ghost.has(i);
             const isLit = lit.has(i);
-            const tint = isGhost || (isLit && color === -1) ? COLORS[target!.shape.color] : color >= 0 ? COLORS[color] : undefined;
+            const tint = isGhost || (isLit && color === -1) ? colorOf(target!.shape.color) : color >= 0 ? colorOf(color) : undefined;
             return <span key={i} className={`blk-cell ${color >= 0 ? "is-full" : ""} ${isGhost ? "is-ghost" : ""} ${isLit ? "is-lit" : ""}`} style={tint ? ({ "--blk": tint } as CSSProperties) : undefined} />;
           })}
           {flash
@@ -295,7 +329,7 @@ export function BlocksGame({ onExit, exitLabel = "Back" }: { onExit?: () => void
                 <span
                   key={`${flash.key}-${index}`}
                   className="blk-cell is-full is-clearing"
-                  style={{ position: "absolute", left: pad + (index % SIZE) * (cell + gap), top: pad + Math.floor(index / SIZE) * (cell + gap), width: cell, height: cell, "--blk": COLORS[color], animationDelay: `${((index % SIZE) + Math.floor(index / SIZE)) * 14}ms` } as CSSProperties}
+                  style={{ position: "absolute", left: pad + (index % SIZE) * (cell + gap), top: pad + Math.floor(index / SIZE) * (cell + gap), width: cell, height: cell, "--blk": colorOf(color), animationDelay: `${((index % SIZE) + Math.floor(index / SIZE)) * 14}ms` } as CSSProperties}
                 />
               ))
             : null}
@@ -312,14 +346,48 @@ export function BlocksGame({ onExit, exitLabel = "Back" }: { onExit?: () => void
             const playable = shape ? !game.over && fitsAnywhere(game.board, shape) : false;
             return (
               <div key={slot} className={`blk-slot ${drag?.slot === slot ? "is-lifted" : ""} ${shape && !playable ? "is-stuck" : ""}`} onPointerDown={startDrag(slot)}>
-                {shape && drag?.slot !== slot ? <ShapeCells shape={shape} cell={trayCell} gap={2} /> : null}
+                {shape && drag?.slot !== slot ? <ShapeCells shape={shape} cell={fitTray(shape)} gap={classic ? 3 : 2} tint={classic ? CLASSIC_BLUE : undefined} /> : null}
               </div>
             );
           })}
         </div>
       </div>
 
-      {drag && target ? <ShapeCells shape={target.shape} cell={cell} gap={gap} style={{ position: "fixed", left: target.left, top: target.top, pointerEvents: "none", zIndex: 30, opacity: target.ok ? 1 : 0.8 }} /> : null}
+      {classic ? (
+        <nav className="blk-bottom">
+          <button type="button" className="blk-new" onClick={askNew}>
+            <span className="blk-fab" aria-hidden="true">
+              +
+            </span>
+            New Game
+          </button>
+          <button type="button" className="blk-settings" aria-expanded={menu} onClick={() => setMenu(!menu)}>
+            <svg viewBox="0 0 24 24" width="44" height="44" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.6 7.6 0 0 0-1.7-1L15 3h-4l-.4 2.7a7.6 7.6 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.2 1.6 2 3.5 2.5-1c.5.4 1.1.7 1.7 1L11 21h4l.4-2.7c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z"
+                transform="translate(-1 0)"
+              />
+            </svg>
+            Settings
+          </button>
+        </nav>
+      ) : null}
+
+      {confirmNew ? (
+        <div className="blk-over" role="dialog" aria-label="Start a new game?">
+          <p className="blk-over-title">Start a new game?</p>
+          <p className="blk-over-best">This one ends at {game.score}.</p>
+          <button type="button" className="blk-play" onClick={restart}>
+            New game
+          </button>
+          <button type="button" className="blk-link" onClick={() => setConfirmNew(false)}>
+            Keep playing
+          </button>
+        </div>
+      ) : null}
+
+      {drag && target ? <ShapeCells shape={target.shape} cell={cell} gap={gap} tint={classic ? CLASSIC_BLUE : undefined} style={{ position: "fixed", left: target.left, top: target.top, pointerEvents: "none", zIndex: 30, opacity: target.ok ? 1 : 0.8 }} /> : null}
 
       {showOver ? (
         <div className="blk-over" role="dialog" aria-label="Game over">

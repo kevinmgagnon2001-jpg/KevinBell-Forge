@@ -1,13 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The Blocks launcher icon (scripts/android-manifest.mjs): four coloured tiles on deep blue. -->
+<!-- The Blocks launcher icon (scripts/android-manifest.mjs): a blue-and-white grid of tiles on white,
+     like the game it replaces. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="48dp"
     android:height="48dp"
     android:viewportWidth="48"
     android:viewportHeight="48">
-    <path android:fillColor="#10162F" android:pathData="M10,2h28a8,8 0,0 1,8 8v28a8,8 0,0 1,-8 8h-28a8,8 0,0 1,-8 -8v-28a8,8 0,0 1,8 -8z" />
-    <path android:fillColor="#FF5B5B" android:pathData="M11,10h11a2,2 0,0 1,2 2v10h-13a2,2 0,0 1,-2 -2v-8a2,2 0,0 1,2 -2z" />
-    <path android:fillColor="#FFD23F" android:pathData="M26,10h11a2,2 0,0 1,2 2v8a2,2 0,0 1,-2 2h-11z" />
-    <path android:fillColor="#3EC9FF" android:pathData="M11,26h13v12h-13a2,2 0,0 1,-2 -2v-8a2,2 0,0 1,2 -2z" />
-    <path android:fillColor="#A66CFF" android:pathData="M26,26h11a2,2 0,0 1,2 2v8a2,2 0,0 1,-2 2h-11z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M10,2h28a8,8 0,0 1,8 8v28a8,8 0,0 1,-8 8h-28a8,8 0,0 1,-8 -8v-28a8,8 0,0 1,8 -8z" />
+    <path android:fillColor="#1B2A44" android:pathData="M6.4,6.4h35.2v35.2h-35.2z" />
+    <path android:fillColor="#1677FF" android:pathData="M7.60,7.60h7.30v7.30h-7.30z" />
+    <path android:fillColor="#1677FF" android:pathData="M16.10,7.60h7.30v7.30h-7.30z" />
+    <path android:fillColor="#E9ECF1" android:pathData="M24.60,7.60h7.30v7.30h-7.30z" />
+    <path android:fillColor="#E9ECF1" android:pathData="M33.10,7.60h7.30v7.30h-7.30z" />
+    <path android:fillColor="#1677FF" android:pathData="M7.60,16.10h7.30v7.30h-7.30z" />
+    <path android:fillColor="#1677FF" android:pathData="M16.10,16.10h7.30v7.30h-7.30z" />
+    <path android:fillColor="#1677FF" android:pathData="M24.60,16.10h7.30v7.30h-7.30z" />
+    <path android:fillColor="#E9ECF1" android:pathData="M33.10,16.10h7.30v7.30h-7.30z" />
+    <path android:fillColor="#1677FF" android:pathData="M7.60,24.60h7.30v7.30h-7.30z" />
+    <path android:fillColor="#1677FF" android:pathData="M16.10,24.60h7.30v7.30h-7.30z" />
+    <path android:fillColor="#1677FF" android:pathData="M24.60,24.60h7.30v7.30h-7.30z" />
+    <path android:fillColor="#E9ECF1" android:pathData="M33.10,24.60h7.30v7.30h-7.30z" />
+    <path android:fillColor="#1677FF" android:pathData="M7.60,33.10h7.30v7.30h-7.30z" />
+    <path android:fillColor="#1677FF" android:pathData="M16.10,33.10h7.30v7.30h-7.30z" />
+    <path android:fillColor="#1677FF" android:pathData="M24.60,33.10h7.30v7.30h-7.30z" />
+    <path android:fillColor="#1677FF" android:pathData="M33.10,33.10h7.30v7.30h-7.30z" />
 </vector>
