@@ -7,7 +7,7 @@
 import { useFrame } from "@react-three/fiber";
 import { useRef } from "react";
 import { useForge } from "@/engine/store";
-import { townBodies } from "./body-state";
+import { talking, townBodies } from "./body-state";
 import { NPC_TAG, placesOf, solidsOf, stepTown, type Place, type Disc, type Town as TownState } from "@/engine/town";
 
 
@@ -33,9 +33,18 @@ export function Town() {
       c.places = placesOf(state);
       c.solids = solidsOf(state);
     }
+    const chat = talking.get();
+    const held = chat ? townBodies[chat.id] : undefined;
     const out = stepTown(state, town, townBodies, delta, c.places, c.solids);
     for (const key of Object.keys(townBodies)) if (!out.bodies[Number(key)]) delete townBodies[Number(key)];
     Object.assign(townBodies, out.bodies);
+    if (chat && held && townBodies[chat.id]) {
+      // Someone you are talking with stops and turns to you.
+      const me = Object.values(state.entities).find((e) => e.tags.includes("architect"))?.transform.position;
+      const want = me ? Math.atan2(me.x - held.x, me.z - held.z) : held.yaw;
+      const turn = Math.atan2(Math.sin(want - held.yaw), Math.cos(want - held.yaw));
+      townBodies[chat.id] = { ...townBodies[chat.id], x: held.x, z: held.z, vx: 0, vz: 0, speed: 0, yaw: held.yaw + turn * Math.min(1, delta * 6) };
+    }
     // The clock and minds advance in the store less often; positions go with them.
     l.town = out.town;
     since.current += delta;

@@ -1007,3 +1007,63 @@ export function Scenery({ level, shadows, eleven = false }: { level: SceneryLeve
     </>
   );
 }
+
+/**
+ * The flat stage for the lowest rung (?scenery=off): no land, sky dome or reflections, but the same
+ * weather. The background and fog take the sky's horizon, the lights its sun and fill, the floor
+ * darkens and shines when wet, and rain or snow falls (at the lightest count).
+ */
+export function FlatStage() {
+  const sun = useRef<DirectionalLight>(null);
+  const hemi = useRef<HemisphereLight>(null);
+  const fogRef = useRef<Fog>(null);
+  const floor = useRef<MeshStandardMaterial>(null);
+  const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera);
+  const drops = useBuilt(() => makeDrops("min").points, []);
+  useWeatherSky((sky, flash, dt) => {
+    if (scene.background instanceof Color) setRgb(scene.background, sky.horizon.map((v) => v * 0.55) as RGB);
+    const fog = fogRef.current;
+    if (fog) setRgb(fog.color, sky.horizon.map((v) => v * 0.55) as RGB);
+    const light = sun.current;
+    if (light) {
+      setRgb(light.color, sky.light);
+      light.intensity = 0.5 + sky.sunIntensity * 0.6 + flash * 1.5;
+      light.position.set(sky.lightDir[0] * 12, Math.max(2, sky.lightDir[1] * 12), sky.lightDir[2] * 12);
+    }
+    if (hemi.current) {
+      setRgb(hemi.current.color, sky.hemiSky);
+      setRgb(hemi.current.groundColor, sky.hemiGround);
+      hemi.current.intensity = 0.35 + sky.hemiIntensity * 0.6 + flash * 1.2;
+    }
+    if (floor.current) {
+      floor.current.roughness = 1 - sky.wet * 0.65;
+      floor.current.metalness = sky.wet * 0.2;
+    }
+    const amount = Math.max(sky.rain, sky.snow);
+    const u = (drops.material as ShaderMaterial).uniforms;
+    drops.visible = amount > 0.01;
+    if (drops.visible) {
+      u.uTime.value += dt;
+      u.uAmount.value = amount;
+      u.uSnow.value = sky.snow / Math.max(0.001, sky.snow + sky.rain);
+      u.uWind.value = sky.wind;
+      (u.uCam.value as Vector3).copy(camera.position);
+      setRgb(u.uTint.value as Color, sky.fog.map((v) => 0.55 + v * 0.45) as RGB);
+    }
+  });
+  return (
+    <>
+      <color attach="background" args={["#09090b"]} />
+      <fog ref={fogRef} attach="fog" args={["#09090b", 36, 72]} />
+      <hemisphereLight ref={hemi} args={["#f3f4f6", "#8b919c", 0.7]} />
+      <ambientLight intensity={0.3} />
+      <directionalLight ref={sun} position={[7, 11, 5]} intensity={1.55} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.012, 0]}>
+        <circleGeometry args={[30, 80]} />
+        <meshStandardMaterial ref={floor} color="#1c2128" roughness={1} metalness={0} />
+      </mesh>
+      <primitive object={drops} />
+    </>
+  );
+}

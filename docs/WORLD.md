@@ -52,6 +52,14 @@ devices. Nothing is downloaded or sent anywhere.
   home", "clear the crowd".
 - The town clock runs one town minute per real second.
 - Code: `src/engine/town.ts`, `src/components/forge/Town.tsx`.
+- **Talk to them.** Walk up to someone and a talk bubble with their name appears (E, the gamepad's
+  X, or tap it). They stop, turn to you and say hello. Type, or tap the microphone and speak; they
+  answer in a speech bubble over their head and out loud in a voice of their own (the device's
+  speech). With the resident model loaded they answer in their own words, in character (their
+  traits, what they are doing, their day, whether they know you); without it, from the same facts.
+  They remember the talk ("talked with you about ..."), and next time they say so. Townsfolk have
+  faces now: they blink, and their mouths move with the words. Walk away or Esc
+  to end it. Code: `src/engine/talk.ts`, `src/components/forge/Talk.tsx`.
 
 ## The body
 
@@ -84,3 +92,75 @@ devices. Nothing is downloaded or sent anywhere.
   tesseract turns by the name.
 - Code: `src/engine/polytope.ts` (the shapes, checked), `src/engine/hyper.ts`,
   `src/components/forge/Hyper.tsx`, `src/components/forge/HyperBackdrop.tsx`.
+
+## Ropes, cables and string lights
+
+Say "hang a rope", "string lights between the column and the terminal" or "run a cable from the
+bench to the pillar" (tool `hang_rope`, `src/engine/rope.ts`, drawn by `Rope.tsx`). A rope hangs
+from a ring in front of you, or from a thing you name, and swings when you or the townsfolk walk
+into it. Cables and string lights are slung between two things (or "here") with a little sag and
+follow those things when they move. They drape over exhibits and lie on the ground instead of
+passing through, and the weather's wind sways them. String lights carry warm bulbs that glow (and
+bloom on the rungs with bloom).
+
+The simulation is a chain of particles solved by position-based dynamics: links held at length,
+skip-one links for bending, long-range tethers so a long chain never stretches, collisions with
+the world's boxes, the land and people. It is a light stand-in for Stable Cosserat Rods (no twist).
+
+**Swing on a rope.** Jump at a hanging rope and you catch it: hands round it, one over the other.
+Push the stick the way you are swinging to pump it higher (it adds most when it goes with the
+swing), and jump to let go with the swing's speed. Your weight is a heavy particle in the rope's
+own simulation, so the rope bends and sways with you.
+
+## Capes and flags
+
+"Give me a cape" (violet, night, crimson, teal, gold, white, or "a red cape"), "take the cape off",
+"raise a flag" (4D, rainbow, pirate or white). Tools `wear_cape` and `raise_flag`
+(`src/engine/cloth.ts`, drawn by `Cloth.tsx`). Both are real cloth: a grid of particles with links
+across, down and on the diagonals (soft, so it drapes and folds), skip-one links against folding,
+and tethers so it never stretches. The cape is pinned across your shoulders and pushed out of your
+body (capsules for the torso, legs and head), so it swings as you walk and streams when you run or
+fly. Wind pushes each little triangle by how squarely it meets it, drags the cloth downwind and
+sheds waves along a flag to its free edge. Fabric uses a sheen material so the folds catch the
+light.
+
+## Your companion
+
+"Summon a companion" (or just give an order) and Pip appears beside you and follows. Orders:
+"follow me", "wait here", "come here", "go to the bench", "bring me the gold", "put the clay on the
+bench", "stack the cubes here"; join several with "then" or "and". Pip walks with the same physics
+as you, picks things up and carries them over its head, sets them down on whatever is already
+there (so "stack" makes a real stack), says what it is doing in a bubble, and comes back to your
+side when it is done. Words it does not know, addressed to it by name ("Pip, tidy up the cubes"),
+go to the resident model when one is loaded, which answers in Pip's little language
+(`companionPrompt`). Code: `src/engine/companion.ts`, `src/components/forge/Companion.tsx`.
+
+## Fire
+
+"Set the bench on fire", "light a campfire", "burn the crates", "put out the fire" (tools
+`set_fire`, `make_campfire`, `put_out_fire`; `src/engine/fire.ts`, drawn by `Fire.tsx`). A coarse
+grid of heat, fuel and wetness lies over the world; flammable things (wood, crates, hay, paper,
+the bench, anything marked flammable) put fuel under themselves. Fire creeps along them, jumps
+small gaps downwind, eats the fuel and leaves what burned charred black. Rain wets everything and
+slowly puts it out; hold H (or the water bubble that appears near a fire) to spray water from
+your hands where you look, with steam where it hits. Flames are camera-facing sheets with a noise
+shader, glowing past white so the bloom takes them; smoke drifts with the wind, embers swirl up,
+and a flickering warm light plays on everything near.
+
+## Moss, frost, rust and crystal
+
+"Grow moss on the column", "frost the bench", "let the steel rust", "crystallize the gold", "clean
+the column" (tool `grow`; `src/engine/growth.ts`, drawn by `Growth.tsx`). Each kind is a Gray-Scott
+reaction-diffusion pattern (a continuous cellular automaton: coral for moss, fine worms for frost,
+blotches for rust, a glowing labyrinth for crystal), grown once into a tiling texture and wrapped
+over the thing on every side at two scales. It creeps out from a spot near the base with a ragged
+living edge until it covers the thing; frost and crystal glow.
+
+## Smoke rings
+
+"Blow a smoke ring", "blow two smoke rings" (`src/engine/vortex.ts`, drawn by `SmokeRings.tsx`).
+Each ring is a loop of vortex filament that moves with the velocity all the filaments induce
+(Biot–Savart with a smoothed core, stepped with the midpoint rule), so it glides forward on its own;
+a second, smaller ring behind catches up, shrinks and slips through the first, which widens: they
+leapfrog. The smoke is tracer particles carried by that same field.
+

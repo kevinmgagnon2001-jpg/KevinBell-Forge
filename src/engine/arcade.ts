@@ -10,7 +10,7 @@
  * moves (with keys and pad buttons), how a move changes the world, and its clock. Plain data plus
  * pure functions, so it is tested here and drawn by Arcade.tsx.
  */
-import { buildMarble, buildTetris, CELL, COLS, playTetris } from "./manifold.ts";
+import { buildBreakout, buildMarble, buildTetris, CELL, COLS, playTetris } from "./manifold.ts";
 import type { Entity, Vec3, World } from "./types.ts";
 
 export type GameMove = {
@@ -94,10 +94,19 @@ export const GAMES: GameSpec[] = [
       { id: "down", label: "▼", keys: ["ArrowDown", "KeyS"], pad: [13], repeat: true },
       { id: "drop", label: "⤓", keys: ["Space"], pad: [2] },
     ],
-    play: playTetris,
+    // A finished game's lines are its score; the best is kept in the save.
+    play: (world, move) => {
+      const next = playTetris(world, move);
+      const board = tetrisBoard(next);
+      return board && board.customData.over === "1" ? withBest(next, "tetris", linesOf(board)) : next;
+    },
     // Faster as you clear lines.
     clock: (_, board) => ({ every: Math.max(0.12, 0.65 - linesOf(board) * 0.025), move: "down" }),
-    status: (_, board) => (board.customData.over === "1" ? `Game over · ${linesOf(board)} lines` : `${linesOf(board)} lines`),
+    status: (world, board) => {
+      const best = bestOf(world, "tetris");
+      const tail = best ? ` · best ${best}` : "";
+      return board.customData.over === "1" ? `Game over · ${linesOf(board)} lines${tail}` : `${linesOf(board)} lines${tail}`;
+    },
     over: (_, board) => board.customData.over === "1",
     restart: buildTetris,
   },
@@ -107,7 +116,7 @@ export const GAMES: GameSpec[] = [
     find: marbleStart,
     spot: () => ({ x: -4.4, y: 1, z: 0.6 }),
     framing: () => ({ at: { x: -4.1, y: 1.2, z: 0.6 }, toward: { x: 0.75, y: 0.5, z: 0.45 }, width: 5, height: 3.4 }),
-    moves: [{ id: "release", label: "Release", keys: ["Space", "Enter"], pad: [0, 2] }],
+    moves: [{ id: "release", label: "⤓", keys: ["Space", "Enter"], pad: [0, 2] }],
     play: (world, move) => (move === "release" ? releaseMarble(world) : world),
     status: (world) => {
       const ball = marbleBall(world);
@@ -150,6 +159,35 @@ export const BLOCKS_GAME: GameSpec = {
   screen: true,
 };
 GAMES.push(BLOCKS_GAME);
+
+export const BREAKOUT_GAME: GameSpec = {
+  ...BLOCKS_GAME,
+  id: "breakout",
+  label: "Hyper Breakout",
+  find: (world) => Object.values(world.entities).find((e) => e.customData.play === "breakout"),
+  restart: buildBreakout,
+};
+GAMES.push(BREAKOUT_GAME);
+
+// ---------- best scores, kept in the save ----------
+
+export const bestOf = (world: Pick<World, "best">, game: string): number => world.best?.[game] ?? 0;
+
+/** The world with `score` as this game's best, if it beats it (the same world otherwise). */
+export function withBest<W extends Pick<World, "best">>(world: W, game: string, score: number): W {
+  if (!Number.isFinite(score) || score <= bestOf(world, game)) return world;
+  return { ...world, best: { ...world.best, [game]: Math.floor(score) } };
+}
+
+/** Best scores from a save: known-looking ids and whole, non-negative numbers only. */
+export function cleanBest(value: unknown): Record<string, number> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const out: Record<string, number> = {};
+  for (const [id, score] of Object.entries(value as Record<string, unknown>).slice(0, 32)) {
+    if (/^[a-z0-9-]{1,24}$/.test(id) && typeof score === "number" && Number.isFinite(score) && score >= 0) out[id] = Math.floor(Math.min(score, 1e9));
+  }
+  return Object.keys(out).length ? out : undefined;
+}
 
 export const gameById = (id: string | undefined) => GAMES.find((g) => g.id === id);
 

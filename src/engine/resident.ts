@@ -213,3 +213,19 @@ export async function completeResident(prompt: string): Promise<ResidentTurn> {
     return readTurn(result, spec.label);
   }
 }
+
+/** A plain answer in words, no tools: a townsperson talking (talk.ts). Short and a little lively. */
+export async function chatResident(prompt: string): Promise<string> {
+  if (!engine || !ready || !currentId) throw new Error("model is not loaded");
+  const result = await engine.createChatCompletion({
+    max_tokens: 90,
+    temperature: 0.8,
+    top_k: 40,
+    top_p: 0.95,
+    min_p: 0.05,
+    chat_template_kwargs: { enable_thinking: false },
+    stop: STOP,
+    messages: [{ role: "user", content: prompt }],
+  });
+  return result.choices?.[0]?.message?.content?.trim() ?? "";
+}

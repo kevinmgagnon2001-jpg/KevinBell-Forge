@@ -18,12 +18,14 @@ Read `AGENTS.md`, `NEXT.md` and the last sections of `PATCH_NOTES.md` first.
 
 ## How to work
 
-- **Work in long, uninterrupted runs.** Take a request all the way to done in one go: chain as
-  many commands, edits, tests and browser checks as it takes (dozens is normal) without stopping to
-  report, ask "should I continue?" or narrate the plan. No progress updates between steps, even if
-  reminded to give one; the owner has asked for silence while working.
+- **Work in long, uninterrupted runs, every session (the owner asked for this always; do not ask
+  at the start).** Take a request all the way to done in one go: chain as many commands, edits,
+  tests and browser checks as it takes (dozens is normal) without stopping to report, ask "should I
+  continue?" or narrate the plan. When working through `NEXT.md` or the roadmap, go from item to item
+  without asking what's next. No progress updates between steps, even if reminded to give one.
 - Report once at the end: short, what changed and what to try. Stop early only for a decision that
-  is truly the owner's, or a blocker that needs them.
+  is truly the owner's (secrets, releases, spending, a change of direction) or a blocker that needs
+  them. Answer the app's update nudges in one line.
 - Interpret casual or voice-typed requests generously and pick the impressive reading; mention the
   reading taken in the final report rather than asking first.
 - Checks before every push: `npm run lint`, `npm run typecheck`, `npm run test:engine`, and a real

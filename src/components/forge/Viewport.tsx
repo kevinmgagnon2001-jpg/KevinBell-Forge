@@ -16,7 +16,7 @@ import { scenePalette } from "./palette";
 import { Pilot } from "./pilot";
 import { RoomPicture } from "./picture";
 import { probeHardware, qualityFor, sceneryRequested, softRenderRequested, type SceneryLevel } from "@/engine/hardware";
-import { Scenery } from "./Scenery";
+import { FlatStage, Scenery } from "./Scenery";
 import { PerfOverlay, PerfProbe, startQuality, togglePerf, usePerf } from "./PerfOverlay";
 import { LADDER, startRung } from "@/engine/perf";
 import { faceLook, lookStick, pilotKeys, pilotStick, pointerClaim, setAimPoint, setGazeLock, useGazeId, useLook } from "./look";
@@ -29,7 +29,7 @@ import { AvatarFigure } from "./Avatar";
 import { Arcade } from "./Arcade";
 import { MovesButton, MovesOverlay } from "./Moves";
 import { HelmAsk } from "./HelmAsk";
-import { toggleFlight, townBodies, useArcadePlaying, useFlight } from "./body-state";
+import { companionBodies, toggleFlight, townBodies, useArcadePlaying, useFlight } from "./body-state";
 import { stepBodies } from "@/engine/physics";
 import { rotationLabel, setRotation, useRotation } from "./rotation";
 import { nextRotation } from "@/engine/view";
@@ -37,8 +37,17 @@ import { addGlint, glintsAllowed, setGlintsAllowed } from "./glint";
 import { SoundStage } from "./SoundStage";
 import { PostFX } from "./PostFX";
 import { HyperBubble } from "./Hyper";
+import { Ropes } from "./Rope";
+import { Talk, TalkBubble } from "./Talk";
+import { Cape, Flags } from "./Cloth";
+import { Companion } from "./Companion";
+import { Fire, FireControls } from "./Fire";
+import { Growths } from "./Growth";
+import { SmokeRings } from "./SmokeRings";
+import { RigidBodies } from "./Rigid";
+import { ROPE_TAG } from "@/engine/rope";
 import type { ShapeName } from "@/engine/polytope";
-import { Activity, ArrowBigUp, Eye, House, LayoutGrid, Maximize2, Minimize2, Move, PersonStanding, PlaneLanding, RotateCw, ScanEye, Wind } from "lucide-react";
+import { Activity, ArrowBigUp, Eye, House, LayoutGrid, Maximize2, Minimize2, Move, Palette, PersonStanding, PlaneLanding, RotateCw, ScanEye, Wind, X } from "lucide-react";
 import type { Post } from "@/engine/perf";
 import { Town } from "./Town";
 import { NPC_TAG } from "@/engine/town";
@@ -416,6 +425,9 @@ function LabConsole() {
         </button>
         <button type="button" onClick={() => act("build_play", { kind: "blocks" })}>
           Blocks
+        </button>
+        <button type="button" onClick={() => act("build_play", { kind: "breakout" })}>
+          Breakout
         </button>
         <button type="button" onClick={() => act("play_move", { move: "left" })}>
           Piece left
@@ -915,6 +927,8 @@ function BodyInner({ entity, selected }: { entity: Entity; selected: boolean }) 
       />
     ) : null;
   if (entity.customData.method === "nanite") return <ClusterCut />;
+  // Ropes are drawn in world space by <Ropes>; the entity is only their handle.
+  if (entity.tags.includes(ROPE_TAG)) return null;
   if (entity.customData.hyper) return <HyperBubble shape={entity.customData.hyper as ShapeName} />;
   if (entity.tags.includes(SCREEN_TAG)) return <DeviceMesh entity={entity} />;
   if (entity.tags.includes(TV_TAG)) return <TvMesh />;
@@ -1075,13 +1089,15 @@ function EntityNode({
 
   const turn = useRef<Group>(null);
   const npc = entity.tags.includes(NPC_TAG);
+  const companion = entity.tags.includes("companion");
   useFrame((_, delta) => {
     const group = ref.current;
     // Townsfolk move between commits: follow the live town (Town.tsx).
-    const live = npc ? townBodies[entity.id] : undefined;
+    const live = npc ? townBodies[entity.id] : companion ? companionBodies[entity.id] : undefined;
     if (group && live) {
       group.position.x = live.x;
       group.position.z = live.z;
+      if ("y" in live) group.position.y = live.y;
       turn.current?.quaternion.set(0, Math.sin(live.yaw / 2), 0, Math.cos(live.yaw / 2));
     }
     if (!group || reduce) return;
@@ -1117,7 +1133,7 @@ function EntityNode({
       <group ref={turn} scale={[s.x, s.y, s.z] as Vector3Tuple} quaternion={quat}>
         <Body entity={entity} selected={selected} />
       </group>
-      {entity.physics ? <VelocityMark velocity={entity.physics.velocity} /> : null}
+      {entity.physics && !entity.tags.includes("rigid") ? <VelocityMark velocity={entity.physics.velocity} /> : null}
       {(selected || gazed) && !entity.tags.includes("floor") ? (
         <lineSegments raycast={() => null} geometry={OUTLINE_EDGES} dispose={null} scale={[s.x * 1.08, s.y * 1.08, s.z * 1.08]} quaternion={quat}>
           <lineBasicMaterial color={gazed && !selected ? "#7ee0c8" : scenePalette.mark} transparent opacity={0.95} />
@@ -1213,7 +1229,26 @@ function GazeLock() {
 const MESH_PACKS = ["gem", "knot", "vase", "crystal"] as const;
 
 
+const DECK_KEY = "forge.deck.open";
+
 function TextureDeck() {
+  // Folded into one bubble unless opened (remembered on this device).
+  const [open, setOpen] = useState(() => {
+    try {
+      return typeof localStorage !== "undefined" && localStorage.getItem(DECK_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () =>
+    setOpen((was) => {
+      try {
+        localStorage.setItem(DECK_KEY, was ? "0" : "1");
+      } catch {
+        // Not remembered here; it still opens and closes.
+      }
+      return !was;
+    });
   const gaze = useGazeId();
   const mode = useLook().mode;
   const selectedId = useForge((s) => s.selectedId);
@@ -1251,9 +1286,12 @@ function TextureDeck() {
     useForge.getState().dispatchManual("edit_entity", { id: String(target.id), asset });
   };
   return (
-    <div className="tex-deck" aria-label="Texture deck">
-      <p className="tex-deck-note">{note || (target ? target.name : mode === "bench" ? "Select a solid" : "Look to wrap")}</p>
-      {TEXTURE_PACKS.map((pack, index) => {
+    <div className={open ? "tex-deck is-open" : "tex-deck"} aria-label="Texture deck">
+      <button type="button" className="visor-key bubble-icon tex-toggle" aria-label={open ? "Close the textures" : "Textures"} title={open ? "Close the textures" : "Textures: wrap what you look at"} aria-expanded={open} onClick={toggle}>
+        {open ? <X aria-hidden /> : <Palette aria-hidden />}
+      </button>
+      {open ? <p className="tex-deck-note">{note || (target ? target.name : mode === "bench" ? "Select a solid" : "Look to wrap")}</p> : null}
+      {open && TEXTURE_PACKS.map((pack, index) => {
         const angle = Math.PI + ((index / (TEXTURE_PACKS.length - 1)) - 0.5) * 2.15;
         const radius = 118;
         return (
@@ -1270,7 +1308,7 @@ function TextureDeck() {
           </button>
         );
       })}
-      {MESH_PACKS.map((asset, index) => {
+      {open && MESH_PACKS.map((asset, index) => {
         const angle = Math.PI + ((index / (MESH_PACKS.length - 1)) - 0.5) * 1.15;
         const radius = 58;
         return (
@@ -1306,15 +1344,7 @@ function Stage({ scenery, shadows, post }: { scenery: SceneryLevel | "off"; shad
     <>
       {scenery === "off" ? (
         <>
-          <color attach="background" args={[scenePalette.bg]} />
-          <fog attach="fog" args={[scenePalette.fog, 36, 72]} />
-          <hemisphereLight args={[scenePalette.key, scenePalette.fill, 0.7]} />
-          <ambientLight intensity={0.38} />
-          <directionalLight position={[7, 11, 5]} intensity={1.55} color={scenePalette.key} />
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.012, 0]}>
-            <circleGeometry args={[30, 80]} />
-            <meshStandardMaterial color="#1c2128" roughness={1} metalness={0} />
-          </mesh>
+          <FlatStage />
           <gridHelper args={[40, 40, scenePalette.gridMajor, scenePalette.grid]} position={[0, 0, 0]} />
         </>
       ) : (
@@ -1338,8 +1368,17 @@ function Stage({ scenery, shadows, post }: { scenery: SceneryLevel | "off"; shad
       ))}
       <Pilot />
       <Settle paused={dragging} />
+      <RigidBodies paused={dragging} />
       <SoundStage />
       <Town />
+      <Ropes />
+      <TalkBubble />
+      <Cape />
+      <Flags />
+      <Companion />
+      <Fire />
+      <Growths />
+      <SmokeRings />
       <OrbitControls
         makeDefault
         enableDamping
@@ -1525,16 +1564,26 @@ function Visor() {
   const gaze = useGazeId();
   const looked = useForge((s) => (gaze == null ? null : (s.entities[gaze] ?? null)));
   const last = useForge((s) => s.history[s.history.length - 1]);
+  // A new message shows for a few seconds, then gets out of the way; so does the controls hint.
+  const [fresh, setFresh] = useState(false);
+  const [hint, setHint] = useState(true);
+  useEffect(() => {
+    if (!last) return;
+    setFresh(true);
+    const t = window.setTimeout(() => setFresh(false), 6000);
+    return () => window.clearTimeout(t);
+  }, [last]);
+  useEffect(() => {
+    const t = window.setTimeout(() => setHint(false), 12000);
+    return () => window.clearTimeout(t);
+  }, []);
   if (mode === "bench") return null;
   return (
     <div className={mode === "first" ? "visor is-first" : "visor"}>
       <div className="visor-frame" />
       <div className="visor-cross" aria-hidden="true" />
-      <p className="visor-read">
-        {looked ? `Looking at ${looked.name}` : "Looking at the lab"}
-        {last ? ` · ${last.title}: ${last.body.replace(/\s+/g, " ").slice(0, 72)}` : ""}
-      </p>
-      <p className="visor-hint">The stick walks where you push it: a little walks, all the way runs. WASD jogs, Shift runs, Q/E dash, Space jumps. F flies: look to steer, W boosts, S hovers.</p>
+      {fresh && last ? <p className="visor-read">{`${last.title}: ${last.body.replace(/\s+/g, " ").slice(0, 96)}`}</p> : looked ? <p className="visor-read">{looked.name}</p> : null}
+      {hint ? <p className="visor-hint">The stick walks where you push it: a little walks, all the way runs. WASD jogs, Shift runs, Q/E dash, Space jumps. F flies: look to steer, W boosts, S hovers.</p> : null}
       {immersive ? <HelmAsk /> : null}
     </div>
   );
@@ -1584,7 +1633,7 @@ export function Viewport() {
       </Canvas>
       {soft ? <RoomPicture /> : null}
       <div className="hud">
-        <p className="hud-readout">
+        <p className={mode === "bench" ? "hud-readout" : "hud-readout is-quiet"}>
           <span>tick {String(tick).padStart(4, "0")}</span>
           <span>
             {count} {count === 1 ? "entity" : "entities"}
@@ -1599,6 +1648,8 @@ export function Viewport() {
       <Visor />
       <Steer />
       <Arcade />
+      <Talk />
+      <FireControls />
       <TextureDeck />
       <PerfOverlay />
       <MovesOverlay />

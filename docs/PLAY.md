@@ -4,7 +4,16 @@
 
 You walk now: gravity holds you to whatever is under you (the deck, a box you climbed, the hills
 outside the lab), walls and exhibits stop you, and you slide along them. Kerbs and steps up to 40 cm
-are walked straight onto; anything taller needs a jump.
+are walked straight onto; anything taller needs a jump, or a vault or climb.
+
+**Vault and climb** (`src/engine/parkour.ts`, after PARC): run at a low, thin wall (knee to waist
+high) and you vault it, one hand on the top and legs tucked to the side, landing on the far side
+still running. Walk up to a crate about chest high and push into it (or jog at it) and you mantle
+onto it: hands on the edge, push up, a knee, stand. A ledge up to about 2.3 m takes a jump (Space,
+A, or a moment pushing into it): you jump to a hang, pull up and knee over. A ledge probe looks
+ahead along the way you are going and picks the move by height and depth; it only acts if you
+face the obstacle, there is head room on top, and (for a vault) somewhere to land. The hands reach
+the ledge by two-bone IK.
 
 | Do | Keyboard | Gamepad | Touch |
 | --- | --- | --- | --- |
@@ -66,6 +75,15 @@ all the time now, not only while Run is on; a body at rest sleeps and costs noth
 fixtures (kinematic) stay put and block. Set `bounce` (0..0.95) or `friction` in an entity's data to
 change how lively it is. Engine: `src/engine/physics.ts`, tested in `physics.test.ts`.
 
+## Dominoes and Jenga
+
+"Line up 30 dominoes" (or "in a curve"), "build a jenga tower", "knock them over", "knock over the
+tower" (tools `build_dominoes`, `build_jenga`, `knock_over`). These are real rigid bodies on their
+own solver (`src/engine/rigid.ts`, kept in step by `Rigid.tsx`): oriented boxes that turn, with
+contacts found at each box's corners and edge middles, friction, a little bounce, and impulses
+iterated with last step's as the start (warm starting) so stacks stand still; still bodies sleep
+and wake when knocked. Walk into the first domino and it tips (a kick lands high on the body).
+
 ## The arcade
 
 Build a game ("build tetris", "build a marble run", or the Tetris button on the bench), walk up to
@@ -77,6 +95,19 @@ screen, the sticks give way to the game's own buttons, and the game keeps its ow
 - **Marble run:** Space (or Release) puts the marble back on top.
 
 Esc, the gamepad's B or Exit puts you back on your feet where you stood.
+
+## Hyper Breakout
+
+"Build breakout" (or the bench's Breakout button) puts a glowing cabinet across from Blocks. Play
+it and it fills the screen: neon bricks in the 4D palette (tougher ones take two or three hits and
+show cracks), a ball with a light trail, sparks and a little shake when bricks break, and a glassy
+bubble paddle. Drag anywhere or move the mouse to steer (or the arrow keys); tap, click or Space to
+launch; P pauses; Esc walks away. Capsules drop now and then: three balls, a wide paddle, slow
+time. Clear the wall for the next level (six patterns, a faster ball). Rules in
+`src/engine/breakout.ts`, the screen in `BreakoutGame.tsx`.
+
+Best scores are kept in the save, per game (`world.best`, `arcade.ts` withBest): Breakout's score
+and Tetris's lines; Tetris shows its best in the bar.
 
 ## Adding a game
 

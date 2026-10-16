@@ -1067,3 +1067,168 @@ and mountains around it, under a late-afternoon sky.
 - Checked: typecheck, lint (no errors), `npm run test:engine` (271 pass), production build and the
   built app with no console errors; in Chromium at the 11 rung: a 120-cell bubble and the sword in
   hand, glowing.
+
+## Vault and climb (Papers roadmap: PARC, light)
+- parkour.ts (tested): a ledge probe along the way you are going, over the same solids the walker
+  collides with (stacked boxes count as one, rows of crates as one deep obstacle), picks the move
+  by height and depth: vault (up to 1.2 m and 0.9 m deep, at a run or when too thin to stand on),
+  mantle (up to 1.25 m), climb from a hang (up to 2.3 m). It checks head room over the edge and on
+  top and, for a vault, a landing on the far side. Each move is a smooth scripted path that never
+  dips into the obstacle; twoBone solves arms to the ledge.
+- pilot.tsx: running at something low and thin vaults it and keeps the run; jogging at a crate
+  mantles onto it; a jump, or a moment pushing into a wall, climbs. Only when facing it.
+- Avatar.tsx: poses by phase: the speed vault (one hand planted, legs tucked aside, the free arm out,
+  a light landing crouch), the mantle (push up, knee onto the top), the climb (jump to a hang, arms
+  overhead on the ledge, pull, knee over).
+- A test-only probe `__controlsTest.addBox` places plain boxes for browser checks.
+- Checked: typecheck, lint (no errors, no new warnings), `npm run test:engine` (280 pass, 9 new),
+  and in Chromium (software GL) in the lab: a 0.9 m wall vaulted at a run, a 1 m crate mantled
+  walking, a 1.9 m ledge climbed with Space; no console errors.
+
+## The camera pulls in when a wall is behind you
+- camera-boom.ts (tested): the third-person camera sits on a boom from over the shoulders; walls,
+  exhibits and hills in the way slide it in to just in front of them (loose and small things do
+  not), at once, and it eases back out when clear. Pulled in close it rises to look over the head.
+- Checked: typecheck, lint (no errors), `npm run test:engine` (285 pass); in Chromium, a 2.6 m wall
+  right behind the body brings the camera in over the shoulder; no console errors.
+
+## Ropes, cables and string lights (Papers roadmap: Cosserat rods, light)
+- rope.ts (tested): a particle chain by position-based dynamics (Verlet, four substeps, stretch and
+  skip-one bending links, long-range tethers so it never stretches), collisions with the world's
+  boxes, the land and people (who push it aside), wind from the weather; ends are points or things,
+  followed live. Tool `hang_rope` and plain requests ("hang a rope", "string lights between the
+  column and the terminal", "run a cable from the bench to the pillar").
+- Rope.tsx: each rope is a tube rebuilt in place every frame on a Catmull-Rom curve with
+  parallel-transport frames; a braided texture on ropes, a clear-coated jacket on cables, warm
+  shimmering bulbs with soft glows on string lights (they bloom where the rung has bloom); a ring
+  in the air for a rope hung from nothing.
+- Checked: typecheck, lint (no errors), `npm run test:engine` (293 pass, 8 new); in Chromium at
+  midnight in the lab: a rope, two strings of lights and a cable between exhibits; no console errors.
+
+## Weather on the flat stage
+- The lowest rung (?scenery=off) now follows the weather too (FlatStage in Scenery.tsx): background
+  and fog from the sky's horizon, sun and fill colours, a floor that shines when wet, and rain or
+  snow at the lightest count. Still no land, sky dome or reflections there.
+- Checked: typecheck, lint, engine tests; in Chromium with ?scenery=off, sunny noon and rainy dusk
+  (rain falling); no console errors.
+
+## Hyper Breakout, and best scores in the save
+- breakout.ts (tested): paddle, balls, six wall patterns by level with bricks of one to three hits,
+  angle off the paddle by where it lands, substepped collisions (never through a brick), capsules
+  (three balls, wide paddle, slow time), lives, levels, combo scoring; seeded and repeatable.
+- BreakoutGame.tsx: a full-screen canvas: bloom-like glows, ball trails, sparks, shake and flashes,
+  an iridescent bubble paddle, little synthesized blips; icon bubbles for pause, leave, play again.
+  The arcade hands its keys over (screenKeys) so walking keys do not move the body meanwhile.
+- A cabinet (buildBreakout, `build_play kind breakout`, "build breakout", a bench button).
+- Best scores per game in the save (`world.best`, cleaned on load; Tetris records its lines).
+- In-world arcade bar: Exit, Play again and Walk away are icon bubbles; the marble's Release is a glyph.
+- Checked: typecheck, lint (no errors), `npm run test:engine` (302 pass); in Chromium at 412x915:
+  walk up, Play, launch, break bricks, lose a life, pause, Esc; no console errors.
+
+## Talking with the townsfolk (Papers roadmap: talking NPCs)
+- talk.ts (tested): a persona prompt from who they are (traits, what they are doing and where, their
+  day, whether they know you, the weather); a scripted answer from the same facts when no model is
+  loaded (greetings, who are you, what are you up to, plans, your day, weather, how are you,
+  remember me, bye), in a voice set by their traits; a model's answer cut to a line or two; the talk
+  kept in their memory; a steady speaking voice per person; plans read as activities ("having
+  lunch by the Bench").
+- Talk.tsx: walk up and a talk prompt shows (E, gamepad X, tap; it stays a little longer for
+  passers-by). They stop and turn to you (Town.tsx), answer in a glass speech bubble over their head
+  (thinking dots while the model works) and out loud through the device's speech. Type or speak
+  (microphone bubble); icon bubbles to send and to stop. Walking away or Esc ends it.
+- resident.ts chatResident: a plain answer without tools, for talking.
+- Checked: typecheck, lint (no errors), `npm run test:engine` (308 pass, 6 new); in Chromium: fill
+  the plaza, walk up to Cleo, E, she greets, "What are you up to?" gets an answer in the bubble, Esc
+  ends it; no console errors. Speech out and the model answer were not heard here (no audio, model
+  not loaded in the check).
+
+## Faces and lip sync for the townsfolk
+- talk.ts mouthTrack and mouthAt (tested): mouth shapes from the letters of a line (vowel groups
+  open by the vowel, round for o and u, shut on b, m and p, pauses at commas and full stops), timed
+  by the person's speaking rate.
+- Avatar.tsx: townsfolk get eyes that blink and a mouth that opens and rounds with the track,
+  started when the device's voice starts (or at once without one).
+- The talk box sits lower on wide screens, clear of the figures.
+- Checked: typecheck, lint, engine tests; in Chromium, Cleo's face (eyes, an open mouth) while she
+  answers; no console errors.
+
+## Swinging on ropes
+- rope.ts (tested): a grip on the rope: that particle is heavy, is pushed by the stick (pumping),
+  and keeps the hanging body above the ground; nearestParticle and particleVelocity for catching
+  and letting go.
+- pilot.tsx: jumping at a hanging rope catches it (the jump's momentum goes into the rope); the
+  stick pumps the swing, most when it goes with it; a fresh jump lets go with the swing's speed
+  and a little lift. Rope.tsx registers live ropes and steps the grip.
+- Avatar.tsx: a rope hang pose: both hands round the rope, one over the other, legs together.
+- Checked: typecheck, lint, engine tests; in Chromium: hang a rope, run and jump at it, caught,
+  W swings it back and forth, Space lets go moving upward; no console errors.
+
+## Capes and flags (Papers roadmap: cloth)
+- cloth.ts (tested): a particle grid with structural, soft shear and bending links, tethers to the
+  nearest pin, capsule colliders, the land, and wind per triangle (pressure by how squarely it meets
+  it, drag downwind, a travelling flutter). A cape hangs from three pins and gathers; a flag hangs
+  from its pole. Tools `wear_cape`, `raise_flag`; plain requests.
+- Cloth.tsx: your cape, pinned across the shoulders and pushed out of the body, rebuilt if you are
+  carried off; flags on poles with a gold finial, patterns drawn on canvas (4D film with a
+  tesseract, rainbow, pirate, white); double-sided sheen fabric; the weather's gusting wind.
+- Checked: typecheck, lint, `npm run test:engine`; in Chromium: a violet cape streaming in the wind
+  and a 4D flag flying; no console errors.
+
+## A companion that does what you ask (Papers roadmap: SIMA, light)
+- companion.ts (tested): orders to a task queue (follow, wait, come, go, bring, put on, stack here,
+  joined with then/and); things found by name or kind ("the cubes", "balls"); a step that walks with
+  stepWalk (steps round what blocks it), picks up, carries over its head, sets down on top of what
+  is there; tools `summon_companion`, `order_companion`; a prompt for the resident model when the
+  words are not understood, read back in the same language.
+- Companion.tsx: steps it every frame, live position in companionBodies (like the townsfolk), what
+  it carries written to the world; a small speech bubble. Companions have faces too.
+- Checked: typecheck, lint, `npm run test:engine` (318 pass); in Chromium: "follow me", "bring me
+  the gold": Pip fetched the gold to in front of you and said "Done!"; no console errors.
+
+## Fire you can put out (Papers roadmap, phase 4)
+- fire.ts (tested): an 80 x 80 grid of 0.5 m cells (heat, fuel, wetness, owner) over the plaza;
+  fuel from flammable things; burning cells heat their neighbours, more downwind, sparks two cells
+  on in a strong wind; burnt-out things reported to be charred; rain and water cool and wet.
+  Tools `set_fire`, `make_campfire`, `put_out_fire`; plain requests.
+- Fire.tsx: shader flames (fbm licks, white-hot core to red edges, additive, past white for the
+  bloom), smoke and steam puffs, swirling embers, one flickering point light at the fire, the water
+  spray (H or a water bubble when a fire is within 9 m) that douses where it lands; charring.
+- Checked: typecheck, lint, `npm run test:engine`; in Chromium: the bench and a campfire burning
+  with smoke and warm light, the spray knocking flames down with steam, "put out the fire"; no
+  console errors.
+
+## Moss, frost, rust and crystal (Papers roadmap: living growth)
+- growth.ts (tested): Gray-Scott reaction-diffusion on a tiling torus, four kinds by feed and kill
+  (moss, frost, rust, crystal) with colours, pace, shine and glow; tool `grow`; plain requests.
+- Growth.tsx: a shell over the thing with a standard material extended in its shader: triplanar
+  pattern at two scales, a front creeping from near the base with a ragged edge, colour from the
+  pattern, glow for frost and crystal. Growths already in a loaded world show fully grown.
+- Checked: typecheck, lint, `npm run test:engine`; in Chromium: moss on the clay, rust on the steel,
+  crystal on the gold, frost up the column; no console errors.
+
+## Smoke rings (Papers roadmap: vortices)
+- vortex.ts (tested): rings as loops of vortex segments, smoothed Biot–Savart, midpoint stepping,
+  slow decay; a ring glides straight and keeps its size; two rings leapfrog; tracers round the core.
+- SmokeRings.tsx: "blow a smoke ring" / "two smoke rings" from your head the way you look; the
+  second ring is smaller so it catches up and goes through; smoke tracers fade over ten seconds.
+- Checked: typecheck, lint, engine tests; in Chromium, two rings blown; no console errors.
+
+## Dominoes and Jenga: rigid bodies that tumble (Papers roadmap: the solver core, started)
+- rigid.ts (tested): oriented box bodies with mass and inertia; contacts from 20 sample points per
+  box (corners and edge middles, a hair inside so stacks meet face to face) against other boxes,
+  static solids (both ways) and the land; sequential impulses with friction, a little bounce and
+  warm starting; substeps of 1/120 s; sleeping and waking. A box rests flat and sleeps, a stack of
+  five stands, a box tumbles off a ledge, a line of dominoes falls, a 12-layer Jenga tower stands
+  until shoved. Toys: `build_dominoes` (line or curve), `build_jenga`, `knock_over`.
+- Rigid.tsx keeps the solver and the "rigid" entities in step (new bodies, outside moves, kicks
+  from walking into them land high so dominoes tip). physics.ts leaves rigid bodies to it.
+- Checked: typecheck, lint, `npm run test:engine` (337 pass); in Chromium: a curve of 16 dominoes
+  falling in turn and a Jenga tower shoved; no console errors.
+
+## A quieter screen
+- The texture deck folds into one palette bubble on the right (open it to fan out the textures
+  and meshes; remembered per device).
+- The visor shows a new message for six seconds and then just the name of what you look at; the
+  controls hint shows for the first twelve seconds only; the tick, entities and gravity readout
+  shows only on the bench.
+- Checked: typecheck, lint, engine tests; in Chromium at 1280x800 and 390x844, closed and open.

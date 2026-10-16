@@ -499,6 +499,9 @@ export function alignToJob(world: World, intent: string, proposal: ProposedActio
   if (!coloring && /\bblocks\b/i.test(intent) && /\b(build|make|add|put|game|arcade|cabinet|play)\b/i.test(intent)) {
     return { kind: "tool_call", toolName: "build_play", arguments: { kind: "blocks" }, message: proposal.message };
   }
+  if (!coloring && /\b(breakout|brick ?breaker|arkanoid)\b/i.test(intent)) {
+    return { kind: "tool_call", toolName: "build_play", arguments: { kind: "breakout" }, message: proposal.message };
+  }
   if (!coloring && /\btetris\b/i.test(intent)) {
     return { kind: "tool_call", toolName: "build_play", arguments: { kind: "tetris" }, message: proposal.message };
   }

@@ -862,6 +862,31 @@ export function buildBlocks(world: World): World {
   return makeRoom({ ...world, entities, nextId: id }, [id - 2, id - 1]);
 }
 
+/** A Hyper Breakout cabinet (breakout.ts), across from Blocks. */
+export function buildBreakout(world: World): World {
+  const fresh = withoutTag(world, "breakout");
+  const entities = { ...fresh.entities };
+  let id = fresh.nextId;
+  const x = 2.9;
+  const z = 1.4;
+  const cabinet = sized(
+    makeSpawned(id, { name: "Breakout", asset: "cube", color: "#24123a", tags: "breakout,play,fixture", physics: "true", kinematic: "true" }),
+    x,
+    0.16 + 0.8,
+    z,
+    0.9,
+    1.6,
+    0.6,
+  );
+  cabinet.customData = { ...cabinet.customData, play: "breakout" };
+  entities[id] = cabinet;
+  id += 1;
+  const screen = sized(makeSpawned(id, { name: "BreakoutScreen", asset: "card", color: "#b77bff", tags: "breakout,fixture" }), x, 1.3, z + 0.31, 0.62, 0.62, 0.02);
+  entities[id] = screen;
+  id += 1;
+  return makeRoom({ ...world, entities, nextId: id }, [id - 2, id - 1]);
+}
+
 export function buildMarble(world: World): World {
   const fresh = withoutTag(world, "marble");
   const entities = { ...fresh.entities };
