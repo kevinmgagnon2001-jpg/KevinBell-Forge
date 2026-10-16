@@ -210,10 +210,12 @@ Notes on what was built differently from the plan:
 - [ ] **Living moss and growth** (M). *Neural cellular automata (Sakana AI, 2026), TMP "Sakana AI's
   God Simulator Is Brilliant"* (likely)
   - Tiny automata in a fragment shader on wall textures: "grow moss across these walls".
-- [ ] **Fire you can put out** (L). *TMP "The Most Realistic Fire Simulation Ever" (Feb 2026);
+- [x] **Fire you can put out** (L). *TMP "The Most Realistic Fire Simulation Ever" (Feb 2026);
   paper not identified.*
   - A coarse heat and fuel grid with fire spreading over flammable entities, and water that
     removes heat.
+  - Done (fire.ts, Fire.tsx): spread with the wind, charring, rain, a water spray and steam,
+    shader flames, smoke, embers and a flickering light.
 - [ ] **Smoke rings and vortices** (M). *TMP "The Biggest Physics Breakthrough Nobody Noticed"
   (Dec 2025); paper not identified.*
   - A few hundred vortex particles that move billboards along.

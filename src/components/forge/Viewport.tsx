@@ -41,6 +41,7 @@ import { Ropes } from "./Rope";
 import { Talk, TalkBubble } from "./Talk";
 import { Cape, Flags } from "./Cloth";
 import { Companion } from "./Companion";
+import { Fire, FireControls } from "./Fire";
 import { ROPE_TAG } from "@/engine/rope";
 import type { ShapeName } from "@/engine/polytope";
 import { Activity, ArrowBigUp, Eye, House, LayoutGrid, Maximize2, Minimize2, Move, PersonStanding, PlaneLanding, RotateCw, ScanEye, Wind } from "lucide-react";
@@ -1349,6 +1350,7 @@ function Stage({ scenery, shadows, post }: { scenery: SceneryLevel | "off"; shad
       <Cape />
       <Flags />
       <Companion />
+      <Fire />
       <OrbitControls
         makeDefault
         enableDamping
@@ -1609,6 +1611,7 @@ export function Viewport() {
       <Steer />
       <Arcade />
       <Talk />
+      <FireControls />
       <TextureDeck />
       <PerfOverlay />
       <MovesOverlay />

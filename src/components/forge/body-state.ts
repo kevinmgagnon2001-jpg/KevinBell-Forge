@@ -79,6 +79,11 @@ export const ropeGrip = { rope: null as number | null, index: 0, push: { x: 0, z
 /** Who is speaking a line now (by entity id): when it started (performance.now()) and its mouth shapes. */
 export const mouths: Record<number, { start: number; track: MouthKey[] }> = {};
 
+/** A fire close enough to spray (Fire.tsx), and the spray held down (H or the water bubble). */
+export const fireNear = store(false);
+export const spray = store(false);
+export const useFireNear = () => useSyncExternalStore(fireNear.subscribe, fireNear.get, () => false);
+
 /** Keys for a game on a screen of its own (Breakout): the arcade hands them over, and no one else sees them. */
 export const screenKeys: { down: ((event: KeyboardEvent) => void) | null } = { down: null };
 

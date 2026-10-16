@@ -3761,3 +3761,12 @@ body:has(.app)::before {
   padding: 0.4rem 0.75rem;
   font-size: 0.85rem;
 }
+
+/* The water bubble, when a fire is close: above the right stick. */
+.fire-spray {
+  position: absolute;
+  right: calc(env(safe-area-inset-right, 0px) + 1.4rem);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 10.5rem);
+  z-index: 13;
+  box-shadow: 0 0 24px rgb(122 200 255 / 55%), var(--halo, 0 0 0 transparent);
+}

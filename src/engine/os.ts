@@ -285,6 +285,22 @@ export const TOOLS: ToolSchema[] = [
     parameters: { words: "string" },
   },
   {
+    name: "set_fire",
+    description: "Set a thing on fire (thing: its name; empty for the nearest thing that burns). Fire spreads over flammable things with the wind; rain and water put it out.",
+    parameters: { thing: "string" },
+    optional: ["thing"],
+  },
+  {
+    name: "put_out_fire",
+    description: "Put out every fire with water.",
+    parameters: {},
+  },
+  {
+    name: "make_campfire",
+    description: "Build a burning campfire of crossed logs in front of you.",
+    parameters: {},
+  },
+  {
     name: "wield",
     description: "Hold the hyper sword (item hyper-sword), whose blade is a hypercube turning through 4D, or put it away (item none).",
     parameters: { item: "string" },

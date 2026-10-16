@@ -10,6 +10,7 @@ import { cleanTown, townIntent } from "./town";
 import { hyperIntent } from "./hyper";
 import { ropeIntent } from "./rope";
 import { clothIntent } from "./cloth";
+import { fireIntent } from "./fire";
 import { companionIntent, companionOf, companionPrompt, ordersFromModel } from "./companion";
 import { cleanBest } from "./arcade";
 import { cleanRecent, MAX_SKILLS, skillIntent, skillBrief } from "./skillbook";
@@ -397,6 +398,17 @@ export const useForge = create<ForgeState>((set, get) => {
         commit(ran?.ok ? ran.world : before, before.selectedId, [
           { tone: "user", title: "Intent", body: intent },
           { tone: ran?.ok ? "engine" : "warn", title: "Companion", body: ran ? `${line}\n${ran.result}` : `${buddy.name} doesn't know how to do that yet.` },
+        ]);
+        return;
+      }
+      // Fire ("set the bench on fire", "light a campfire", "put out the fire") (fire.ts).
+      const fireCall = fireIntent(intent);
+      if (fireCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: fireCall.tool, arguments: fireCall.arguments });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Fire", body: ran.result },
         ]);
         return;
       }

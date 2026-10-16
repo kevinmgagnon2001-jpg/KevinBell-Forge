@@ -1184,3 +1184,15 @@ and mountains around it, under a late-afternoon sky.
   it carries written to the world; a small speech bubble. Companions have faces too.
 - Checked: typecheck, lint, `npm run test:engine` (318 pass); in Chromium: "follow me", "bring me
   the gold": Pip fetched the gold to in front of you and said "Done!"; no console errors.
+
+## Fire you can put out (Papers roadmap, phase 4)
+- fire.ts (tested): an 80 x 80 grid of 0.5 m cells (heat, fuel, wetness, owner) over the plaza;
+  fuel from flammable things; burning cells heat their neighbours, more downwind, sparks two cells
+  on in a strong wind; burnt-out things reported to be charred; rain and water cool and wet.
+  Tools `set_fire`, `make_campfire`, `put_out_fire`; plain requests.
+- Fire.tsx: shader flames (fbm licks, white-hot core to red edges, additive, past white for the
+  bloom), smoke and steam puffs, swirling embers, one flickering point light at the fire, the water
+  spray (H or a water bubble when a fire is within 9 m) that douses where it lands; charring.
+- Checked: typecheck, lint, `npm run test:engine`; in Chromium: the bench and a campfire burning
+  with smoke and warm light, the spray knocking flames down with steam, "put out the fire"; no
+  console errors.

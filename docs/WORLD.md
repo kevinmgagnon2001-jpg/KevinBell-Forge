@@ -135,3 +135,15 @@ side when it is done. Words it does not know, addressed to it by name ("Pip, tid
 go to the resident model when one is loaded, which answers in Pip's little language
 (`companionPrompt`). Code: `src/engine/companion.ts`, `src/components/forge/Companion.tsx`.
 
+## Fire
+
+"Set the bench on fire", "light a campfire", "burn the crates", "put out the fire" (tools
+`set_fire`, `make_campfire`, `put_out_fire`; `src/engine/fire.ts`, drawn by `Fire.tsx`). A coarse
+grid of heat, fuel and wetness lies over the world; flammable things (wood, crates, hay, paper,
+the bench, anything marked flammable) put fuel under themselves. Fire creeps along them, jumps
+small gaps downwind, eats the fuel and leaves what burned charred black. Rain wets everything and
+slowly puts it out; hold H (or the water bubble that appears near a fire) to spray water from
+your hands where you look, with steam where it hits. Flames are camera-facing sheets with a noise
+shader, glowing past white so the bloom takes them; smoke drifts with the wind, embers swirl up,
+and a flickering warm light plays on everything near.
+
