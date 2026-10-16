@@ -999,3 +999,23 @@ and mountains around it, under a late-afternoon sky.
 - Checked: typecheck, lint (no new warnings), `npm run test:engine` (234 pass), build; in Chromium at
   412x915: placing pieces, the New Game question, Settings, the tray with the longest bars; no
   console errors.
+
+## A world that remembers, builds and moves (Papers roadmap: Phase 1, and two of Phase 2)
+- World events (weather.ts, Scenery.tsx): weather, time of day and mood from a sentence, live, with
+  smooth transitions; stars, moon, lightning, rain and snow particles, wet ground, lamps at night.
+  `set_weather` tool; saved, shared, undone.
+- Skill library (skillbook.ts): every change is remembered; "again, but taller / red / to the left /
+  3 times"; "remember the last 3 things as campfire" saves a program of tool calls whose steps refer
+  to their own new copies (@k); "campfire, but bigger" builds it in front of you; failed model calls
+  retry with the error, three tries in all. edit_entity gained sx, sy, sz and finish.
+- Secondary motion and phase (springs.ts, Avatar.tsx): antenna and ponytail on springs; the walk
+  finishes its step when you stop and starts aligned with the legs.
+- Glints (glint.ts): constant-time sparkle on bodies with the glint finish and on snow.
+- Sounds (sounds.ts, synth.ts, SoundStage.tsx): 19 procedural kinds from words, positional; a scene
+  score; rain, wind and thunder from the weather.
+- Townsfolk (town.ts, Town.tsx): people with habits, a day's plan and a memory stream with
+  reflections; sampled reciprocal velocity obstacles with replanning; questions and errands.
+- Guide: docs/WORLD.md. Roadmap boxes ticked in docs/PAPERS-ROADMAP.md, with notes on what differs.
+- Checked: typecheck, lint (no new warnings), `npm run test:engine` (262 pass, 34 new), production
+  build. In Chromium at 1280x800: rain at dusk, a neon alley, snow at midnight and at noon, a
+  sparkling Clay with a ghost-ship creak, a score, ten townsfolk walking in the rain; no console errors.

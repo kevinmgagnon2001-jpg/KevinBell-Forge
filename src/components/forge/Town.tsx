@@ -7,10 +7,9 @@
 import { useFrame } from "@react-three/fiber";
 import { useRef } from "react";
 import { useForge } from "@/engine/store";
-import { NPC_TAG, placesOf, solidsOf, stepTown, type Body, type Place, type Disc, type Town as TownState } from "@/engine/town";
+import { townBodies } from "./body-state";
+import { NPC_TAG, placesOf, solidsOf, stepTown, type Place, type Disc, type Town as TownState } from "@/engine/town";
 
-/** Live positions of the townsfolk, by entity id. */
-export const townBodies: Record<number, Body> = {};
 
 export function Town() {
   const since = useRef(0);

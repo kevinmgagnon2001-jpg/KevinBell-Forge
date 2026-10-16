@@ -26,6 +26,12 @@ marble run, walk up to it and press Play to take the controls. See [docs/PLAY.md
 The APK also adds a **Blocks** icon: the drag-and-place block puzzle, straight into the game, with no
 ads and nothing sent anywhere. See [docs/BLOCKS.md](docs/BLOCKS.md).
 
+## A world that remembers, builds and moves
+
+Say "make it rain at dusk", "fill the plaza with people", "do that again, but taller", "remember that
+as campfire", "make Clay creak like a ghost ship" or "score this scene", and it happens at once, on the
+device. See [docs/WORLD.md](docs/WORLD.md).
+
 ## Run it from source
 
 ```sh

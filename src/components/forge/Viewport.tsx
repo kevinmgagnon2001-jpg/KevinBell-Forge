@@ -29,13 +29,13 @@ import { AvatarFigure } from "./Avatar";
 import { Arcade } from "./Arcade";
 import { MovesButton, MovesOverlay } from "./Moves";
 import { HelmAsk } from "./HelmAsk";
-import { toggleFlight, useArcadePlaying, useFlight } from "./body-state";
+import { toggleFlight, townBodies, useArcadePlaying, useFlight } from "./body-state";
 import { stepBodies } from "@/engine/physics";
 import { rotationLabel, setRotation, useRotation } from "./rotation";
 import { nextRotation } from "@/engine/view";
 import { addGlint, glintsAllowed, setGlintsAllowed } from "./glint";
 import { SoundStage } from "./SoundStage";
-import { Town, townBodies } from "./Town";
+import { Town } from "./Town";
 import { NPC_TAG } from "@/engine/town";
 
 const UP = new Vector3(0, 1, 0);

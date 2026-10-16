@@ -4,6 +4,7 @@
  * read every frame, plus small subscriptions for the few things buttons show. Not saved.
  */
 import { useSyncExternalStore } from "react";
+import type { Body } from "@/engine/town";
 
 /** What the body is doing, for its animation. Written by the pilot every frame. */
 export const avatarMotion = {
@@ -18,6 +19,9 @@ export const avatarMotion = {
   /** Ran into a wall this frame. */
   bumped: false,
 };
+
+/** Live positions of the townsfolk by entity id, stepped by Town.tsx and read by their figures. */
+export const townBodies: Record<number, Body> = {};
 
 /** When lightning last struck (performance.now()), written by the sky (Scenery.tsx), heard as thunder. */
 export const lightning = { at: 0 };

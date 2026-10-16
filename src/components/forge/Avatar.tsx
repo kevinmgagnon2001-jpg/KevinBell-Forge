@@ -20,8 +20,7 @@ import { inpaint, LEGS, legIk, movesOf, sampleMove, type Move } from "@/engine/m
 import { groundUnderFoot, solidsFor } from "@/engine/physics";
 import { alignPhase, jiggle, JIGGLE, spring2, stepPhase, track, tracker } from "@/engine/springs";
 import { useForge } from "@/engine/store";
-import { avatarMotion } from "./body-state";
-import { townBodies } from "./Town";
+import { avatarMotion, townBodies } from "./body-state";
 import { currentGaze } from "./look";
 
 const SUIT = "#313c4a";
