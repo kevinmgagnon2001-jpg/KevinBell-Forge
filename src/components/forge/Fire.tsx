@@ -112,7 +112,7 @@ const hash = (i: number) => {
 
 export function Fire() {
   const grid = useRef<FireGrid>(emptyFire());
-  const seen = useRef<{ fuel: string; ignite: Map<number, string>; douse: Map<number, string>; any: boolean }>({ fuel: "", ignite: new Map(), douse: new Map(), any: false });
+  const seen = useRef<{ fuel: string; ignite: Map<number, string>; douse: Map<number, string>; any: boolean; quiet: number }>({ fuel: "", ignite: new Map(), douse: new Map(), any: false, quiet: 0 });
   const flames = useRef<InstancedMesh>(null);
   const light = useRef<PointLight>(null);
   const smokePts = useRef<Points>(null);
@@ -155,7 +155,7 @@ export function Fire() {
       const ig = e.customData.ignite;
       if (ig && s.ignite.get(e.id) !== ig) {
         s.ignite.set(e.id, ig);
-        if (e.customData.charred !== "1") igniteThing(g, e.id);
+        if (e.customData.charred !== "1" && igniteThing(g, e.id) > 0) s.quiet = 0;
       }
       const d = e.customData.douse;
       if (d && s.douse.get(e.id) !== d) {
@@ -170,7 +170,10 @@ export function Fire() {
 
     const w = weatherOf(state);
     const wind = { x: w.wind * 6 * 0.8, z: w.wind * 6 * 0.6 };
-    const step = stepFire(g, dt, { wind, rain: Math.max(w.rain, w.snow * 0.5) });
+    // With nothing burning for a while (and no rain to soak things), the grid rests.
+    const rain = Math.max(w.rain, w.snow * 0.5);
+    s.quiet = s.any || rain > 0 ? 0 : s.quiet + dt;
+    const step = s.quiet > 6 && !spray.get() ? { burnedOut: [], burning: 0 } : stepFire(g, dt, { wind, rain });
     if (step.burnedOut.length) {
       // Burnt out: charred black, and no longer fuel.
       useForge.setState((st) => {
