@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { carryOf, countApps, deviceDistance, deviceKind, deviceOf, drop, ensureScreen, FLIGHT_MS, homeState, listApps, openApp, OPEN_DEVICE_EVENT, pickUp, pullOut, putAway, SCREEN_REACH, SCREEN_TAG, setHome, summonStep, type Carry, type DeviceApp, type DeviceKind, type HomeState } from "@/engine/device-apps";
 import { INTERACT_EVENT } from "./look";
+import { arcadeNear, arcadePlaying } from "./body-state";
 import { useForge } from "@/engine/store";
 
 const say = (body: string) => useForge.getState().note([{ tone: "engine", title: "Device", body }]);
@@ -250,7 +251,11 @@ export function DeviceScreen() {
       const c = carryOf(deviceOf(useForge.getState()));
       if (c !== "out") interact(kind, deviceDistance(useForge.getState()) < SCREEN_REACH);
     };
-    const use = () => interact(kind, deviceDistance(useForge.getState()) < SCREEN_REACH);
+    // At a game, "use" plays it (Arcade.tsx) instead.
+    const use = () => {
+      if (arcadeNear.get() || arcadePlaying.get()) return;
+      interact(kind, deviceDistance(useForge.getState()) < SCREEN_REACH);
+    };
     window.addEventListener(OPEN_DEVICE_EVENT, show);
     window.addEventListener(INTERACT_EVENT, use);
     return () => {
@@ -274,7 +279,7 @@ export function DeviceScreen() {
     if (!kind) return;
     const onKey = (event: KeyboardEvent) => {
       const tag = (event.target as HTMLElement | null)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA" || event.repeat) return;
+      if (tag === "INPUT" || tag === "TEXTAREA" || event.repeat || arcadePlaying.get()) return;
       const c = carryOf(deviceOf(useForge.getState()));
       const close = deviceDistance(useForge.getState()) < SCREEN_REACH;
       if (event.code === "KeyP" || (event.code === "KeyE" && (c !== "lying" || close))) {

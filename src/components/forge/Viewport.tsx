@@ -25,6 +25,12 @@ import { nativeTv, useTvPicture, useTvView, watchBig } from "./TvRemote";
 import { TV_SCREEN, TV_TAG } from "@/engine/tv";
 import { GAUGE_TAG } from "@/engine/gauges";
 import { GaugeMesh } from "./Gauges";
+import { AvatarFigure } from "./Avatar";
+import { Arcade } from "./Arcade";
+import { MovesButton, MovesOverlay } from "./Moves";
+import { HelmAsk } from "./HelmAsk";
+import { toggleFlight, useArcadePlaying, useFlight } from "./body-state";
+import { stepBodies } from "@/engine/physics";
 import { rotationLabel, setRotation, useRotation } from "./rotation";
 import { nextRotation } from "@/engine/view";
 
@@ -798,54 +804,49 @@ function VehicleMesh({ look, tone, scale }: { look: string; tone: string; scale:
   );
 }
 
-function AvatarMesh({ tone }: { tone: string }) {
-  const helm = useForge((s) => Object.values(s.entities).find((entity) => entity.tags.includes("helm")) ?? null);
+function AvatarMesh({ entity, tone }: { entity: Entity; tone: string }) {
+  const helm = useForge((s) => Object.values(s.entities).find((e) => e.tags.includes("helm")) ?? null);
   const select = useForge((s) => s.select);
   const frame = helm?.customData.color || "#d4a24a";
+  const you = entity.tags.includes("architect");
+  // The helm (the visor computer) rides on the architect's head.
+  const visor =
+    you && helm ? (
+      <group
+        position={[0, 0.0, 0.03]}
+        onPointerDown={(event) => {
+          event.stopPropagation();
+          pointerClaim.entity = true;
+          select(helm.id);
+        }}
+      >
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.13, 0.014, 8, 28]} />
+          <meshStandardMaterial color={frame} metalness={0.72} roughness={0.28} />
+        </mesh>
+        <mesh position={[-0.048, 0.012, 0.1]}>
+          <boxGeometry args={[0.085, 0.05, 0.014]} />
+          <meshStandardMaterial color="#b7f3f4" emissive="#2f8f93" emissiveIntensity={0.45} metalness={0.05} roughness={0.08} transparent opacity={0.72} />
+        </mesh>
+        <mesh position={[0.048, 0.012, 0.1]}>
+          <boxGeometry args={[0.085, 0.05, 0.014]} />
+          <meshStandardMaterial color="#b7f3f4" emissive="#2f8f93" emissiveIntensity={0.45} metalness={0.05} roughness={0.08} transparent opacity={0.72} />
+        </mesh>
+        <mesh position={[0, 0.015, 0.098]}>
+          <boxGeometry args={[0.02, 0.014, 0.016]} />
+          <meshStandardMaterial color={frame} metalness={0.65} roughness={0.3} />
+        </mesh>
+      </group>
+    ) : null;
   return (
     <group>
-      <mesh position={[0, 0.05, 0]}>
-        <capsuleGeometry args={[0.22, 0.62, 6, 16]} />
-        <meshStandardMaterial color={tone} roughness={0.48} metalness={0.34} />
-      </mesh>
-      <mesh position={[0, 0.62, 0]}>
-        <sphereGeometry args={[0.16, 20, 16]} />
-        <meshStandardMaterial color={tone} roughness={0.4} metalness={0.3} />
-      </mesh>
-      <mesh position={[0, 0.62, 0.2]} rotation={[Math.PI / 2, 0, 0]}>
-        <coneGeometry args={[0.06, 0.16, 8]} />
-        <meshStandardMaterial color="#1c2430" roughness={0.4} metalness={0.2} />
-      </mesh>
-      <mesh position={[0, 0.78, 0]} rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[0.28, 0.012, 8, 32]} />
-        <meshBasicMaterial color={tone} />
-      </mesh>
-      {helm ? (
-        <group
-          position={[0, 0.64, 0.04]}
-          onPointerDown={(event) => {
-            event.stopPropagation();
-            pointerClaim.entity = true;
-            select(helm.id);
-          }}
-        >
-          <mesh rotation={[Math.PI / 2, 0, 0]}>
-            <torusGeometry args={[0.2, 0.018, 8, 28]} />
-            <meshStandardMaterial color={frame} metalness={0.72} roughness={0.28} />
-          </mesh>
-          <mesh position={[-0.08, 0.02, 0.16]}>
-            <boxGeometry args={[0.13, 0.075, 0.018]} />
-            <meshStandardMaterial color="#b7f3f4" emissive="#2f8f93" emissiveIntensity={0.45} metalness={0.05} roughness={0.08} transparent opacity={0.72} />
-          </mesh>
-          <mesh position={[0.08, 0.02, 0.16]}>
-            <boxGeometry args={[0.13, 0.075, 0.018]} />
-            <meshStandardMaterial color="#b7f3f4" emissive="#2f8f93" emissiveIntensity={0.45} metalness={0.05} roughness={0.08} transparent opacity={0.72} />
-          </mesh>
-          <mesh position={[0, 0.025, 0.13]}>
-            <boxGeometry args={[0.028, 0.018, 0.02]} />
-            <meshStandardMaterial color={frame} metalness={0.65} roughness={0.3} />
-          </mesh>
-        </group>
+      <AvatarFigure entity={entity} tone={tone} live={you} head={visor} />
+      {/* A faint ring over your own head, so you can pick yourself out from far away. */}
+      {you ? (
+        <mesh position={[0, 0.98, 0]} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[0.16, 0.008, 6, 32]} />
+          <meshBasicMaterial color={tone} transparent opacity={0.7} />
+        </mesh>
       ) : null}
     </group>
   );
@@ -897,7 +898,7 @@ function BodyInner({ entity, selected }: { entity: Entity; selected: boolean }) 
   if (rep.kind === "hybrid") {
     return (
       <>
-        <AvatarMesh tone={tone} />
+        <AvatarMesh entity={entity} tone={tone} />
         {plate}
         {neural ?? <SplatCloud seed={entity.id * 17} count={56} color={tone} size={0.028} />}
       </>
@@ -1029,6 +1030,8 @@ function EntityNode({
   const select = useForge((s) => s.select);
   const controls = useThree((state) => state.controls) as { enabled?: boolean } | null;
   const mode = useLook().mode;
+  // While playing a game the camera is behind you, so you step out of the picture.
+  const playing = useArcadePlaying();
   const p = entity.transform.position;
   const s = entity.transform.scale;
   const q = entity.transform.rotation;
@@ -1051,7 +1054,7 @@ function EntityNode({
   });
 
   if (entity.tags.includes("helm")) return null;
-  if (mode === "first" && entity.tags.includes("architect")) return null;
+  if ((mode === "first" || playing) && entity.tags.includes("architect")) return null;
   // A phone in your pocket is out of sight.
   if (entity.tags.includes(SCREEN_TAG) && carryOf(entity) === "pocket") return null;
 
@@ -1290,6 +1293,7 @@ function Stage({ scenery, shadows }: { scenery: SceneryLevel | "off"; shadows: b
         />
       ))}
       <Pilot />
+      <Settle paused={dragging} />
       <OrbitControls
         makeDefault
         enableDamping
@@ -1303,6 +1307,23 @@ function Stage({ scenery, shadows }: { scenery: SceneryLevel | "off"; shadows: b
       />
     </>
   );
+}
+
+/**
+ * Loose objects keep moving on their own: they fall, slide, bounce and come to rest, whether or not
+ * the world's clock (Run) is going. Asleep, they cost nothing (physics.ts returns the same world).
+ * With Run on, the world's own steps do this instead.
+ */
+function Settle({ paused }: { paused: boolean }) {
+  useFrame((_, delta) => {
+    if (paused) return;
+    const state = useForge.getState();
+    if (state.running) return;
+    const dt = Math.min(delta, 1 / 30);
+    const next = stepBodies(state.entities, dt, state.gravity);
+    if (next !== state.entities) useForge.setState({ entities: next });
+  });
+  return null;
 }
 
 function HoldKey({ code, label }: { code: string; label: string }) {
@@ -1389,7 +1410,10 @@ function Stick({ target, label, side }: { target: { x: number; y: number }; labe
 
 function Steer() {
   const mode = useLook().mode;
-  if (mode === "bench") return null;
+  const flying = useFlight();
+  const playing = useArcadePlaying();
+  // A game being played has its own buttons (Arcade.tsx).
+  if (mode === "bench" || playing) return null;
   const home = () => {
     faceLook(0, mode === "first" ? -0.08 : -0.16);
     useForge.setState((state) => restoreLab(state));
@@ -1398,9 +1422,18 @@ function Steer() {
     <div className="steer">
       <div className="pad-left">
         <Stick target={pilotStick} label="Move" side="move" />
-        <div className="lift" aria-label="Up and down">
-          <HoldKey code="Space" label="Up" />
-          <HoldKey code="KeyC" label="Down" />
+        <div className="lift" aria-label={flying ? "Up and down" : "Jump and fly"}>
+          {flying ? (
+            <>
+              <HoldKey code="Space" label="Up" />
+              <HoldKey code="KeyC" label="Down" />
+            </>
+          ) : (
+            <HoldKey code="Space" label="Jump" />
+          )}
+          <button type="button" className={`visor-key ${flying ? "is-on" : ""}`} aria-pressed={flying} onClick={toggleFlight}>
+            {flying ? "Land" : "Fly"}
+          </button>
         </div>
       </div>
       <div className="steer-actions">
@@ -1435,6 +1468,7 @@ function ModeBar() {
       <button type="button" className={rotation !== "system" ? "is-on" : ""} onClick={() => setRotation(nextRotation(rotation))} aria-label={`Screen rotation: ${rotationLabel(rotation)}`} title="Screen rotation: Auto turns with the phone">
         ⟳ {rotationLabel(rotation)}
       </button>
+      <MovesButton />
       <button type="button" className={perfOpen ? "is-on" : ""} onClick={togglePerf} aria-label="Performance">
         Stats
       </button>
@@ -1447,16 +1481,7 @@ function Visor() {
   const gaze = useGazeId();
   const looked = useForge((s) => (gaze == null ? null : (s.entities[gaze] ?? null)));
   const last = useForge((s) => s.history[s.history.length - 1]);
-  const busy = useForge((s) => s.busy);
-  const [line, setLine] = useState("");
   if (mode === "bench") return null;
-  const onSubmit = (event: FormEvent) => {
-    event.preventDefault();
-    const intent = line.trim();
-    if (!intent) return;
-    setLine("");
-    void useForge.getState().submitIntent(intent);
-  };
   return (
     <div className={mode === "first" ? "visor is-first" : "visor"}>
       <div className="visor-frame" />
@@ -1465,20 +1490,8 @@ function Visor() {
         {looked ? `Looking at ${looked.name}` : "Looking at the lab"}
         {last ? ` · ${last.title}: ${last.body.replace(/\s+/g, " ").slice(0, 72)}` : ""}
       </p>
-      <p className="visor-hint">Left stick walks, right stick looks: push further to go faster. Drag the view for fine aim. Find room puts the exhibits in front of you.</p>
-      {immersive ? (
-        <form className="visor-ask" onSubmit={onSubmit}>
-          <label>
-            <span>Helm</span>
-            <input
-              value={line}
-              onChange={(event) => setLine(event.target.value)}
-              placeholder="Tell the helm what to change in the world"
-              disabled={busy}
-            />
-          </label>
-        </form>
-      ) : null}
+      <p className="visor-hint">Left stick walks (push all the way, or hold Shift, to run), right stick looks. Space jumps, F flies. Walk up to a game to play it.</p>
+      {immersive ? <HelmAsk /> : null}
     </div>
   );
 }
@@ -1509,9 +1522,10 @@ export function Viewport() {
   );
   const looked = useForge((s) => (gaze == null ? null : (s.entities[gaze] ?? null)));
   const aim = looked ?? selected;
+  const playing = useArcadePlaying();
 
   return (
-    <div className="view">
+    <div className={playing ? "view is-playing" : "view"}>
       <Canvas
         camera={{ position: [10.4, 6.8, 10.2], fov: 42, near: 0.1, far: scenery === "off" ? 80 : 900 }}
         shadows={shadows}
@@ -1538,8 +1552,10 @@ export function Viewport() {
       </div>
       <Visor />
       <Steer />
+      <Arcade />
       <TextureDeck />
       <PerfOverlay />
+      <MovesOverlay />
       {mode === "bench" ? <LabConsole /> : null}
     </div>
   );

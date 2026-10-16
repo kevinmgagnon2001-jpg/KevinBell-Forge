@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useAutoFill } from "./rotation";
+import { arcadePlaying } from "./body-state";
 
 export type LookMode = "bench" | "first" | "third";
 
@@ -114,7 +115,8 @@ export function LookProvider({ children }: { children: ReactNode }) {
     const onKey = (event: KeyboardEvent) => {
       const tag = (event.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
-      if (event.key === "Escape") setImmersive(false);
+      // While playing a game, Esc leaves the game (Arcade.tsx), not the full view.
+      if (event.key === "Escape" && !arcadePlaying.get()) setImmersive(false);
     };
     document.addEventListener("fullscreenchange", onFull);
     window.addEventListener("keydown", onKey);

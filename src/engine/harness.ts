@@ -5,6 +5,7 @@ import { placePortal } from "./portal-tool.ts";
 import { buildRig, makeGauge, MESHES, rigById, RIGS, SKINS, skinById, statById, STATS, styleGauges, meshById } from "./gauges.ts";
 import { buildMarble, buildTetris, createAgent, makeSpawned, playTetris, queryByTag, recordEvent, restyle, seatOffCenter, steer } from "./manifold.ts";
 import { clusterDag } from "./cluster-lod.ts";
+import { composeMove, keepMove, moveFromKeys, moveLength, movesOf, PRIMITIVES, slug, type Move } from "./motion.ts";
 import { toolByName } from "./os.ts";
 import { allowedAssetUrl, localTexture } from "./asset-url.ts";
 import type { Entity, HarnessEvent, PhysicsBody, ProposedAction, Skill, Snapshot, World } from "./types.ts";
@@ -115,6 +116,48 @@ export function dispatchTool(world: World, name: string, args: Record<string, st
   if (name === "deck_bridge") return deckCommand(world, args);
   if (name === "compat_map") return compatCommand(world, args);
   if (name === "place_portal") return placePortal(world, args);
+
+  if (name === "make_move") {
+    const label = (args.name ?? "").trim();
+    let move: Move | null;
+    if (args.keys?.trim()) {
+      const made = moveFromKeys(label || "my move", args.keys, parseF32(args.length) ?? 1.5, args.loop === "true");
+      if ("error" in made) return { ok: false, detail: made.error, world };
+      move = made.move;
+    } else {
+      move = composeMove(args.words ?? label, label || undefined);
+      if (!move) return { ok: false, detail: `say it with these: ${PRIMITIVES.map((p) => p.id).join(", ")} (or give keys)`, world };
+      if (args.loop === "true") move = { ...move, loop: true };
+    }
+    const seconds = moveLength(move).toFixed(1);
+    return { ok: true, detail: `Made the move '${move.name}' (${move.segments.length} step${move.segments.length === 1 ? "" : "s"}, ${seconds} s${move.loop ? ", loops" : ""}). Say "${move.name}" or pick it in Moves.`, world: keepMove(world, move) };
+  }
+
+  if (name === "do_move") {
+    const who = args.id ? parseU64(args.id) : null;
+    const figure = who != null ? world.entities[who] : Object.values(world.entities).find((e) => e.tags.includes("architect"));
+    if (!figure || figure.representation.kind !== "hybrid") return { ok: false, detail: "that is not a figure that can move", world };
+    const asked = (args.move ?? "").trim();
+    if (/^(stop|none|stand|rest)$/i.test(asked)) {
+      const { move: _m, moveSeq: _s, ...rest } = figure.customData;
+      return { ok: true, detail: `${figure.name} stops.`, world: { ...world, entities: { ...world.entities, [figure.id]: { ...figure, customData: rest } } } };
+    }
+    let next = world;
+    const all = movesOf(world);
+    // A kept or built-in move by its name; otherwise build one from the words (filling in what was
+    // not said) and keep it, unless it is just a built-in one.
+    let move = all.find((m) => m.id === slug(asked) || m.name.toLowerCase() === asked.toLowerCase());
+    if (!move) {
+      const built = composeMove(asked);
+      const plain = built && all.find((m) => m.id === built.id && m.from === "built in");
+      move = plain ?? built ?? undefined;
+      if (built && !plain) next = keepMove(world, built);
+    }
+    if (!move) return { ok: false, detail: `no move called '${asked}'; try ${PRIMITIVES.slice(0, 6).map((p) => p.id).join(", ")}, or make_move`, world };
+    const seq = String((Number(figure.customData.moveSeq) || 0) + 1);
+    const entities = { ...next.entities, [figure.id]: { ...figure, customData: { ...figure.customData, move: move.id, moveSeq: seq } } };
+    return { ok: true, detail: `${figure.tags.includes("architect") ? "You" : figure.name}: ${move.name}${move.loop ? " (until you say stop)" : ""}.`, world: { ...next, entities } };
+  }
 
   if (name === "place_gauge") {
     const stat = statById(args.stat);

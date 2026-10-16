@@ -1738,7 +1738,7 @@
 .visor-hint {
   position: absolute;
   left: 0.9rem;
-  bottom: 8.6rem;
+  bottom: 11.6rem;
   max-width: min(16rem, 46vw);
   margin: 0;
   color: #c8c4bc;
@@ -2247,4 +2247,384 @@
   font: inherit;
   /* 16px keeps phones from zooming into the field. */
   font-size: max(16px, 1em);
+}
+
+/* Fly / Land is a toggle among the lift keys. */
+.lift .visor-key.is-on {
+  border-color: #7ee0c8;
+  color: #7ee0c8;
+}
+
+/* The arcade (Arcade.tsx): the Play prompt at a game, and the game's own controls while playing. */
+.arcade-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 9.6rem);
+  z-index: 12;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 3rem;
+  padding: 0.5rem 1.2rem;
+  border: 1px solid #7ee0c8;
+  border-radius: 999px;
+  background: rgb(12 13 16 / 88%);
+  color: #f2f2f4;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  box-shadow: 0 0 0 4px rgb(126 224 200 / 14%);
+  transform: translateX(-50%);
+}
+
+.arcade-prompt kbd,
+.arcade-help {
+  font-family: var(--font-mono);
+}
+
+.arcade-prompt kbd {
+  padding: 0 0.4rem;
+  border: 1px solid rgb(255 255 255 / 25%);
+  border-radius: 0.3rem;
+  color: #c9ccd2;
+  font-size: 0.75rem;
+}
+
+.arcade {
+  position: absolute;
+  inset: 0;
+  z-index: 12;
+  pointer-events: none;
+}
+
+.arcade > * {
+  pointer-events: auto;
+}
+
+.arcade-bar {
+  position: absolute;
+  top: 0.6rem;
+  left: 0.6rem;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.35rem 0.4rem 0.35rem 0.8rem;
+  border: 1px solid rgb(126 224 200 / 45%);
+  border-radius: 999px;
+  background: rgb(9 10 12 / 86%);
+  color: #f2f2f4;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.arcade-status {
+  color: #7ee0c8;
+}
+
+.arcade-exit,
+.arcade-over button {
+  min-height: 36px;
+  padding: 0 0.9rem;
+  border: 1px solid rgb(255 255 255 / 25%);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 6%);
+  color: inherit;
+  font: inherit;
+}
+
+.arcade-over {
+  position: absolute;
+  top: 38%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1rem 1.4rem;
+  border: 1px solid rgb(126 224 200 / 45%);
+  border-radius: 1rem;
+  background: rgb(9 10 12 / 90%);
+  color: #f2f2f4;
+  font-family: var(--font-mono);
+  transform: translate(-50%, -50%);
+}
+
+.arcade-over p {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.arcade-help {
+  position: absolute;
+  top: 3.7rem;
+  left: 0.9rem;
+  max-width: min(22rem, 70vw);
+  margin: 0;
+  color: #c8c4bc;
+  font-size: 0.72rem;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 80%);
+}
+
+.arcade-pad {
+  position: absolute;
+  right: 0.8rem;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 0.8rem);
+  left: 0.8rem;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(48px, 64px)) 1fr repeat(2, minmax(52px, 72px));
+  grid-template-areas: "left down right . rotate drop";
+  align-items: end;
+  gap: 0.5rem;
+  pointer-events: none;
+}
+
+.arcade-pad.is-marble {
+  grid-template-columns: 1fr auto;
+  grid-template-areas: ". release";
+}
+
+.arcade-key {
+  min-width: 0;
+  min-height: 60px;
+  border: 1px solid rgb(126 224 200 / 55%);
+  border-radius: 1rem;
+  background: rgb(12 13 16 / 78%);
+  color: #f2f2f4;
+  font-size: 1.5rem;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+}
+
+.arcade-key:active {
+  background: rgb(126 224 200 / 22%);
+}
+
+.arcade-key.is-left {
+  grid-area: left;
+}
+
+.arcade-key.is-right {
+  grid-area: right;
+}
+
+.arcade-key.is-down {
+  grid-area: down;
+}
+
+.arcade-key.is-rotate {
+  grid-area: rotate;
+  min-height: 72px;
+}
+
+.arcade-key.is-drop {
+  grid-area: drop;
+  min-height: 72px;
+}
+
+.arcade-key.is-release {
+  grid-area: release;
+  padding: 0 1.4rem;
+  font-family: var(--font-mono);
+  font-size: 1rem;
+}
+
+/* Keyboard and controller players do not need the touch pad. */
+@media (pointer: fine) {
+  .arcade-pad {
+    opacity: 0.55;
+  }
+
+  .arcade-prompt kbd {
+    display: inline;
+  }
+}
+
+/* Playing a game: only the game's own bar and buttons over the view. */
+.view.is-playing .hud,
+.view.is-playing .visor,
+.view.is-playing .tex-deck,
+.view.is-playing .perf,
+.view.is-playing .moves {
+  display: none;
+}
+
+/* The Moves panel (Moves.tsx). */
+.moves {
+  position: absolute;
+  top: 3.6rem;
+  right: 0.6rem;
+  z-index: 14;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  width: min(21rem, calc(100vw - 1.6rem));
+  max-height: min(26rem, 60vh);
+  overflow-y: auto;
+  padding: 0.6rem;
+  border: 1px solid rgb(212 162 74 / 55%);
+  border-radius: 0.8rem;
+  background: rgb(9 10 12 / 92%);
+  color: #f2f2f4;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  pointer-events: auto;
+}
+
+.moves-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.moves-head strong {
+  flex: 1;
+  font-size: 0.85rem;
+}
+
+.moves-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.moves-chip {
+  min-height: 34px;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.moves-chip.is-own {
+  border-color: rgb(212 162 74 / 60%);
+}
+
+.moves-chip.is-on {
+  border-color: #7ee0c8;
+  color: #7ee0c8;
+}
+
+.moves-chip:disabled {
+  opacity: 0.45;
+}
+
+.moves-make {
+  display: flex;
+  gap: 0.3rem;
+}
+
+.moves-make input {
+  flex: 1;
+  min-width: 0;
+  min-height: 34px;
+  padding: 0.15rem 0.6rem;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: 8px;
+  background: rgb(0 0 0 / 30%);
+  color: inherit;
+  font: inherit;
+  /* 16px keeps phones from zooming into the field. */
+  font-size: max(16px, 1em);
+}
+
+.moves-note {
+  margin: 0;
+  color: #9aa1ab;
+  line-height: 1.35;
+}
+
+/* Phones: the view buttons take two rows, so the Moves panel opens under them. */
+@media (max-width: 600px) {
+  .moves {
+    top: 7.2rem;
+  }
+}
+
+/* The helm over the full view (HelmAsk.tsx): two round buttons until you want the bar. */
+.helm-quick {
+  position: absolute;
+  bottom: 4.8rem;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  pointer-events: auto;
+  transform: translateX(-50%);
+}
+
+.helm-round {
+  width: 48px;
+  height: 48px;
+  border: 1px solid rgb(212 162 74 / 60%);
+  border-radius: 50%;
+  background: rgb(12 13 16 / 82%);
+  color: #f2f2f4;
+  font-size: 1.15rem;
+}
+
+.helm-round.is-listening {
+  border-color: #7ee0c8;
+  box-shadow: 0 0 0 6px rgb(126 224 200 / 18%);
+  animation: helm-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes helm-pulse {
+  50% {
+    box-shadow: 0 0 0 11px rgb(126 224 200 / 6%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .helm-round.is-listening {
+    animation: none;
+  }
+}
+
+.helm-heard {
+  position: absolute;
+  bottom: calc(100% + 0.4rem);
+  left: 50%;
+  max-width: min(80vw, 28rem);
+  margin: 0;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  background: rgb(9 10 12 / 86%);
+  color: #c9ccd2;
+  font-size: 0.8rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transform: translateX(-50%);
+}
+
+.helm-mini {
+  min-width: 36px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #c9ccd2;
+  font-size: 1rem;
+}
+
+.dock-mic {
+  min-width: 44px;
+}
+
+/* Phones: the sticks and Jump fill the bottom, so the helm's buttons sit above Find room. */
+@media (max-width: 600px) {
+  .helm-quick {
+    right: 0.9rem;
+    bottom: 9.6rem;
+    left: auto;
+    transform: none;
+  }
+
+  .helm-heard {
+    right: 0;
+    left: auto;
+    transform: none;
+  }
 }

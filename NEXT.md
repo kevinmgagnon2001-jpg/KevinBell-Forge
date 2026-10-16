@@ -118,6 +118,22 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
   also run on branch pushes that touch their paths.
 
 
+## Walking, physics, arcade (docs/PLAY.md)
+- Done: the avatar is a jointed figure with idle, walk, run, jump, fall, landing and flight poses
+  (Avatar.tsx); the body walks with gravity and collisions (physics.ts stepWalk), jumps, flies (F);
+  loose objects fall, bounce, slide, stack, roll, knock and get shoved, all the time (Settle in
+  Viewport.tsx); games you build are played by walking up and pressing Play (arcade.ts, Arcade.tsx).
+- Moves (motion.ts, Moves.tsx, Avatar.tsx): make moves from words or keyframes (after GENMO), layer
+  them over the live gait by joint mask, feet planted on the real ground by two-bone IK, head looks
+  at what you look at (after MaskedMimic). Next: record a move from the phone camera (pose estimation,
+  the "video" input GENMO takes); hands that reach for things (pick up, press the arcade buttons);
+  carry your moves through portals like mechanics; a small learned motion model behind the same Pose
+  shape, off the main thread, with the code generator as the fallback.
+- Next: more games in `GAMES` (snake, pong, breakout fit the same entry); a high score per game kept in
+  the save; boxes that tumble (only balls turn today); the third-person camera pulling in when a wall
+  is behind you; foot placement on slopes; on islands you visit, the host's walk does not yet use
+  physics (prediction.ts walks flat); check the feel on the owner's phone.
+
 ## Graphics, next steps (after the texture fix)
 - Bloom on the full tier only (`@react-three/postprocessing`): the lamp posts, circuit traces, night
   stars and the TV glow would bloom. Check the cost with the Stats overlay on a phone first; the auto
@@ -125,6 +141,6 @@ History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status
 - Ambient occlusion (N8AO) for contact shadows under exhibits, full tier only.
 - Triplanar mapping for the lab packs, so every face of a stretched solid tiles at true scale (today
   each solid repeats by its largest side and its height, so a long box's ends are approximate).
-- A proper avatar: the body is a few primitives; a rigged low-poly figure with walk and idle cycles.
+- A skinned avatar: the jointed figure (Avatar.tsx) could become a skinned low-poly mesh on the same joints.
 - Water with real reflections (a planar mirror) on the full tier.
 - Use the Stats overlay's Copy report from the phone to set the tier thresholds from real numbers.

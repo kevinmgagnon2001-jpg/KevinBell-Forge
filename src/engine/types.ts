@@ -1,3 +1,4 @@
+import type { Move } from "./motion.ts";
 export type Vec3 = { x: number; y: number; z: number };
 
 export type Quat = { x: number; y: number; z: number; w: number };
@@ -98,6 +99,8 @@ export type World = {
   skills: Skill[];
   /** Opcodes the local map earned after a flagship fixture passed. */
   compat?: string[];
+  /** Moves made in this world (motion.ts): saved, and shared with your other devices. */
+  moves?: Move[];
 };
 
 export const IDENTITY: Quat = { x: 0, y: 0, z: 0, w: 1 };

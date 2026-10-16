@@ -9,11 +9,16 @@ import { carryAlong } from "@/engine/device-apps";
 import { INTERACT_EVENT, LOOK_RATE, lookStick, pilotKeys, pilotStick, pointerClaim, setPilotSpeed, shiftLook, useLook, lookPose, faceLook } from "./look";
 import { stageCamera, stageGl } from "./picture";
 import { fovFor } from "@/engine/view";
+import { solidsFor, stepWalk, WALK } from "@/engine/physics";
+import { frameCamera, gameById } from "@/engine/arcade";
 import type { LookMode } from "./look";
+import { arcadePlaying, avatarMotion, flight, toggleFlight } from "./body-state";
 
 const EYE = 0.62;
 const MIN_Y = 0.45;
 const SPEED = 4.6;
+/** Holding Shift (or the stick pushed all the way while walking) runs. */
+const RUN = 7.4;
 const TURN = 1.8;
 const BENCH_EYE = { x: 0.2, y: 16.4, z: 7.6 };
 const BENCH_AT = { x: 0.2, y: 0.2, z: 0.4 };
@@ -27,14 +32,15 @@ const DEAD = 0.15;
 const deadzone = (n: number) => (Math.abs(n) < DEAD ? 0 : (n - Math.sign(n) * DEAD) / (1 - DEAD));
 
 /**
- * A game controller, if one is connected: left stick moves, right stick looks, A uses (pick up or
- * pull out the phone), the triggers fly up and down. Returns the lift it asks for.
+ * A game controller, if one is connected: left stick moves, right stick looks, A jumps, X uses (pick
+ * up the phone, play a game you are standing at), Y flies or lands, the triggers fly up and down.
+ * Returns the lift and jump it asks for.
  */
-const padHeld = { a: false, stick: false };
-function readGamepad(dt: number): number {
+const padHeld = { x: false, y: false, stick: false };
+function readGamepad(dt: number): { lift: number; jump: boolean } {
   const pads = typeof navigator !== "undefined" && navigator.getGamepads ? navigator.getGamepads() : [];
   const pad = Array.from(pads ?? []).find((p) => p && p.connected);
-  if (!pad) return 0;
+  if (!pad) return { lift: 0, jump: false };
   const lx = deadzone(pad.axes[0] ?? 0);
   const ly = deadzone(pad.axes[1] ?? 0);
   // Only drive the stick while the controller's stick is pushed, so the touch stick still works.
@@ -50,11 +56,17 @@ function readGamepad(dt: number): number {
   const rx = deadzone(pad.axes[2] ?? 0);
   const ry = deadzone(pad.axes[3] ?? 0);
   if (rx || ry) shiftLook(rx * 520 * dt, ry * 360 * dt);
-  const a = !!pad.buttons[0]?.pressed;
-  if (a && !padHeld.a) window.dispatchEvent(new Event(INTERACT_EVENT));
-  padHeld.a = a;
-  return (pad.buttons[7]?.value ?? 0) - (pad.buttons[6]?.value ?? 0);
+  const x = !!pad.buttons[2]?.pressed;
+  if (x && !padHeld.x) window.dispatchEvent(new Event(INTERACT_EVENT));
+  padHeld.x = x;
+  const y = !!pad.buttons[3]?.pressed;
+  if (y && !padHeld.y) toggleFlight();
+  padHeld.y = y;
+  return { lift: (pad.buttons[7]?.value ?? 0) - (pad.buttons[6]?.value ?? 0), jump: !!pad.buttons[0]?.pressed };
 }
+
+/** Where the body stands and how it is falling, between frames. */
+const body = { vy: 0, grounded: true };
 
 /** Ease the camera toward the field of view for this mode on this screen (view.ts), so a rotation glides. */
 function setFov(camera: { fov?: number; aspect?: number; updateProjectionMatrix?: () => void }, mode: LookMode, delta: number) {
@@ -76,6 +88,7 @@ export function Pilot() {
   const looking = useRef<number | null>(null);
   const benchSet = useRef(false);
   const seenMode = useRef(mode);
+  const arcadeAim = useRef<{ x: number; y: number; z: number } | null>(null);
   const modeRef = useRef(mode);
   modeRef.current = mode;
 
@@ -92,6 +105,9 @@ export function Pilot() {
     const down = (event: KeyboardEvent) => {
       const tag = (event.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA") return;
+      // A game being played has the keys (Arcade.tsx).
+      if (arcadePlaying.get()) return;
+      if (event.code === "KeyF" && !event.repeat) toggleFlight();
       pilotKeys.add(event.code);
     };
     const up = (event: KeyboardEvent) => pilotKeys.delete(event.code);
@@ -178,6 +194,18 @@ export function Pilot() {
         pilotStick.x = x;
         pilotStick.y = y;
       },
+      getMotion: () => ({ ...avatarMotion, flying: flight.get(), playing: arcadePlaying.get()?.game ?? null }),
+      /** Stand somewhere, facing yaw (for the browser checks). */
+      place: (x: number, z: number, yaw: number, y?: number) => {
+        faceLook(yaw, -0.16);
+        body.vy = 0;
+        useForge.setState((state) => {
+          const avatar = Object.values(state.entities).find((entity) => entity.tags.includes("architect"));
+          if (!avatar) return state;
+          return { entities: { ...state.entities, [avatar.id]: { ...avatar, transform: { ...avatar.transform, position: { x, y: y ?? avatar.transform.position.y + 0.5, z } }, customData: { ...avatar.customData, yaw: String(yaw) } } } };
+        });
+      },
+      build: (kind: string) => useForge.getState().dispatchManual("build_play", { kind }),
       setSteer: (value: number) => {
         pilotKeys.delete("KeyA");
         pilotKeys.delete("KeyD");
@@ -217,8 +245,37 @@ export function Pilot() {
     if (orbit) orbit.enabled = false;
     setFov(camera, mode, delta);
     const dt = Math.min(delta, 0.05);
+    // Playing a game: the camera frames it and the body waits where it stood.
+    const playing = arcadePlaying.get();
+    if (playing) {
+      const state = useForge.getState();
+      const game = gameById(playing.game);
+      const board = game?.find(state);
+      setPilotSpeed(0);
+      avatarMotion.speed = 0;
+      if (game && board) {
+        const persp = camera as { fov?: number; aspect?: number };
+        const frame = frameCamera(game.framing(state, board), persp.fov ?? 50, persp.aspect ?? 1);
+        const k = 1 - Math.exp(-dt * 5);
+        camera.position.set(camera.position.x + (frame.eye.x - camera.position.x) * k, camera.position.y + (frame.eye.y - camera.position.y) * k, camera.position.z + (frame.eye.z - camera.position.z) * k);
+        const aim = arcadeAim.current ?? { ...frame.at };
+        aim.x += (frame.at.x - aim.x) * k;
+        aim.y += (frame.at.y - aim.y) * k;
+        aim.z += (frame.at.z - aim.z) * k;
+        arcadeAim.current = aim;
+        camera.lookAt(aim.x, aim.y, aim.z);
+        stageCamera.current = camera;
+      }
+      return;
+    }
+    if (arcadeAim.current) {
+      // Back from a game: look the way the body faces again.
+      arcadeAim.current = null;
+    }
     const keys = pilotKeys;
-    const padLift = readGamepad(dt);
+    const pad = readGamepad(dt);
+    const padLift = pad.lift;
+    const flying = flight.get();
     // The look stick turns at a rate: a small push is slow (squared, for aiming), a full push is fast.
     if (lookStick.x || lookStick.y) {
       lookPose.yaw -= lookStick.x * Math.abs(lookStick.x) * LOOK_RATE.yaw * dt;
@@ -228,7 +285,10 @@ export function Pilot() {
     // turns (or strafes) right, which is the D side.
     const turn = clamp1((keys.has("KeyA") || keys.has("ArrowLeft") ? 1 : 0) - (keys.has("KeyD") || keys.has("ArrowRight") ? 1 : 0) - pilotStick.x);
     const gas = clamp1((keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0) - (keys.has("KeyS") || keys.has("ArrowDown") ? 1 : 0) + pilotStick.y);
-    const lift = clamp1((keys.has("Space") ? 1 : 0) - (keys.has("ShiftLeft") || keys.has("ControlLeft") || keys.has("KeyC") ? 1 : 0) + padLift);
+    // Flying, Space climbs and Shift (or C) sinks; walking, Space jumps and Shift runs.
+    const lift = clamp1((keys.has("Space") ? 1 : 0) - ((flying && keys.has("ShiftLeft")) || keys.has("ControlLeft") || keys.has("KeyC") ? 1 : 0) + padLift);
+    const jump = !flying && (keys.has("Space") || pad.jump);
+    const sprint = !flying && (keys.has("ShiftLeft") || keys.has("ShiftRight") || Math.hypot(pilotStick.x, pilotStick.y) > 0.95);
     const pose = { x: 0, y: 0, z: 0, fx: 0, fz: 1, ok: false };
     useForge.setState((state) => {
       const avatar = Object.values(state.entities).find((entity) => entity.tags.includes("architect"));
@@ -320,12 +380,21 @@ export function Pilot() {
       const yaw = lookPose.yaw;
       const face = heading(yaw);
       const right = { x: -face.z, z: face.x };
-      const vx = face.x * gas + right.x * strafe;
-      const vz = face.z * gas + right.z * strafe;
-      const moving = Math.hypot(vx, vz);
-      setPilotSpeed(moving * SPEED);
-      let x = p.x + vx * SPEED * dt;
-      let z = p.z + vz * SPEED * dt;
+      let vx = face.x * gas + right.x * strafe;
+      let vz = face.z * gas + right.z * strafe;
+      // Diagonals are no faster than straight ahead.
+      const push = Math.hypot(vx, vz);
+      if (push > 1) {
+        vx /= push;
+        vz /= push;
+      }
+      const pace = sprint && gas > 0 ? RUN : SPEED;
+      const moving = Math.min(1, push);
+      setPilotSpeed(moving * pace);
+      let x = p.x + vx * pace * dt;
+      let z = p.z + vz * pace * dt;
+      let y = Math.max(MIN_Y, p.y + lift * SPEED * dt);
+      let shoved: { id: number; vx: number; vz: number }[] = [];
       // On a visited island its host decides where you are: walk with prediction (prediction.ts), so it
       // still moves on this frame, and let the host correct it.
       if (visit) {
@@ -334,8 +403,30 @@ export function Pilot() {
         const shown = visit.toLocal(walker.shown().position);
         x = shown.x;
         z = shown.z;
+        avatarMotion.grounded = true;
+        avatarMotion.vy = 0;
+      } else {
+        // Here at home the body has weight: it walks on what is under it, steps up kerbs, stops at
+        // walls, jumps, falls, and shoves loose things. Flying keeps the walls but drops gravity.
+        const walked = stepWalk(
+          { x: p.x, y: p.y - WALK.foot, z: p.z, vy: body.vy, grounded: body.grounded },
+          { vx: vx * pace, vz: vz * pace, jump, fly: flying ? lift : null, flySpeed: SPEED },
+          solidsFor(state.entities),
+          dt,
+        );
+        body.vy = walked.state.vy;
+        body.grounded = walked.state.grounded;
+        x = walked.state.x;
+        y = walked.state.y + WALK.foot;
+        z = walked.state.z;
+        shoved = walked.shoved;
+        avatarMotion.grounded = walked.state.grounded;
+        avatarMotion.vy = walked.state.vy;
+        avatarMotion.bumped = walked.bumped;
+        if (walked.landed > 2) avatarMotion.landed = Math.max(avatarMotion.landed, walked.landed);
       }
-      const y = Math.max(MIN_Y, p.y + lift * SPEED * dt);
+      avatarMotion.flying = flying;
+      avatarMotion.speed = Math.hypot(x - p.x, z - p.z) / Math.max(dt, 1e-3);
       pose.x = x;
       pose.y = y;
       pose.z = z;
@@ -343,10 +434,10 @@ export function Pilot() {
       pose.fz = face.z;
       pose.ok = true;
       const yawStr = String(Math.round(yaw * 1000) / 1000);
-      const speedStr = String(Math.round(moving * SPEED * 100) / 100);
+      const speedStr = String(Math.round(moving * pace * 100) / 100);
       const moved = Math.hypot(x - p.x, y - p.y, z - p.z) > 1e-5 || yawStr !== (avatar.customData.yaw || "0") || speedStr !== (avatar.customData.speed || "0");
       const gliding = [...liveVisits].some((v) => v.others(state).size > 0);
-      if (!moved && !gliding) return state;
+      if (!moved && !gliding && !shoved.length) return state;
       const helm = Object.values(state.entities).find((entity) => entity.tags.includes("helm"));
       const nextAvatar = {
         ...avatar,
@@ -354,6 +445,13 @@ export function Pilot() {
         customData: { ...avatar.customData, yaw: yawStr, speed: speedStr },
       };
       const entities = { ...state.entities, [avatar.id]: nextAvatar };
+      // What you walked into starts moving (Settle in Viewport.tsx steps it from here).
+      for (const kick of shoved) {
+        const e = entities[kick.id];
+        if (!e?.physics) continue;
+        const v = e.physics.velocity;
+        entities[kick.id] = { ...e, physics: { ...e.physics, velocity: { x: Math.abs(kick.vx) > Math.abs(v.x) ? kick.vx : v.x, y: v.y, z: Math.abs(kick.vz) > Math.abs(v.z) ? kick.vz : v.z } } };
+      }
       // Other visitors on visited islands glide between the host's snapshots.
       for (const v of liveVisits) {
         for (const [id, at] of v.others(state)) {
@@ -407,6 +505,9 @@ declare global {
       setStick: (x: number, y: number) => void;
       getStick: () => { x: number; y: number };
       setLook: (x: number, y: number) => void;
+      getMotion: () => { speed: number; grounded: boolean; vy: number; flying: boolean; playing: string | null };
+      place: (x: number, z: number, yaw: number, y?: number) => void;
+      build: (kind: string) => void;
     };
   }
 }
