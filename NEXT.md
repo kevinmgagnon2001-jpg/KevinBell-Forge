@@ -3,6 +3,10 @@
 State at the end of the last session (branch `ccr-cb829fc1-9iqt9m`; all work is committed and pushed).
 History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status per item: `docs/handoff.html`, section 3.
 
+**Next-generation features:** `docs/PAPERS-ROADMAP.md` is a phased to-do list of research from Two Minute Papers
+(NPCs with memory, a skill library from the helm, world events, a new physics solver, crowds, vaulting, generated
+props and sounds). Pick items from Phase 1 first; each says what it touches.
+
 ## Where things stand
 
 - **Android:** `.github/workflows/android.yml` builds an arm64 APK (for phones) and an x86_64 APK, launches the
