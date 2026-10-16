@@ -36,6 +36,7 @@ import { nextRotation } from "@/engine/view";
 import { addGlint, glintsAllowed, setGlintsAllowed } from "./glint";
 import { SoundStage } from "./SoundStage";
 import { PostFX } from "./PostFX";
+import { CatalogButton, CatalogOverlay } from "./Catalog";
 import { HyperBubble } from "./Hyper";
 import { Ropes } from "./Rope";
 import { Talk, TalkBubble } from "./Talk";
@@ -1552,6 +1553,7 @@ function ModeBar() {
         <RotateCw aria-hidden="true" />
       </button>
       <MovesButton />
+      <CatalogButton />
       <button type="button" className={`bubble-icon ${perfOpen ? "is-on" : ""}`} onClick={togglePerf} aria-label="Performance" title="Stats and quality">
         <Activity aria-hidden="true" />
       </button>
@@ -1653,6 +1655,7 @@ export function Viewport() {
       <TextureDeck />
       <PerfOverlay />
       <MovesOverlay />
+      <CatalogOverlay />
       {mode === "bench" ? <LabConsole /> : null}
     </div>
   );
