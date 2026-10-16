@@ -147,8 +147,8 @@ agents for arcade games. Smaller follow-ups:
   carry your moves through portals like mechanics; a small learned motion model behind the same Pose
   shape, off the main thread, with the code generator as the fallback.
 - Next: more games in `GAMES` (snake, pong, breakout fit the same entry); a high score per game kept in
-  the save; boxes that tumble (only balls turn today); the third-person camera pulling in when a wall
-  is behind you; foot placement on slopes; on islands you visit, the host's walk does not yet use
+  the save; boxes that tumble (only balls turn today);
+  foot placement on slopes; on islands you visit, the host's walk does not yet use
   physics (prediction.ts walks flat); check the feel on the owner's phone.
 
 ## Graphics, next steps (after the texture fix)

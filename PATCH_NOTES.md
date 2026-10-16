@@ -1084,3 +1084,10 @@ and mountains around it, under a late-afternoon sky.
 - Checked: typecheck, lint (no errors, no new warnings), `npm run test:engine` (280 pass, 9 new),
   and in Chromium (software GL) in the lab: a 0.9 m wall vaulted at a run, a 1 m crate mantled
   walking, a 1.9 m ledge climbed with Space; no console errors.
+
+## The camera pulls in when a wall is behind you
+- camera-boom.ts (tested): the third-person camera sits on a boom from over the shoulders; walls,
+  exhibits and hills in the way slide it in to just in front of them (loose and small things do
+  not), at once, and it eases back out when clear. Pulled in close it rises to look over the head.
+- Checked: typecheck, lint (no errors), `npm run test:engine` (285 pass); in Chromium, a 2.6 m wall
+  right behind the body brings the camera in over the shoulder; no console errors.

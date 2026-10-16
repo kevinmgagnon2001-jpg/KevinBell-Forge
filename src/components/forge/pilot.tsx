@@ -11,6 +11,7 @@ import { stageCamera, stageGl } from "./picture";
 import { fovFor } from "@/engine/view";
 import { groundAt, solidsFor, stepWalk, WALK } from "@/engine/physics";
 import { ledgeAhead, sampleTraverse, type Traverse } from "@/engine/parkour";
+import { boomReach, easeBoom } from "@/engine/camera-boom";
 import { heightAt } from "@/engine/terrain";
 import { chase, chasePoint, driveSpeed, KEY_PUSH } from "@/engine/drive";
 import { frameCamera, gameById } from "@/engine/arcade";
@@ -89,6 +90,8 @@ const motion = {
   bank: 0,
   /** A vault or climb under way (parkour.ts), with its clock and the speed it was entered at. */
   parkour: null as { tr: Traverse; t: number; entry: number } | null,
+  /** The camera boom's length after walls pulled it in (camera-boom.ts). */
+  boom: Number.NaN,
   /** How long the body has been pushing into a wall: a held push climbs what a jog would not. */
   press: 0,
 };
@@ -681,7 +684,14 @@ export function Pilot() {
     cam.y += (want.y - cam.y) * lag;
     cam.z += (want.z - cam.z) * lag;
     motion.cam = cam;
-    camera.position.set(cam.x, cam.y, cam.z);
+    // A wall or a hill behind you pulls the camera in front of it, then it eases back out.
+    const pivot = { x: pose.x + side.x * shoulder * 0.5, y: pose.y + 0.9, z: pose.z + side.z * shoulder * 0.5 };
+    const arm = Math.hypot(cam.x - pivot.x, cam.y - pivot.y, cam.z - pivot.z);
+    motion.boom = easeBoom(motion.boom, boomReach(pivot, cam, solidsFor(useForge.getState().entities), groundAt), dt);
+    const k = arm > 1e-6 ? Math.min(1, motion.boom / arm) : 1;
+    // Pulled in close, it rises a little so it looks over the head instead of into it.
+    const over = 0.5 * Math.max(0, 1 - motion.boom / 2.2);
+    camera.position.set(pivot.x + (cam.x - pivot.x) * k, pivot.y + (cam.y - pivot.y) * k + over, pivot.z + (cam.z - pivot.z) * k);
     const aimAhead = 3;
     camera.lookAt(pose.x + cf.x * aimAhead + side.x * shoulder * 0.6, pose.y + 0.85 + Math.sin(pitch) * aimAhead, pose.z + cf.z * aimAhead + side.z * shoulder * 0.6);
     // Bank the view a touch into flying turns.
