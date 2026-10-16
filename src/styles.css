@@ -3095,3 +3095,70 @@
 .blk.is-classic .blk-link {
   color: #1677ff;
 }
+
+/* Blocks, classic look in dark mode (follows the phone, or Settings → Dark mode): black, dim grey
+   grid lines, the same blue. */
+.blk.is-classic.is-dark {
+  --blk-text: #f2f2f2;
+  --blk-muted: #a8a8a8;
+  background: #000;
+  color: #f2f2f2;
+}
+
+.blk.is-classic.is-dark .blk-board {
+  border-color: #3c3c3c;
+  background: #3c3c3c;
+}
+
+.blk.is-classic.is-dark .blk-cell {
+  background: #000;
+}
+
+.blk.is-classic.is-dark .blk-cell.is-full {
+  background: var(--blk);
+  box-shadow: inset 0 0 0 1.5px #8a8a8a;
+}
+
+.blk.is-classic.is-dark .blk-cell.is-ghost {
+  background: #0d3f8a;
+  box-shadow: inset 0 0 0 1.5px #1677ff;
+}
+
+.blk.is-classic.is-dark .blk-cell.is-lit:not(.is-full):not(.is-ghost) {
+  background: #0b1f3d;
+}
+
+.blk.is-classic.is-dark .blk-fab {
+  color: #000;
+  box-shadow: none;
+}
+
+.blk.is-classic.is-dark .blk-popup {
+  background: #151515;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 60%);
+}
+
+.blk.is-classic.is-dark .blk-menu.is-classic {
+  background: #1c1c1e;
+  box-shadow: 0 12px 36px rgb(0 0 0 / 70%);
+}
+
+.blk.is-classic.is-dark .blk-menu button {
+  color: #f2f2f2;
+}
+
+.blk.is-classic.is-dark .blk-menu button:active {
+  background: #102846;
+}
+
+.blk.is-classic.is-dark .blk-over {
+  background: rgb(0 0 0 / 92%);
+}
+
+.blk.is-classic.is-dark .blk-over-title {
+  color: #a8a8a8;
+}
+
+.blk.is-classic.is-dark .blk-over-best {
+  color: #d0d0d0;
+}

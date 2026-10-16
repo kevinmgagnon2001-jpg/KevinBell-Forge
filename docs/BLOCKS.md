@@ -16,7 +16,9 @@ In a browser it is at `/blocks` (or `/?app=blocks`).
 The classic look is the default: a white board with thin black lines, every block one blue, the
 score big and blue at the top, the three pieces below, and **New Game** (asks first if a game is
 going) and **Settings** along the bottom. Settings shows the best score and has New game, Sound,
-Vibration, and "Colourful blocks" for the bright look. The Android icon is a blue-and-white grid.
+Vibration, "Colourful blocks" for the bright look, and Dark mode. Dark mode follows the phone by
+default (black board, dim grey lines, the same blue); tap it to switch between "same as phone", on
+and off. The Android icon is a blue-and-white grid.
 
 ## Playing
 
