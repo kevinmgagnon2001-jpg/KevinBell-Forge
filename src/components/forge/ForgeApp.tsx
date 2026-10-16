@@ -1,6 +1,7 @@
 import { Component, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Compass, Maximize2, Minimize2, Moon, Pause, Play, RotateCcw, ScrollText, SkipForward, Sun, Undo2 } from "lucide-react";
 import { setTheme, startTheme, useTheme } from "./theme";
+import { HyperBackdrop, HyperMark } from "./HyperBackdrop";
 import { ENGINE_SCRIPT, LAB_TOUR, TOOLS } from "@/engine/os";
 import { NAMED_COLORS } from "@/engine/color";
 import { RESIDENT_MODELS, residentById } from "@/engine/resident-catalog";
@@ -256,8 +257,11 @@ function Header({
   return (
     <header className="topbar">
       <div className="brand">
-        <p className="brand-kicker">Harness · v0.1.0</p>
-        <h1>AetherForge</h1>
+        <HyperMark />
+        <div>
+          <p className="brand-kicker">Harness · v0.1.0</p>
+          <h1>AetherForge</h1>
+        </div>
       </div>
       <dl className="stats">
         <div>
@@ -910,6 +914,7 @@ function ForgeShell() {
 
   return (
     <div className={look.immersive ? "app is-immersive" : "app"}>
+      <HyperBackdrop />
       <SimClock />
       <DropRunner />
       <PortalWatcher />

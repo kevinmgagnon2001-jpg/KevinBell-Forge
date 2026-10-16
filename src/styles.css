@@ -3509,3 +3509,44 @@ body:has(.app)::before {
 .hud-readout {
   border-radius: 18px;
 }
+
+/* The 4D bubble behind everything (HyperBackdrop.tsx), and the turning tesseract by the name. */
+.hyper-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  width: 100vw;
+  height: 100dvh;
+  pointer-events: none;
+}
+
+:root[data-theme="light"] .hyper-backdrop {
+  opacity: 0.55;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.hyper-mark {
+  width: 2.6rem;
+  height: 2.6rem;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 26%, rgb(255 255 255 / 30%), rgb(255 255 255 / 0%) 30%), radial-gradient(circle, rgb(38 22 84 / 35%), rgb(38 22 84 / 0%) 70%);
+  box-shadow: 0 0 18px rgb(183 123 255 / 40%), inset 0 0 0 1.5px rgb(183 123 255 / 45%);
+}
+
+/* Hyper-bubble rims: the 4D palette (red, violet, green) through the film. */
+:root[data-theme="dark"] {
+  --film: conic-gradient(from var(--spin), #ff2a55, #b77bff, #33ff8c, #7afcff, #ff5fb4, #ff2a55);
+}
+
+/* Panels let the 4D bubble behind them show through their frosted glass. */
+.topbar,
+.dock,
+.side {
+  background: color-mix(in srgb, var(--color-bg) 48%, transparent);
+}

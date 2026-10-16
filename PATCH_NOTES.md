@@ -1052,3 +1052,18 @@ and mountains around it, under a late-afternoon sky.
   the sudden switch to a run at a full push.
 - Checked in Chromium (software GL): a 45% push walks at 1.3 m/s, a full push runs at 7.4 m/s, a push
   right turns and steps right; typecheck, lint, engine tests.
+
+## The 4D bubble (after Adventure Time)
+- polytope.ts (tested): the tesseract, 24-cell, 600-cell and 120-cell (the 120-cell built as the dual
+  of the 600-cell's 600 tetrahedra), every edge checked equal; double rotation through the six planes
+  of 4D and perspective casting from w; a red-violet-green palette by depth.
+- Hyper.tsx: 4D bubbles (glowing additive edges and vertex sparks inside a thin-film fresnel bubble
+  and a haze) and the hyper sword (a hypercube blade turning only in planes that keep its length,
+  a light core, and ghost cubes glitching off it), held in the avatar's right hand.
+- HyperBackdrop.tsx: a 120-cell turning behind the app on a 2D canvas (30 fps cap, paused when hidden,
+  still for reduced motion) and a tesseract mark by the name. Dark-theme bubble rims take the 4D
+  palette; panels are frosted glass over it.
+- Tools place_hyper and wield; instant commands in hyper.ts.
+- Checked: typecheck, lint (no errors), `npm run test:engine` (271 pass), production build and the
+  built app with no console errors; in Chromium at the 11 rung: a 120-cell bubble and the sword in
+  hand, glowing.

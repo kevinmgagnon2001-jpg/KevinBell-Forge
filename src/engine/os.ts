@@ -251,6 +251,17 @@ export const TOOLS: ToolSchema[] = [
     parameters: { name: "string", place: "string" },
   },
   {
+    name: "place_hyper",
+    description: "Place a 4D bubble: a regular polytope turning through the fourth dimension inside an iridescent bubble. shape is tesseract, 24-cell, 600-cell or 120-cell (the most vertices). size in metres.",
+    parameters: { shape: "string", x: "f32", z: "f32", size: "f32", name: "string" },
+    optional: ["shape", "x", "z", "size", "name"],
+  },
+  {
+    name: "wield",
+    description: "Hold the hyper sword (item hyper-sword), whose blade is a hypercube turning through 4D, or put it away (item none).",
+    parameters: { item: "string" },
+  },
+  {
     name: "build_gauge_rig",
     description: "Place a whole room of gauges at once (engine-room, steam, cyber). skin overrides the rig's own.",
     parameters: { rig: "string", skin: "string" },

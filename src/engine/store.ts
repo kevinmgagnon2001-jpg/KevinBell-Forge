@@ -7,6 +7,7 @@ import { cleanMoves, moveIntent } from "./motion";
 import { cleanWeather, weatherIntent } from "./weather";
 import { soundIntent } from "./sounds";
 import { cleanTown, townIntent } from "./town";
+import { hyperIntent } from "./hyper";
 import { cleanRecent, MAX_SKILLS, skillIntent, skillBrief } from "./skillbook";
 import { bootWorld, ensureAvatar, ensureHelm, labWorld, stepWorld } from "./manifold";
 import { DEFAULT_MODEL_PATH, MEMORY_BUDGET_MB, TOOL_NAMES } from "./os";
@@ -345,6 +346,18 @@ export const useForge = create<ForgeState>((set, get) => {
         commit(ran.ok ? ran.world : before, before.selectedId, [
           { tone: "user", title: "Intent", body: intent },
           { tone: ran.ok ? "engine" : "warn", title: "Moves", body: `${moveCall.tool} ${argLine(moveCall.arguments)}\n${ran.result}` },
+        ]);
+        return;
+      }
+      // 4D bubbles and the hyper sword ("make a 4d bubble", "give me the 4d sword") (hyper.ts).
+      const hyperCall = hyperIntent(intent);
+      if (hyperCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: hyperCall.tool, arguments: hyperCall.arguments });
+        const spawned = ran.world.nextId > before.nextId ? ran.world.nextId - 1 : before.selectedId;
+        commit(ran.ok ? ran.world : before, spawned, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "4D", body: ran.result },
         ]);
         return;
       }

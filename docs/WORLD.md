@@ -71,3 +71,16 @@ devices. Nothing is downloaded or sent anywhere.
 - F flies: look where you want to go. Look up to climb, down to dive; W boosts (with Shift, more),
   S brakes to a hover, A and D drift. F again lands.
 - Prompts (Play, the phone, the TV) and "looking at" only appear up close.
+
+## The 4D bubble
+
+- "Make a 4D bubble", "put a tesseract here", "a 600-cell", "a 120-cell": a regular polytope turning
+  through the fourth dimension inside an iridescent bubble with a haze. Its edges glow red, violet
+  and green by how deep in w they are; on the higher quality rungs they bloom into light. A plain
+  "4D bubble" is the 120-cell (600 corners, 1200 edges).
+- "Give me the 4D sword", "put the sword away": the hyper sword in your right hand. Its blade is a
+  hypercube turning through w, with ghost cubes glitching off it.
+- In the dark theme the whole app sits on a 120-cell turning slowly behind the panels, and a small
+  tesseract turns by the name.
+- Code: `src/engine/polytope.ts` (the shapes, checked), `src/engine/hyper.ts`,
+  `src/components/forge/Hyper.tsx`, `src/components/forge/HyperBackdrop.tsx`.

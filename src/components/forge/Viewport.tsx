@@ -36,6 +36,8 @@ import { nextRotation } from "@/engine/view";
 import { addGlint, glintsAllowed, setGlintsAllowed } from "./glint";
 import { SoundStage } from "./SoundStage";
 import { PostFX } from "./PostFX";
+import { HyperBubble } from "./Hyper";
+import type { ShapeName } from "@/engine/polytope";
 import { Activity, ArrowBigUp, Eye, House, LayoutGrid, Maximize2, Minimize2, Move, PersonStanding, PlaneLanding, RotateCw, ScanEye, Wind } from "lucide-react";
 import type { Post } from "@/engine/perf";
 import { Town } from "./Town";
@@ -913,6 +915,7 @@ function BodyInner({ entity, selected }: { entity: Entity; selected: boolean }) 
       />
     ) : null;
   if (entity.customData.method === "nanite") return <ClusterCut />;
+  if (entity.customData.hyper) return <HyperBubble shape={entity.customData.hyper as ShapeName} />;
   if (entity.tags.includes(SCREEN_TAG)) return <DeviceMesh entity={entity} />;
   if (entity.tags.includes(TV_TAG)) return <TvMesh />;
   if (entity.tags.includes(GAUGE_TAG)) return <GaugeMesh entity={entity} />;

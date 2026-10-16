@@ -21,6 +21,7 @@ import { groundUnderFoot, solidsFor } from "@/engine/physics";
 import { alignPhase, jiggle, JIGGLE, spring2, stepPhase, track, tracker } from "@/engine/springs";
 import { useForge } from "@/engine/store";
 import { avatarMotion, townBodies } from "./body-state";
+import { HyperSword } from "./Hyper";
 import { currentGaze } from "./look";
 
 const SUIT = "#313c4a";
@@ -387,6 +388,12 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
                 <Limb length={UPPER_ARM} radius={0.048} color={suit} />
                 <group ref={set(`elbow${side}`)} position={[0, -UPPER_ARM, 0]}>
                   <Limb length={FOREARM} radius={0.042} color={suit} />
+                  {side === "R" && entity.customData.wield === "hyper-sword" ? (
+                    // In the right hand, the blade out ahead.
+                    <group position={[0, -FOREARM - 0.04, 0.02]} rotation={[Math.PI / 2 - 0.25, 0, 0]}>
+                      <HyperSword />
+                    </group>
+                  ) : null}
                   <mesh position={[0, -FOREARM - 0.035, 0.005]} scale={[0.85, 1.1, 0.7]}>
                     <sphereGeometry args={[0.045, 10, 8]} />
                     <meshStandardMaterial color={skin} roughness={0.55} metalness={0.05} />
