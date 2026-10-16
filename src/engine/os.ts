@@ -307,6 +307,24 @@ export const TOOLS: ToolSchema[] = [
     optional: ["thing"],
   },
   {
+    name: "build_dominoes",
+    description: "Line up dominoes ahead of you (count 3-60; bend in radians curves the line). They are real rigid bodies: push the first and they fall in turn.",
+    parameters: { count: "f32", bend: "f32" },
+    optional: ["count", "bend"],
+  },
+  {
+    name: "build_jenga",
+    description: "Build a Jenga tower of wooden blocks in front of you (levels 3-18). Real rigid bodies that tumble.",
+    parameters: { levels: "f32" },
+    optional: ["levels"],
+  },
+  {
+    name: "knock_over",
+    description: "Tip the first domino, or shove the Jenga tower (what: dominoes or tower).",
+    parameters: { what: "string" },
+    optional: ["what"],
+  },
+  {
     name: "wield",
     description: "Hold the hyper sword (item hyper-sword), whose blade is a hypercube turning through 4D, or put it away (item none).",
     parameters: { item: "string" },

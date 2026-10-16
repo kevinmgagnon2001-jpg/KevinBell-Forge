@@ -44,6 +44,7 @@ import { Companion } from "./Companion";
 import { Fire, FireControls } from "./Fire";
 import { Growths } from "./Growth";
 import { SmokeRings } from "./SmokeRings";
+import { RigidBodies } from "./Rigid";
 import { ROPE_TAG } from "@/engine/rope";
 import type { ShapeName } from "@/engine/polytope";
 import { Activity, ArrowBigUp, Eye, House, LayoutGrid, Maximize2, Minimize2, Move, PersonStanding, PlaneLanding, RotateCw, ScanEye, Wind } from "lucide-react";
@@ -1132,7 +1133,7 @@ function EntityNode({
       <group ref={turn} scale={[s.x, s.y, s.z] as Vector3Tuple} quaternion={quat}>
         <Body entity={entity} selected={selected} />
       </group>
-      {entity.physics ? <VelocityMark velocity={entity.physics.velocity} /> : null}
+      {entity.physics && !entity.tags.includes("rigid") ? <VelocityMark velocity={entity.physics.velocity} /> : null}
       {(selected || gazed) && !entity.tags.includes("floor") ? (
         <lineSegments raycast={() => null} geometry={OUTLINE_EDGES} dispose={null} scale={[s.x * 1.08, s.y * 1.08, s.z * 1.08]} quaternion={quat}>
           <lineBasicMaterial color={gazed && !selected ? "#7ee0c8" : scenePalette.mark} transparent opacity={0.95} />
@@ -1345,6 +1346,7 @@ function Stage({ scenery, shadows, post }: { scenery: SceneryLevel | "off"; shad
       ))}
       <Pilot />
       <Settle paused={dragging} />
+      <RigidBodies paused={dragging} />
       <SoundStage />
       <Town />
       <Ropes />

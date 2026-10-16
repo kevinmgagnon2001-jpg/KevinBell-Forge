@@ -16,6 +16,8 @@ import { raiseFlag, wearCape } from "./cloth.ts";
 import { orderCompanion, summon } from "./companion.ts";
 import { makeCampfire, putOutFire, setFire } from "./fire.ts";
 import { grow } from "./growth.ts";
+import { buildDominoes, buildJenga, knockOver } from "./rigid.ts";
+import { groundAt } from "./physics.ts";
 import { listSkills, MAX_SKILLS, noteCall, repeatTool, runSteps, saveSkill } from "./skillbook.ts";
 import { allowedAssetUrl, localTexture } from "./asset-url.ts";
 import type { Entity, HarnessEvent, PhysicsBody, ProposedAction, Skill, Snapshot, World } from "./types.ts";
@@ -186,6 +188,9 @@ export function dispatchTool(world: World, name: string, args: Record<string, st
   if (name === "summon_companion") return summon(world, args);
   if (name === "set_fire") return setFire(world, args);
   if (name === "grow") return grow(world, args);
+  if (name === "build_dominoes") return buildDominoes(world, args, groundAt);
+  if (name === "build_jenga") return buildJenga(world, args, groundAt);
+  if (name === "knock_over") return knockOver(world, args);
   if (name === "put_out_fire") return putOutFire(world);
   if (name === "make_campfire") return makeCampfire(world);
   if (name === "order_companion") return orderCompanion(world, args);

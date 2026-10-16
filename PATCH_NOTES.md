@@ -1212,3 +1212,15 @@ and mountains around it, under a late-afternoon sky.
 - SmokeRings.tsx: "blow a smoke ring" / "two smoke rings" from your head the way you look; the
   second ring is smaller so it catches up and goes through; smoke tracers fade over ten seconds.
 - Checked: typecheck, lint, engine tests; in Chromium, two rings blown; no console errors.
+
+## Dominoes and Jenga: rigid bodies that tumble (Papers roadmap: the solver core, started)
+- rigid.ts (tested): oriented box bodies with mass and inertia; contacts from 20 sample points per
+  box (corners and edge middles, a hair inside so stacks meet face to face) against other boxes,
+  static solids (both ways) and the land; sequential impulses with friction, a little bounce and
+  warm starting; substeps of 1/120 s; sleeping and waking. A box rests flat and sleeps, a stack of
+  five stands, a box tumbles off a ledge, a line of dominoes falls, a 12-layer Jenga tower stands
+  until shoved. Toys: `build_dominoes` (line or curve), `build_jenga`, `knock_over`.
+- Rigid.tsx keeps the solver and the "rigid" entities in step (new bodies, outside moves, kicks
+  from walking into them land high so dominoes tip). physics.ts leaves rigid bodies to it.
+- Checked: typecheck, lint, `npm run test:engine` (337 pass); in Chromium: a curve of 16 dominoes
+  falling in turn and a Jenga tower shoved; no console errors.

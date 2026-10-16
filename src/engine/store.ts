@@ -13,6 +13,7 @@ import { clothIntent } from "./cloth";
 import { fireIntent } from "./fire";
 import { growthIntent } from "./growth";
 import { smokeRingIntent } from "./vortex";
+import { rigidIntent } from "./rigid";
 import { companionIntent, companionOf, companionPrompt, ordersFromModel } from "./companion";
 import { cleanBest } from "./arcade";
 import { cleanRecent, MAX_SKILLS, skillIntent, skillBrief } from "./skillbook";
@@ -410,6 +411,17 @@ export const useForge = create<ForgeState>((set, get) => {
         pushLog([
           { tone: "user", title: "Intent", body: intent },
           { tone: "engine", title: "Smoke", body: rings.count > 1 ? `${rings.count} smoke rings roll out the way you look; watch the back one leapfrog through.` : "A smoke ring rolls out the way you look." },
+        ]);
+        return;
+      }
+      // Dominoes and Jenga ("line up 30 dominoes", "build a jenga tower", "knock them over") (rigid.ts).
+      const rigidCall = rigidIntent(intent);
+      if (rigidCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: rigidCall.tool, arguments: rigidCall.arguments });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Toys", body: ran.result },
         ]);
         return;
       }

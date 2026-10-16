@@ -115,11 +115,14 @@ Notes on what was built differently from the plan:
   - Done in `parkour.ts` (its own ledge probe over the walker's solids, scripted curves, `twoBone`
     for the hands) rather than inside stepWalk. "Drop" is the existing fall and landing crouch;
     a hang-and-drop from a ledge is not done.
-- [ ] **New solver core: AVBD for rigid bodies and joints** (M). *Augmented Vertex Block Descent
+- [~] **New solver core: AVBD for rigid bodies and joints** (M). *Augmented Vertex Block Descent
   (SIGGRAPH 2025), TMP "Roblox Solved The Physics Problem That Stumped Everyone"*
   - Stable stacks, chains, ragdolls and breakable joints; "Jenga collapse" sandboxes.
   - On the CPU for about 1–3k bodies; keep today's sleep. WebGPU later for big scenes.
   - Touches: `physics.ts` (stepBodies, collidePairs), `manifold.ts`.
+  - Started (rigid.ts, Rigid.tsx): tumbling oriented boxes for dominoes and Jenga, with a
+    sequential-impulse solver (warm-started), not AVBD yet; solveContacts is the piece to swap.
+    Not done: joints, ragdolls, breakable joints, moving the older loose bodies onto it.
 - [x] **Soft bodies and cloth on the same core** (M). *Vertex Block Descent (SIGGRAPH 2024)*
   (related).
   - Jelly blocks, flags, capes and inflatables, using meshes under about 5k vertices on the CPU.

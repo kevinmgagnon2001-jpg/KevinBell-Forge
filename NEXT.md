@@ -10,12 +10,13 @@ Each item says what it touches.
 session: vault, mantle and climb (`parkour.ts`), ropes, cables and string lights with swinging
 (`rope.ts`), talking townsfolk with faces and lip sync (`talk.ts`), capes and flags (`cloth.ts`), a
 companion that follows orders (`companion.ts`), fire you can put out (`fire.ts`), moss, frost, rust
-and crystal (`growth.ts`). Also new: the camera pulls in when a wall is behind you
+and crystal (`growth.ts`), smoke rings (`vortex.ts`), dominoes and Jenga (`rigid.ts`). Also new: the camera pulls in when a wall is behind you
 (`camera-boom.ts`), Hyper Breakout and best scores in the save (`breakout.ts`), weather on the flat
 stage. Guides: `docs/WORLD.md`, `docs/PLAY.md`.
 
-Next from the roadmap: the AVBD solver core (boxes that tumble, stacks, ragdolls; jelly and
-inflatables on it), builder agents for arcade games, smoke rings, the town economy. Smaller
+Next from the roadmap: the solver core beyond boxes (rigid.ts has tumbling boxes, dominoes and
+Jenga on sequential impulses; next joints, ragdolls, AVBD in solveContacts, jelly and inflatables),
+builder agents for arcade games, the town economy. Smaller
 follow-ups:
 - Feel all of the new movement on the owner's phone and PC (only checked in a software-GL browser at
   1-2 fps): vault and climb thresholds (`PARKOUR`, `PRESS_CLIMB`), rope pumping (`SWING_PUMP`), the

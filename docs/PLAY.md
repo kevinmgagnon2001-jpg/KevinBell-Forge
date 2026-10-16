@@ -75,6 +75,15 @@ all the time now, not only while Run is on; a body at rest sleeps and costs noth
 fixtures (kinematic) stay put and block. Set `bounce` (0..0.95) or `friction` in an entity's data to
 change how lively it is. Engine: `src/engine/physics.ts`, tested in `physics.test.ts`.
 
+## Dominoes and Jenga
+
+"Line up 30 dominoes" (or "in a curve"), "build a jenga tower", "knock them over", "knock over the
+tower" (tools `build_dominoes`, `build_jenga`, `knock_over`). These are real rigid bodies on their
+own solver (`src/engine/rigid.ts`, kept in step by `Rigid.tsx`): oriented boxes that turn, with
+contacts found at each box's corners and edge middles, friction, a little bounce, and impulses
+iterated with last step's as the start (warm starting) so stacks stand still; still bodies sleep
+and wake when knocked. Walk into the first domino and it tips (a kick lands high on the body).
+
 ## The arcade
 
 Build a game ("build tetris", "build a marble run", or the Tetris button on the bench), walk up to
