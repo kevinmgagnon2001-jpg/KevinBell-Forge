@@ -1,6 +1,6 @@
 /**
  * Read the diagnostics reports people sent from the app (src/engine/diagnostics.ts): every open issue
- * labelled "diagnostics", with its findings and readings, newest first. For build sessions and
+ * labelled "diagnostics" (or titled "[diagnostics] ..."), with its findings and readings, newest first. For build sessions and
  * workflows; docs/DIAGNOSTICS.md.
  *
  *   node --experimental-strip-types scripts/diagnostics.ts            summaries
@@ -10,17 +10,22 @@
  */
 import { findings, parseReport, REPORT_LABEL, REPORT_REPO, type Diagnostics } from "../src/engine/diagnostics.ts";
 
-type Issue = { number: number; title: string; html_url: string; created_at: string; body: string | null; pull_request?: unknown };
+type Issue = { number: number; title: string; html_url: string; created_at: string; body: string | null; pull_request?: unknown; labels?: { name: string }[] };
 
 const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
-const res = await fetch(`https://api.github.com/repos/${REPORT_REPO}/issues?state=open&labels=${REPORT_LABEL}&per_page=30`, {
+// All open issues, then the reports among them: labelled "diagnostics", or titled "[diagnostics] ...".
+// (GitHub drops a pre-filled label that the repository does not have yet, so the title is the
+// fallback that always survives.)
+const res = await fetch(`https://api.github.com/repos/${REPORT_REPO}/issues?state=open&per_page=100`, {
   headers: { accept: "application/vnd.github+json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
 });
 if (!res.ok) {
   console.error(`GitHub said ${res.status}: ${(await res.text()).slice(0, 200)}`);
   process.exit(1);
 }
-const issues = ((await res.json()) as Issue[]).filter((issue) => !issue.pull_request);
+const issues = ((await res.json()) as Issue[]).filter(
+  (issue) => !issue.pull_request && (issue.labels?.some((l) => l.name === REPORT_LABEL) || issue.title.startsWith(`[${REPORT_LABEL}]`)),
+);
 const reports = issues.map((issue) => ({ issue: issue.number, url: issue.html_url, title: issue.title, report: parseReport(issue.body ?? "") }));
 
 if (process.argv.includes("--json")) {
