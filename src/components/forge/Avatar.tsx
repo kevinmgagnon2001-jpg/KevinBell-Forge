@@ -7,13 +7,18 @@
  * Drawn in the entity's space: feet at y = -WALK.foot (0.62), eyes at about +0.62, facing +z. The
  * architect reads avatarMotion (body-state.ts, written by the pilot); any other figure (agents) reads
  * its own customData.speed. Everything moves inside useFrame, so it costs no React renders.
+ *
+ * The walk cycle finishes its step when you stop and starts in step with the legs you have
+ * (springs.ts stepPhase, alignPhase); the antenna on the pack and the ponytail swing on springs
+ * driven by how the body speeds up and turns (secondary motion).
  */
 import { useFrame } from "@react-three/fiber";
 import { useRef, type ReactNode } from "react";
-import type { Group } from "three";
+import { Vector3, type Group } from "three";
 import type { Entity } from "@/engine/types";
 import { inpaint, LEGS, legIk, movesOf, sampleMove, type Move } from "@/engine/motion";
 import { groundUnderFoot, solidsFor } from "@/engine/physics";
+import { alignPhase, jiggle, JIGGLE, spring2, stepPhase, track, tracker } from "@/engine/springs";
 import { useForge } from "@/engine/store";
 import { avatarMotion } from "./body-state";
 import { currentGaze } from "./look";
@@ -78,7 +83,11 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
   const playing = useRef<{ key: string; move: Move | null; started: number }>({ key: `${moveId}#${moveSeq}`, move: null, started: Number.NEGATIVE_INFINITY });
   const chestShell = useRef<Group>(null);
   const pose = useRef<Pose>(blankPose());
-  const clock = useRef({ t: Math.random() * 10, phase: 0 });
+  const clock = useRef({ t: Math.random() * 10, phase: 0, walk: 0, moving: false });
+  const antenna = useRef<Group>(null);
+  const ponytail = useRef<Group>(null);
+  const tail2 = useRef<Group>(null);
+  const wobble = useRef({ track: tracker(), antenna: spring2(), pony: spring2(), at: new Vector3() });
   const set = (name: Joint) => (g: Group | null) => {
     joints.current[name] = g;
   };
@@ -100,9 +109,19 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
     const air = !m.grounded && !m.flying;
     // One stride (two steps) is ~1.15 m walking, stretching to ~1.9 m at a full run.
     const run = smooth(3.6, 6.8, speed);
-    const walk = air || m.flying ? 0 : Math.min(1, speed / 1.1);
+    // The stride's size eases down when stopping, so the last step plays out instead of shrinking away.
+    const walkTarget = air || m.flying ? 0 : Math.min(1, speed / 1.1);
+    c.walk = walkTarget > c.walk ? walkTarget : c.walk + (walkTarget - c.walk) * (1 - Math.exp(-dt * 3));
+    const walk = c.walk;
     const stride = 1.15 + run * 0.75;
-    c.phase += dt * (speed / stride) * Math.PI * 2;
+    const moving = speed > 0.15 && !air && !m.flying;
+    if (moving && !c.moving) {
+      // Start the cycle at the phase that matches the legs as they are (out of a move or a landing).
+      const now = pose.current;
+      c.phase = alignPhase(now.hipL.x, now.hipR.x, now.kneeL.x, now.kneeR.x, 0.42 + run * 0.38);
+    }
+    c.moving = moving;
+    c.phase = stepPhase(c.phase, air || m.flying ? 0 : speed, stride, dt);
     const ph = c.phase;
     const idle = 1 - Math.min(1, speed / 0.6);
     const t = blankPose();
@@ -259,6 +278,25 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
     p.breathe += (t.breathe - p.breathe) * k;
     const pelvis = joints.current.pelvis;
     if (pelvis) pelvis.position.y = HIP_Y + p.lift;
+
+    // Secondary motion: what hangs off the body lags its acceleration (in the body's own frame).
+    const chest = joints.current.chest;
+    if (chest) {
+      const w = wobble.current;
+      chest.getWorldPosition(w.at);
+      w.track = track(w.track, w.at.x, w.at.y, w.at.z, dt);
+      const yaw = Number(entity.customData.yaw) || 0;
+      const fx = Math.sin(yaw);
+      const fz = Math.cos(yaw);
+      const local = { x: w.track.ax * fz - w.track.az * fx, z: w.track.ax * fx + w.track.az * fz };
+      // A hanging part swings the opposite way to an upright one. Bouncing (running, landing) shakes them too.
+      const bounce = { x: local.x, z: local.z + w.track.ay * 0.35 };
+      w.antenna = jiggle(w.antenna, bounce, dt, JIGGLE.antenna);
+      w.pony = jiggle(w.pony, local, dt, JIGGLE.ponytail);
+      if (antenna.current) antenna.current.rotation.set(-0.18 + w.antenna.x.x, 0, w.antenna.z.x);
+      if (ponytail.current) ponytail.current.rotation.set(0.55 - w.pony.x.x - p.head.x * 0.6, 0, -w.pony.z.x);
+      if (tail2.current) tail2.current.rotation.set(0.25 - w.pony.x.x * 0.6, 0, -w.pony.z.x * 0.6);
+    }
     if (chestShell.current) chestShell.current.scale.set(p.breathe, 1, p.breathe);
   });
 
@@ -312,6 +350,21 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
                 <meshStandardMaterial color={GLOW} emissive={GLOW} emissiveIntensity={1.4} toneMapped={false} />
               </mesh>
             </group>
+            {/* A pack on the back, with an antenna on a spring. */}
+            <mesh position={[0, TORSO * 0.55, -0.12]} castShadow>
+              <boxGeometry args={[0.2, 0.24, 0.08]} />
+              <meshStandardMaterial color={SUIT_LIGHT} roughness={0.5} metalness={0.3} />
+            </mesh>
+            <group ref={antenna} position={[0.07, TORSO * 0.55 + 0.12, -0.13]}>
+              <mesh position={[0, 0.17, 0]}>
+                <cylinderGeometry args={[0.006, 0.009, 0.34, 6]} />
+                <meshStandardMaterial color={BOOT} roughness={0.4} metalness={0.6} />
+              </mesh>
+              <mesh position={[0, 0.35, 0]}>
+                <sphereGeometry args={[0.022, 10, 8]} />
+                <meshStandardMaterial color={GLOW} emissive={GLOW} emissiveIntensity={1.6} toneMapped={false} />
+              </mesh>
+            </group>
             {(["L", "R"] as const).map((side) => (
               <group key={side} ref={set(`shoulder${side}`)} position={[side === "L" ? 0.2 : -0.2, TORSO - 0.02, 0]}>
                 <mesh scale={[1, 0.8, 1]}>
@@ -342,6 +395,19 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
                 <sphereGeometry args={[0.118, 18, 12, 0, Math.PI * 2, 0, Math.PI * 0.55]} />
                 <meshStandardMaterial color="#2a211b" roughness={0.85} />
               </mesh>
+              {/* Ponytail: two links on springs, hanging from the back of the head. */}
+              <group ref={ponytail} position={[0, 0.16, -0.1]}>
+                <mesh position={[0, -0.06, 0]}>
+                  <capsuleGeometry args={[0.03, 0.08, 4, 8]} />
+                  <meshStandardMaterial color="#2a211b" roughness={0.85} />
+                </mesh>
+                <group ref={tail2} position={[0, -0.12, 0]}>
+                  <mesh position={[0, -0.06, 0]}>
+                    <capsuleGeometry args={[0.024, 0.08, 4, 8]} />
+                    <meshStandardMaterial color="#2a211b" roughness={0.85} />
+                  </mesh>
+                </group>
+              </group>
               {head ? <group position={[0, 0.1, 0]}>{head}</group> : null}
             </group>
           </group>
