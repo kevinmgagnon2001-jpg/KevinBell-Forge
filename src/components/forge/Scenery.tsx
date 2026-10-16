@@ -586,10 +586,36 @@ function instanced(geometry: BufferGeometry, material: Material, spots: ReturnTy
   return mesh;
 }
 
-function makeWoods(level: SceneryLevel, shadows: boolean): Group {
+/**
+ * Trees breathe in the wind: the canopy leans and sways with height (the trunk's foot stays put),
+ * slower and heavier than grass, each tree on its own phase.
+ */
+function treeWind(material: MeshStandardMaterial, time: { value: number }) {
+  material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
+    shader.uniforms.uTime = time;
+    shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform float uTime;").replace(
+      "#include <begin_vertex>",
+      `#include <begin_vertex>
+      {
+        vec2 at = vec2(instanceMatrix[3].x, instanceMatrix[3].z);
+        float gust = sin(uTime * 0.35 + at.x * 0.05 + at.y * 0.03) * 0.5 + 0.5;
+        float sway = sin(uTime * 0.9 + at.x * 0.31 + at.y * 0.17) * (0.4 + gust) + gust * 0.5;
+        float flutter = sin(uTime * 3.1 + transformed.x * 4.0 + at.y) * 0.08;
+        float k = max(transformed.y - 0.4, 0.0);
+        k = k * k * 0.012;
+        transformed.x += (sway + flutter) * k;
+        transformed.z += (sway * 0.5 - flutter) * k;
+      }`,
+    );
+  };
+  material.customProgramCacheKey = () => "forge-tree-wind";
+}
+
+function makeWoods(level: SceneryLevel, shadows: boolean, time?: { value: number }): Group {
   const n = COUNTS[level];
   const group = new Group();
   const bark = new MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 });
+  if (time) treeWind(bark, time);
   const pines = scatter(101, n.pines, 34, 165, { clump: 0.55, maxSlope: 0.85 });
   group.add(
     instanced(pineGeometry(), bark, pines, (s, o, c) => {
@@ -960,7 +986,7 @@ export function Scenery({ level, shadows, eleven = false }: { level: SceneryLeve
   const land = useBuilt(() => makeLand(COUNTS[level].land), [level]);
   const plaza = useBuilt(makePlaza, []);
   const water = useBuilt(makeWater, []);
-  const woods = useBuilt(() => makeWoods(level, shadows), [level, shadows]);
+  const woods = useBuilt(() => makeWoods(level, shadows, motion && level !== "min" ? time : undefined), [level, shadows, motion, time]);
   const meadow = useBuilt(() => makeMeadow(level, time, motion, shadows, eleven ? 1.8 : 1), [level, motion, shadows, eleven]);
   const clouds = useBuilt(() => makeClouds(level), [level]);
   const motes = useMemo(() => makeMotes(level, time), [level, time]);
