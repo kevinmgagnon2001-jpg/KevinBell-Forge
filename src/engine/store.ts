@@ -12,6 +12,7 @@ import { ropeIntent } from "./rope";
 import { clothIntent } from "./cloth";
 import { fireIntent } from "./fire";
 import { growthIntent } from "./growth";
+import { smokeRingIntent } from "./vortex";
 import { companionIntent, companionOf, companionPrompt, ordersFromModel } from "./companion";
 import { cleanBest } from "./arcade";
 import { cleanRecent, MAX_SKILLS, skillIntent, skillBrief } from "./skillbook";
@@ -399,6 +400,16 @@ export const useForge = create<ForgeState>((set, get) => {
         commit(ran?.ok ? ran.world : before, before.selectedId, [
           { tone: "user", title: "Intent", body: intent },
           { tone: ran?.ok ? "engine" : "warn", title: "Companion", body: ran ? `${line}\n${ran.result}` : `${buddy.name} doesn't know how to do that yet.` },
+        ]);
+        return;
+      }
+      // Smoke rings ("blow a smoke ring", "blow two smoke rings"): drawn only, nothing in the world changes.
+      const rings = smokeRingIntent(intent);
+      if (rings) {
+        if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("forge:smoke-ring", { detail: rings }));
+        pushLog([
+          { tone: "user", title: "Intent", body: intent },
+          { tone: "engine", title: "Smoke", body: rings.count > 1 ? `${rings.count} smoke rings roll out the way you look; watch the back one leapfrog through.` : "A smoke ring rolls out the way you look." },
         ]);
         return;
       }

@@ -1205,3 +1205,10 @@ and mountains around it, under a late-afternoon sky.
   pattern, glow for frost and crystal. Growths already in a loaded world show fully grown.
 - Checked: typecheck, lint, `npm run test:engine`; in Chromium: moss on the clay, rust on the steel,
   crystal on the gold, frost up the column; no console errors.
+
+## Smoke rings (Papers roadmap: vortices)
+- vortex.ts (tested): rings as loops of vortex segments, smoothed Biot–Savart, midpoint stepping,
+  slow decay; a ring glides straight and keeps its size; two rings leapfrog; tracers round the core.
+- SmokeRings.tsx: "blow a smoke ring" / "two smoke rings" from your head the way you look; the
+  second ring is smaller so it catches up and goes through; smoke tracers fade over ten seconds.
+- Checked: typecheck, lint, engine tests; in Chromium, two rings blown; no console errors.

@@ -156,3 +156,11 @@ blotches for rust, a glowing labyrinth for crystal), grown once into a tiling te
 over the thing on every side at two scales. It creeps out from a spot near the base with a ragged
 living edge until it covers the thing; frost and crystal glow.
 
+## Smoke rings
+
+"Blow a smoke ring", "blow two smoke rings" (`src/engine/vortex.ts`, drawn by `SmokeRings.tsx`).
+Each ring is a loop of vortex filament that moves with the velocity all the filaments induce
+(Biot–Savart with a smoothed core, stepped with the midpoint rule), so it glides forward on its own;
+a second, smaller ring behind catches up, shrinks and slips through the first, which widens: they
+leapfrog. The smoke is tracer particles carried by that same field.
+

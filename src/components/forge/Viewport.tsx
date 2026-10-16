@@ -43,6 +43,7 @@ import { Cape, Flags } from "./Cloth";
 import { Companion } from "./Companion";
 import { Fire, FireControls } from "./Fire";
 import { Growths } from "./Growth";
+import { SmokeRings } from "./SmokeRings";
 import { ROPE_TAG } from "@/engine/rope";
 import type { ShapeName } from "@/engine/polytope";
 import { Activity, ArrowBigUp, Eye, House, LayoutGrid, Maximize2, Minimize2, Move, PersonStanding, PlaneLanding, RotateCw, ScanEye, Wind } from "lucide-react";
@@ -1353,6 +1354,7 @@ function Stage({ scenery, shadows, post }: { scenery: SceneryLevel | "off"; shad
       <Companion />
       <Fire />
       <Growths />
+      <SmokeRings />
       <OrbitControls
         makeDefault
         enableDamping

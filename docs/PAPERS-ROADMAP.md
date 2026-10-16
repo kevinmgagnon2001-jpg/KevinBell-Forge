@@ -218,9 +218,11 @@ Notes on what was built differently from the plan:
     removes heat.
   - Done (fire.ts, Fire.tsx): spread with the wind, charring, rain, a water spray and steam,
     shader flames, smoke, embers and a flickering light.
-- [ ] **Smoke rings and vortices** (M). *TMP "The Biggest Physics Breakthrough Nobody Noticed"
+- [x] **Smoke rings and vortices** (M). *TMP "The Biggest Physics Breakthrough Nobody Noticed"
   (Dec 2025); paper not identified.*
   - A few hundred vortex particles that move billboards along.
+  - Done (vortex.ts, SmokeRings.tsx): vortex filament rings (leapfrogging, tested) carrying smoke
+    tracers. Not done: vortices in the fire's smoke.
 - [ ] **Sand, snow and water** (L, WebGPU). *Granular homogenization (Wojtan lab), TMP "They Said It
   Was Impossible…"; octree SPH, TMP "This Fluid Simulation Should Not Be Possible"* (likely)
   - MLS-MPM sand and snow with parameters worked out in advance, and splashable pools of about 30k
