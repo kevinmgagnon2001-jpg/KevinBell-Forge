@@ -47,7 +47,7 @@ import { SmokeRings } from "./SmokeRings";
 import { RigidBodies } from "./Rigid";
 import { ROPE_TAG } from "@/engine/rope";
 import type { ShapeName } from "@/engine/polytope";
-import { Activity, ArrowBigUp, Eye, House, LayoutGrid, Maximize2, Minimize2, Move, PersonStanding, PlaneLanding, RotateCw, ScanEye, Wind } from "lucide-react";
+import { Activity, ArrowBigUp, Eye, House, LayoutGrid, Maximize2, Minimize2, Move, Palette, PersonStanding, PlaneLanding, RotateCw, ScanEye, Wind, X } from "lucide-react";
 import type { Post } from "@/engine/perf";
 import { Town } from "./Town";
 import { NPC_TAG } from "@/engine/town";
@@ -1229,7 +1229,26 @@ function GazeLock() {
 const MESH_PACKS = ["gem", "knot", "vase", "crystal"] as const;
 
 
+const DECK_KEY = "forge.deck.open";
+
 function TextureDeck() {
+  // Folded into one bubble unless opened (remembered on this device).
+  const [open, setOpen] = useState(() => {
+    try {
+      return typeof localStorage !== "undefined" && localStorage.getItem(DECK_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () =>
+    setOpen((was) => {
+      try {
+        localStorage.setItem(DECK_KEY, was ? "0" : "1");
+      } catch {
+        // Not remembered here; it still opens and closes.
+      }
+      return !was;
+    });
   const gaze = useGazeId();
   const mode = useLook().mode;
   const selectedId = useForge((s) => s.selectedId);
@@ -1267,9 +1286,12 @@ function TextureDeck() {
     useForge.getState().dispatchManual("edit_entity", { id: String(target.id), asset });
   };
   return (
-    <div className="tex-deck" aria-label="Texture deck">
-      <p className="tex-deck-note">{note || (target ? target.name : mode === "bench" ? "Select a solid" : "Look to wrap")}</p>
-      {TEXTURE_PACKS.map((pack, index) => {
+    <div className={open ? "tex-deck is-open" : "tex-deck"} aria-label="Texture deck">
+      <button type="button" className="visor-key bubble-icon tex-toggle" aria-label={open ? "Close the textures" : "Textures"} title={open ? "Close the textures" : "Textures: wrap what you look at"} aria-expanded={open} onClick={toggle}>
+        {open ? <X aria-hidden /> : <Palette aria-hidden />}
+      </button>
+      {open ? <p className="tex-deck-note">{note || (target ? target.name : mode === "bench" ? "Select a solid" : "Look to wrap")}</p> : null}
+      {open && TEXTURE_PACKS.map((pack, index) => {
         const angle = Math.PI + ((index / (TEXTURE_PACKS.length - 1)) - 0.5) * 2.15;
         const radius = 118;
         return (
@@ -1286,7 +1308,7 @@ function TextureDeck() {
           </button>
         );
       })}
-      {MESH_PACKS.map((asset, index) => {
+      {open && MESH_PACKS.map((asset, index) => {
         const angle = Math.PI + ((index / (MESH_PACKS.length - 1)) - 0.5) * 1.15;
         const radius = 58;
         return (
@@ -1542,16 +1564,26 @@ function Visor() {
   const gaze = useGazeId();
   const looked = useForge((s) => (gaze == null ? null : (s.entities[gaze] ?? null)));
   const last = useForge((s) => s.history[s.history.length - 1]);
+  // A new message shows for a few seconds, then gets out of the way; so does the controls hint.
+  const [fresh, setFresh] = useState(false);
+  const [hint, setHint] = useState(true);
+  useEffect(() => {
+    if (!last) return;
+    setFresh(true);
+    const t = window.setTimeout(() => setFresh(false), 6000);
+    return () => window.clearTimeout(t);
+  }, [last]);
+  useEffect(() => {
+    const t = window.setTimeout(() => setHint(false), 12000);
+    return () => window.clearTimeout(t);
+  }, []);
   if (mode === "bench") return null;
   return (
     <div className={mode === "first" ? "visor is-first" : "visor"}>
       <div className="visor-frame" />
       <div className="visor-cross" aria-hidden="true" />
-      <p className="visor-read">
-        {looked ? `Looking at ${looked.name}` : "Looking at the lab"}
-        {last ? ` · ${last.title}: ${last.body.replace(/\s+/g, " ").slice(0, 72)}` : ""}
-      </p>
-      <p className="visor-hint">The stick walks where you push it: a little walks, all the way runs. WASD jogs, Shift runs, Q/E dash, Space jumps. F flies: look to steer, W boosts, S hovers.</p>
+      {fresh && last ? <p className="visor-read">{`${last.title}: ${last.body.replace(/\s+/g, " ").slice(0, 96)}`}</p> : looked ? <p className="visor-read">{looked.name}</p> : null}
+      {hint ? <p className="visor-hint">The stick walks where you push it: a little walks, all the way runs. WASD jogs, Shift runs, Q/E dash, Space jumps. F flies: look to steer, W boosts, S hovers.</p> : null}
       {immersive ? <HelmAsk /> : null}
     </div>
   );
@@ -1601,7 +1633,7 @@ export function Viewport() {
       </Canvas>
       {soft ? <RoomPicture /> : null}
       <div className="hud">
-        <p className="hud-readout">
+        <p className={mode === "bench" ? "hud-readout" : "hud-readout is-quiet"}>
           <span>tick {String(tick).padStart(4, "0")}</span>
           <span>
             {count} {count === 1 ? "entity" : "entities"}

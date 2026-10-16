@@ -3770,3 +3770,17 @@ body:has(.app)::before {
   z-index: 13;
   box-shadow: 0 0 24px rgb(122 200 255 / 55%), var(--halo, 0 0 0 transparent);
 }
+
+/* The texture deck folds into one bubble; open, the spheres fan out round it. */
+.tex-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  margin-top: -1.45rem;
+  pointer-events: auto;
+}
+
+/* Outside the bench, the tick and entity readout stays out of the way. */
+.hud-readout.is-quiet {
+  display: none;
+}

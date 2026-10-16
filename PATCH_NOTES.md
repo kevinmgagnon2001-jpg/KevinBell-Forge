@@ -1224,3 +1224,11 @@ and mountains around it, under a late-afternoon sky.
   from walking into them land high so dominoes tip). physics.ts leaves rigid bodies to it.
 - Checked: typecheck, lint, `npm run test:engine` (337 pass); in Chromium: a curve of 16 dominoes
   falling in turn and a Jenga tower shoved; no console errors.
+
+## A quieter screen
+- The texture deck folds into one palette bubble on the right (open it to fan out the textures
+  and meshes; remembered per device).
+- The visor shows a new message for six seconds and then just the name of what you look at; the
+  controls hint shows for the first twelve seconds only; the tick, entities and gravity readout
+  shows only on the bench.
+- Checked: typecheck, lint, engine tests; in Chromium at 1280x800 and 390x844, closed and open.
