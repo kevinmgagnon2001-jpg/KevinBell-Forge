@@ -9,12 +9,14 @@
  * The game keeps its own clock (the piece falls even with the world paused), the camera frames the
  * board (pilot.tsx), and Esc, B or Exit puts you back on your feet where you stood.
  */
+import { RotateCcw, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { EXIT_KEYS, EXIT_PAD, gameById, moveForKey, moveForPad, nearestGame, type GameMove, type GameSpec } from "@/engine/arcade";
+import { bestOf, EXIT_KEYS, EXIT_PAD, gameById, moveForKey, moveForPad, nearestGame, withBest, type GameMove, type GameSpec } from "@/engine/arcade";
 import { useForge } from "@/engine/store";
 import { BlocksGame } from "@/components/blocks/BlocksGame";
+import { BreakoutGame } from "./BreakoutGame";
 import { INTERACT_EVENT, pilotKeys, pilotStick, useLook } from "./look";
-import { arcadeNear, arcadePlaying, useArcadeNear, useArcadePlaying } from "./body-state";
+import { arcadeNear, arcadePlaying, screenKeys, useArcadeNear, useArcadePlaying } from "./body-state";
 
 /** Apply one move to the live world, without an undo step or a log line per keypress. */
 function applyMove(game: GameSpec, move: string) {
@@ -157,8 +159,12 @@ export function Arcade() {
         window.setTimeout(leave, 0);
         return;
       }
-      const move = moveForKey(g, event.code);
       event.stopImmediatePropagation();
+      if (g.screen) {
+        screenKeys.down?.(event);
+        return;
+      }
+      const move = moveForKey(g, event.code);
       if (!move) return;
       event.preventDefault();
       if (event.repeat && !move.repeat) return;
@@ -249,7 +255,11 @@ export function Arcade() {
     // A game with a screen of its own (Blocks): full screen over everything, until you walk away.
     return (
       <div className="arcade-screen" role="dialog" aria-label={playing.label}>
-        <BlocksGame onExit={leave} exitLabel="Walk away" />
+        {game.id === "breakout" ? (
+          <BreakoutGame best={bestOf(useForge.getState(), "breakout")} onBest={(score) => useForge.setState((state) => withBest(state, "breakout", score))} onExit={leave} />
+        ) : (
+          <BlocksGame onExit={leave} exitLabel="Walk away" />
+        )}
       </div>
     );
   }
@@ -260,19 +270,21 @@ export function Arcade() {
         <div className="arcade-bar">
           <strong>{playing.label}</strong>
           <span className="arcade-status">{status}</span>
-          <button type="button" className="arcade-exit" onClick={leave}>
-            Exit
+          <button type="button" className="arcade-exit visor-key bubble-icon" aria-label="Exit" title="Exit (Esc)" onClick={leave}>
+            <X aria-hidden />
           </button>
         </div>
         {over ? (
           <div className="arcade-over">
             <p>{status}</p>
-            <button type="button" onClick={() => restart(game)}>
-              Play again
-            </button>
-            <button type="button" onClick={leave}>
-              Walk away
-            </button>
+            <div className="arcade-over-actions">
+              <button type="button" className="visor-key bubble-icon" aria-label="Play again" title="Play again" onClick={() => restart(game)}>
+                <RotateCcw aria-hidden />
+              </button>
+              <button type="button" className="visor-key bubble-icon" aria-label="Walk away" title="Walk away" onClick={leave}>
+                <X aria-hidden />
+              </button>
+            </div>
           </div>
         ) : null}
         <p className="arcade-help">{padName ? "Controller: d-pad moves · A rotates · X drops · B leaves" : keyHelp}</p>

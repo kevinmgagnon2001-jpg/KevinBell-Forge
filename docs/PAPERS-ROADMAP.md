@@ -94,40 +94,59 @@ Notes on what was built differently from the plan:
   - The LLM is asked every few minutes and in batches, never per frame. Between plans, movement
     and moves run on device.
   - "Fill the café with regulars", "what did Mia do today?".
-- [ ] **Talking NPCs** (M). *NVIDIA ACE, TMP "NVIDIA's New AI: Making Games Come Alive!"* (likely)
+- [x] **Talking NPCs** (M). *NVIDIA ACE, TMP "NVIDIA's New AI: Making Games Come Alive!"* (likely)
   - Speak to an avatar: speech-to-text (already in `speech.ts`), then the LLM in character, then
     on-device TTS (Android TTS, or Piper on desktop).
   - Mouth shapes from visemes on the jointed head.
+  - Done (talk.ts, Talk.tsx): speech in (speech.ts), the resident model in character with a
+    scripted fallback, the device's own speech out (Web Speech), memory of the talk, and mouth shapes from the
+    words (mouthTrack: vowels open, b m p close, pauses at punctuation), started with the voice.
+    Not done: real visemes from the speech engine; Piper on desktop.
 - [x] **Crowds that find their way** (M). *TRACE & PACER (CVPR 2023), TMP "NVIDIA's AI Finally
   Solved Walking In Games"*
   - "Fill the plaza with people." ORCA-style steering stands in for the diffusion planner, and the
     AABB walker plus move library for the RL follower.
   - Keep the paper's loop: replan when stuck.
-- [ ] **Vault and climb** (M). *PARC (SIGGRAPH 2025), TMP "NVIDIA's New AI Cheated At
+- [x] **Vault and climb** (M). *PARC (SIGGRAPH 2025), TMP "NVIDIA's New AI Cheated At
   Parkour…And Got Fixed!"*
   - Moves chosen by obstacle height: step (already in place), vault, climb up, drop.
   - Procedural moves with IK hand targets on the ledge; no neural network.
   - Touches: `physics.ts` (stepWalk ledge probe), `motion.ts`, `pilot.tsx`.
-- [ ] **New solver core: AVBD for rigid bodies and joints** (M). *Augmented Vertex Block Descent
+  - Done in `parkour.ts` (its own ledge probe over the walker's solids, scripted curves, `twoBone`
+    for the hands) rather than inside stepWalk. "Drop" is the existing fall and landing crouch;
+    a hang-and-drop from a ledge is not done.
+- [~] **New solver core: AVBD for rigid bodies and joints** (M). *Augmented Vertex Block Descent
   (SIGGRAPH 2025), TMP "Roblox Solved The Physics Problem That Stumped Everyone"*
   - Stable stacks, chains, ragdolls and breakable joints; "Jenga collapse" sandboxes.
   - On the CPU for about 1–3k bodies; keep today's sleep. WebGPU later for big scenes.
   - Touches: `physics.ts` (stepBodies, collidePairs), `manifold.ts`.
-- [ ] **Soft bodies and cloth on the same core** (M). *Vertex Block Descent (SIGGRAPH 2024)*
+  - Started (rigid.ts, Rigid.tsx): tumbling oriented boxes for dominoes and Jenga, with a
+    sequential-impulse solver (warm-started), not AVBD yet; solveContacts is the piece to swap.
+    Not done: joints, ragdolls, breakable joints, moving the older loose bodies onto it.
+- [x] **Soft bodies and cloth on the same core** (M). *Vertex Block Descent (SIGGRAPH 2024)*
   (related).
   - Jelly blocks, flags, capes and inflatables, using meshes under about 5k vertices on the CPU.
-- [ ] **Ropes, cables and hair** (M). *Stable Cosserat Rods (SIGGRAPH 2025), TMP "This New
+  - Done for cloth (cloth.ts, Cloth.tsx): capes and flags by position-based dynamics, not VBD.
+    Not done: jelly blocks and inflatables (volume constraints), the AVBD core under all of it.
+- [x] **Ropes, cables and hair** (M). *Stable Cosserat Rods (SIGGRAPH 2025), TMP "This New
   Physics Engine Is 45x Faster!"*
   - Ropes, grappling hooks, hanging cables, swaying grass and avatar hair.
   - A few hundred rods on the CPU.
+  - Done (rope.ts, Rope.tsx): ropes, cables and string lights by position-based dynamics with
+    tethers and collisions; no twist (not a full Cosserat rod). Swinging on ropes (catch by
+    jumping, pump, let go). Not done: grappling hooks,
+    swaying grass, avatar hair on the same solver.
 - [ ] **Builder agents for arcade games** (M–L). *ChatDev (2023), TMP "OpenAI's ChatGPT Makes A
   Game For $1!"* (likely)
   - "Make me a breakout machine by the window." A designer agent writes the spec, a coder agent
     writes the WASM program, and a tester agent plays it in the VM headless.
   - The game reaches the arcade (`arcade.ts` GAMES) only if the tester passes it.
-- [ ] **Companion that follows instructions** (M). *SIMA / SIMA 2 (DeepMind), TMP "DeepMind's New
+- [x] **Companion that follows instructions** (M). *SIMA / SIMA 2 (DeepMind), TMP "DeepMind's New
   Game AI Just Made History!"*
   - "Follow me and stack the crates by the door"; circle an area on screen to mean "here".
+  - Done (companion.ts, Companion.tsx): orders read without a model (follow, wait, come, go,
+    bring, put, stack), the resident model as a fallback in the same language, walking with the
+    walker's physics, carrying and stacking. Not done: circling an area on screen.
   - The LLM gets the manifold's structured state and a tool API instead of pixels.
 - [ ] **Phone companion that drives the PC, offline** (M–L). *Inspired by Bluey (Riley Brown,
   github.com/rbrown101010/bluey-by-riley, public domain: iPhone and Mac, OpenAI Realtime). Forge's
@@ -191,16 +210,22 @@ Notes on what was built differently from the plan:
 - [ ] **Town economy** (M). *SimWorld (NeurIPS 2025), TMP "Researchers Built a Tiny Economy. AIs
   Broke It Immediately"*
   - NPC couriers with personalities bid on jobs, built on top of the NPCs-with-memory feature.
-- [ ] **Living moss and growth** (M). *Neural cellular automata (Sakana AI, 2026), TMP "Sakana AI's
+- [x] **Living moss and growth** (M). *Neural cellular automata (Sakana AI, 2026), TMP "Sakana AI's
   God Simulator Is Brilliant"* (likely)
   - Tiny automata in a fragment shader on wall textures: "grow moss across these walls".
-- [ ] **Fire you can put out** (L). *TMP "The Most Realistic Fire Simulation Ever" (Feb 2026);
+  - Done (growth.ts, Growth.tsx) with Gray-Scott reaction-diffusion grown on the CPU once per kind,
+    not a trained neural automaton; the spread is a shader front, not a live simulation.
+- [x] **Fire you can put out** (L). *TMP "The Most Realistic Fire Simulation Ever" (Feb 2026);
   paper not identified.*
   - A coarse heat and fuel grid with fire spreading over flammable entities, and water that
     removes heat.
-- [ ] **Smoke rings and vortices** (M). *TMP "The Biggest Physics Breakthrough Nobody Noticed"
+  - Done (fire.ts, Fire.tsx): spread with the wind, charring, rain, a water spray and steam,
+    shader flames, smoke, embers and a flickering light.
+- [x] **Smoke rings and vortices** (M). *TMP "The Biggest Physics Breakthrough Nobody Noticed"
   (Dec 2025); paper not identified.*
   - A few hundred vortex particles that move billboards along.
+  - Done (vortex.ts, SmokeRings.tsx): vortex filament rings (leapfrogging, tested) carrying smoke
+    tracers. Not done: vortices in the fire's smoke.
 - [ ] **Sand, snow and water** (L, WebGPU). *Granular homogenization (Wojtan lab), TMP "They Said It
   Was Impossible…"; octree SPH, TMP "This Fluid Simulation Should Not Be Possible"* (likely)
   - MLS-MPM sand and snow with parameters worked out in advance, and splashable pools of about 30k

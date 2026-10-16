@@ -118,7 +118,7 @@ export function stepNow(mind: Mind, hour: number): PlanStep {
   return now;
 }
 
-const clock = (town: Town, at: number) => {
+export const clock = (town: Town, at: number) => {
   const h = (((town.startHour + at / 60) % 24) + 24) % 24;
   return `${String(Math.floor(h)).padStart(2, "0")}:${String(Math.floor((h % 1) * 60)).padStart(2, "0")}`;
 };
@@ -236,7 +236,7 @@ export function bodyOf(e: Entity): Body {
   return { x: e.transform.position.x, z: e.transform.position.z, vx: 0, vz: 0, yaw: Number(e.customData.yaw) || 0, speed: 0, stuck: 0, detour: null, lastTalk: {} };
 }
 
-function remember(mind: Mind, m: Memory): Mind {
+export function remember(mind: Mind, m: Memory): Mind {
   let memory = [...mind.memory, m];
   // Every dozen new things, sum up the oldest stretch in one reflection (the stream stays short).
   if (memory.length > 36) {

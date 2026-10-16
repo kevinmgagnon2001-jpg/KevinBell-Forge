@@ -2320,8 +2320,13 @@
   color: #7ee0c8;
 }
 
-.arcade-exit,
-.arcade-over button {
+.arcade-over-actions {
+  display: flex;
+  gap: 0.9rem;
+}
+
+.arcade-exit:not(.bubble-icon),
+.arcade-over button:not(.bubble-icon) {
   min-height: 36px;
   padding: 0 0.9rem;
   border: 1px solid rgb(255 255 255 / 25%);
@@ -3549,4 +3554,233 @@ body:has(.app)::before {
 .dock,
 .side {
   background: color-mix(in srgb, var(--color-bg) 48%, transparent);
+}
+
+/* Hyper Breakout: a full-screen neon field; icon bubbles top right; a glassy game-over card. */
+.bko {
+  position: absolute;
+  inset: 0;
+  background: #040208;
+  touch-action: none;
+  user-select: none;
+}
+
+.bko-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: none;
+}
+
+.bko-bar {
+  position: absolute;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  display: flex;
+  gap: 10px;
+}
+
+.bko-over {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  background: radial-gradient(circle at 50% 45%, rgb(40 20 80 / 55%), rgb(4 2 8 / 80%));
+  backdrop-filter: blur(6px);
+  color: #fff;
+  text-align: center;
+}
+
+.bko-over.is-paused {
+  background: rgb(4 2 8 / 45%);
+}
+
+.bko-score {
+  margin: 0;
+  font-size: clamp(3rem, 14vw, 6rem);
+  font-weight: 800;
+  line-height: 1;
+  background: linear-gradient(120deg, #ff7ad9, #7afcff 45%, #b77bff 70%, #ffd36b);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 18px rgb(183 123 255 / 55%));
+}
+
+.bko-best {
+  margin: 0 0 8px;
+  color: rgb(220 205 255 / 80%);
+  font-weight: 600;
+}
+
+.bko-actions {
+  display: flex;
+  gap: 16px;
+}
+
+.bko .bko-big {
+  width: 4.6rem;
+  min-width: 4.6rem;
+  height: 4.6rem;
+  min-height: 4.6rem;
+}
+
+/* Talking with the townsfolk: a glass box at the bottom to talk in, and a speech bubble in the scene. */
+.talk-prompt svg {
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.talk-box {
+  position: absolute;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 9.2rem);
+  z-index: 14;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: min(36rem, calc(100% - 2rem));
+  padding: 0.45rem 0.5rem 0.45rem 1rem;
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  background: linear-gradient(rgb(14 9 30 / 82%), rgb(14 9 30 / 82%)) padding-box, var(--film, linear-gradient(120deg, #ff7ad9, #7afcff, #b77bff)) border-box;
+  box-shadow: 0 10px 40px rgb(0 0 0 / 45%), 0 0 26px rgb(183 123 255 / 25%);
+  backdrop-filter: blur(14px);
+  transform: translateX(-50%);
+}
+
+.talk-name {
+  color: #7afcff;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.talk-input {
+  flex: 1;
+  min-width: 0;
+  height: 2.6rem;
+  padding: 0 0.6rem;
+  border: 0;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 7%);
+  color: #f4f0ff;
+  font: inherit;
+  outline: none;
+}
+
+.talk-input:focus-visible {
+  box-shadow: 0 0 0 2px rgb(122 252 255 / 45%);
+}
+
+.talk-box .bubble-icon {
+  width: 2.6rem;
+  min-width: 2.6rem;
+  height: 2.6rem;
+  min-height: 2.6rem;
+}
+
+.talk-bubble {
+  position: relative;
+  width: max-content;
+  max-width: 15rem;
+  padding: 0.6rem 0.9rem;
+  border: 1.5px solid transparent;
+  border-radius: 1.1rem;
+  background: linear-gradient(rgb(250 248 255 / 96%), rgb(240 236 255 / 96%)) padding-box, linear-gradient(120deg, #ff7ad9, #7afcff 50%, #b77bff) border-box;
+  color: #1b1030;
+  font: 600 0.95rem/1.35 system-ui, sans-serif;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 35%), 0 0 22px rgb(122 252 255 / 30%);
+  transform: translateY(calc(-50% - 16px));
+  animation: talk-pop 0.22s ease-out;
+}
+
+.talk-bubble::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -9px;
+  width: 16px;
+  height: 16px;
+  background: rgb(250 248 255 / 94%);
+  border-radius: 0 0 4px;
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.talk-dots {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.talk-dots i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #b77bff;
+  animation: talk-dot 1s infinite ease-in-out;
+}
+
+.talk-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.talk-dots i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes talk-pop {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-40% - 16px)) scale(0.85);
+  }
+}
+
+@keyframes talk-dot {
+  50% {
+    opacity: 0.35;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .talk-bubble,
+  .talk-dots i {
+    animation: none;
+  }
+}
+
+@media (min-width: 700px) {
+  .talk-box {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 5.2rem);
+  }
+}
+
+.talk-bubble.is-companion {
+  max-width: 11rem;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+/* The water bubble, when a fire is close: above the right stick. */
+.fire-spray {
+  position: absolute;
+  right: calc(env(safe-area-inset-right, 0px) + 1.4rem);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 10.5rem);
+  z-index: 13;
+  box-shadow: 0 0 24px rgb(122 200 255 / 55%), var(--halo, 0 0 0 transparent);
+}
+
+/* The texture deck folds into one bubble; open, the spheres fan out round it. */
+.tex-toggle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  margin-top: -1.45rem;
+  pointer-events: auto;
+}
+
+/* Outside the bench, the tick and entity readout stays out of the way. */
+.hud-readout.is-quiet {
+  display: none;
 }

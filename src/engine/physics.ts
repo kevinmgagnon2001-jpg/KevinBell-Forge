@@ -403,7 +403,7 @@ export function stepBody(entity: Entity, dt: number, gravity: number, solids: So
  * (a mostly elastic knock, weighted by mass). Changes `entities` in place; returns true if any did.
  */
 export function collidePairs(entities: Record<number, Entity>): boolean {
-  const loose = Object.values(entities).filter(isDynamic);
+  const loose = Object.values(entities).filter((e) => isDynamic(e) && !e.tags.includes("rigid"));
   let changed = false;
   for (let i = 0; i < loose.length; i += 1) {
     for (let j = i + 1; j < loose.length; j += 1) {
@@ -450,7 +450,8 @@ export function collidePairs(entities: Record<number, Entity>): boolean {
  * costs nothing to keep running.
  */
 export function stepBodies(entities: Record<number, Entity>, dt: number, gravity: number, ground: (x: number, z: number) => number = groundAt): Record<number, Entity> {
-  const loose = Object.values(entities).filter(isDynamic);
+  // Rigid bodies (rigid.ts) tumble on their own solver.
+  const loose = Object.values(entities).filter((e) => isDynamic(e) && !e.tags.includes("rigid"));
   if (!loose.length) return entities;
   const all = solidsOf(entities);
   let next: Record<number, Entity> | null = null;

@@ -20,6 +20,10 @@ Read `AGENTS.md`, `NEXT.md` and the last sections of `PATCH_NOTES.md` first.
 
 - Work quietly: no progress narration between steps. Report once, briefly, when the work is done,
   or when something needs the owner's decision.
+- At the start of a session, ask the owner once whether they want quiet mode for this session:
+  working from item to item (`NEXT.md`, the roadmap) without stopping to ask what's next, and
+  answering the app's update nudges in one line. Stop only for a decision that is really theirs
+  (secrets, releases, spending, a change of direction). If they say no, check in after each item.
 - Checks before every push: `npm run lint`, `npm run typecheck`, `npm run test:engine`, and a real
   browser check (Playwright with `/opt/pw-browsers/chromium`) with no console errors.
 - Do not commit `.vercel/output` changes made by a local build.

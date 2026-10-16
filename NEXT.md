@@ -1,22 +1,34 @@
 # Pick up here
 
-State at the end of the last session (branch `ccr-cb829fc1-9iqt9m`; all work is committed and pushed).
-History and details: `PATCH_NOTES.md` (last three sections). Roadmap with status per item: `docs/handoff.html`, section 3.
+State at the end of the last session (branch `ccr-0b72a8bd-nli9mn`; all work is committed and pushed).
+History and details: `PATCH_NOTES.md` (the last sections). Roadmap with status per item: `docs/handoff.html`, section 3.
 
-**Next-generation features:** `docs/PAPERS-ROADMAP.md` is a phased to-do list of research from Two Minute Papers
-(NPCs with memory, a skill library from the helm, world events, a new physics solver, crowds, vaulting, generated
-props and sounds). Pick items from Phase 1 first; each says what it touches.
+**Next-generation features:** `docs/PAPERS-ROADMAP.md` is a phased to-do list of research from Two Minute Papers.
+Each item says what it touches.
 
-**Done from the Papers roadmap (this session):** all of Phase 1, NPCs with memory and a day, and
-crowds. Guide: `docs/WORLD.md`. Next from the roadmap: talking NPCs (speech in, the model in
-character, on-device speech out), vault and climb, ropes and cables, the AVBD solver core, builder
-agents for arcade games. Smaller follow-ups:
+**Done from the Papers roadmap:** all of Phase 1, NPCs with memory and a day, crowds; and this
+session: vault, mantle and climb (`parkour.ts`), ropes, cables and string lights with swinging
+(`rope.ts`), talking townsfolk with faces and lip sync (`talk.ts`), capes and flags (`cloth.ts`), a
+companion that follows orders (`companion.ts`), fire you can put out (`fire.ts`), moss, frost, rust
+and crystal (`growth.ts`), smoke rings (`vortex.ts`), dominoes and Jenga (`rigid.ts`). Also new: the camera pulls in when a wall is behind you
+(`camera-boom.ts`), Hyper Breakout and best scores in the save (`breakout.ts`), weather on the flat
+stage. Guides: `docs/WORLD.md`, `docs/PLAY.md`.
+
+Next from the roadmap: the solver core beyond boxes (rigid.ts has tumbling boxes, dominoes and
+Jenga on sequential impulses; next joints, ragdolls, AVBD in solveContacts, jelly and inflatables),
+builder agents for arcade games, the town economy. Smaller
+follow-ups:
+- Feel all of the new movement on the owner's phone and PC (only checked in a software-GL browser at
+  1-2 fps): vault and climb thresholds (`PARKOUR`, `PRESS_CLIMB`), rope pumping (`SWING_PUMP`), the
+  camera boom's ease-out (`BOOM.outRate`), ACCEL, FLY and the camera lag in pilot.tsx.
+- Hear the townsfolk talk (device speech) and try them with the resident model loaded; check the
+  lip sync against the voice.
+- Check the frame rate on the phone with fire, a cape, flags and 24 townsfolk (Stats overlay); fire
+  and cloth have no rung of their own yet.
 - Ask the resident model to rewrite a person's plan every few minutes, batched (town.ts `planDay`).
-- Check the frame rate on the owner's phone with 24 townsfolk and heavy rain (Stats overlay).
-- Feel the new third person and flight on the owner's phone and PC (only checked for direction in a
-  software-GL browser at 1-2 fps); tune ACCEL, FLY and the camera lag in pilot.tsx.
 - Check rung "11" (PostFX.tsx) with the Stats overlay on the phone; it may run at 30-45 fps.
-- Weather on the "off" scenery rung (flat stage) still shows the old dark look.
+- `live-visit.test.ts` "two players beside one island" can fail under heavy load (timing); it
+  passes alone.
 
 ## Where things stand
 
@@ -144,9 +156,9 @@ agents for arcade games. Smaller follow-ups:
   the "video" input GENMO takes); hands that reach for things (pick up, press the arcade buttons);
   carry your moves through portals like mechanics; a small learned motion model behind the same Pose
   shape, off the main thread, with the code generator as the fallback.
-- Next: more games in `GAMES` (snake, pong, breakout fit the same entry); a high score per game kept in
-  the save; boxes that tumble (only balls turn today); the third-person camera pulling in when a wall
-  is behind you; foot placement on slopes; on islands you visit, the host's walk does not yet use
+- Next: more games in `GAMES` (snake and pong fit the same entry as Hyper Breakout, a screen game);
+  boxes that tumble (only balls turn today);
+  foot placement on slopes; on islands you visit, the host's walk does not yet use
   physics (prediction.ts walks flat); check the feel on the owner's phone.
 
 ## Graphics, next steps (after the texture fix)

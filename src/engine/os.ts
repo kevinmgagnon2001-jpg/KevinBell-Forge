@@ -126,7 +126,7 @@ export const TOOLS: ToolSchema[] = [
   },
   {
     name: "build_play",
-    description: "Build a playable Tetris well, a marble run, or a Blocks arcade cabinet (the drag-and-place block puzzle). kind is tetris, marble or blocks.",
+    description: "Build a playable Tetris well, a marble run, a Blocks arcade cabinet (the drag-and-place block puzzle), or a Hyper Breakout cabinet (neon brick breaker). kind is tetris, marble, blocks or breakout.",
     parameters: { kind: "string" },
   },
   {
@@ -255,6 +255,74 @@ export const TOOLS: ToolSchema[] = [
     description: "Place a 4D bubble: a regular polytope turning through the fourth dimension inside an iridescent bubble. shape is tesseract, 24-cell, 600-cell or 120-cell (the most vertices). size in metres.",
     parameters: { shape: "string", x: "f32", z: "f32", size: "f32", name: "string" },
     optional: ["shape", "x", "z", "size", "name"],
+  },
+  {
+    name: "hang_rope",
+    description: "Hang a rope (kind rope: hangs from a point in front of you, or from a thing named in from, and swings when walked into), a cable, or string lights (kind cable or lights: between from and to, names of things or here). length in metres, sag the extra share of length over the span.",
+    parameters: { kind: "string", from: "string", to: "string", length: "f32", sag: "f32", color: "string", name: "string" },
+    optional: ["kind", "from", "to", "length", "sag", "color", "name"],
+  },
+  {
+    name: "wear_cape",
+    description: "Put a cape on your body (color violet, night, crimson, teal, gold, white or #rrggbb), or take it off (color none). It is real cloth: it swings, streams when you run or fly, and catches the wind.",
+    parameters: { color: "string" },
+  },
+  {
+    name: "raise_flag",
+    description: "Put up a flagpole with a cloth flag that flies in the wind. style is 4d, rainbow, pirate or white; height in metres.",
+    parameters: { style: "string", x: "f32", z: "f32", height: "f32", name: "string" },
+    optional: ["style", "x", "z", "height", "name"],
+  },
+  {
+    name: "summon_companion",
+    description: "A companion appears beside you and follows you. It carries things and does small jobs when asked (order_companion).",
+    parameters: { name: "string" },
+    optional: ["name"],
+  },
+  {
+    name: "order_companion",
+    description: "Tell the companion what to do, in words: follow me, wait, come here, go to <place>, bring me <thing>, stack <things> here, put <thing> on <place>; join several with then.",
+    parameters: { words: "string" },
+  },
+  {
+    name: "set_fire",
+    description: "Set a thing on fire (thing: its name; empty for the nearest thing that burns). Fire spreads over flammable things with the wind; rain and water put it out.",
+    parameters: { thing: "string" },
+    optional: ["thing"],
+  },
+  {
+    name: "put_out_fire",
+    description: "Put out every fire with water.",
+    parameters: {},
+  },
+  {
+    name: "make_campfire",
+    description: "Build a burning campfire of crossed logs in front of you.",
+    parameters: {},
+  },
+  {
+    name: "grow",
+    description: "Grow something living over a thing: kind moss, frost, rust or crystal (none cleans it). It creeps out from one spot over time in an organic pattern.",
+    parameters: { kind: "string", thing: "string" },
+    optional: ["thing"],
+  },
+  {
+    name: "build_dominoes",
+    description: "Line up dominoes ahead of you (count 3-60; bend in radians curves the line). They are real rigid bodies: push the first and they fall in turn.",
+    parameters: { count: "f32", bend: "f32" },
+    optional: ["count", "bend"],
+  },
+  {
+    name: "build_jenga",
+    description: "Build a Jenga tower of wooden blocks in front of you (levels 3-18). Real rigid bodies that tumble.",
+    parameters: { levels: "f32" },
+    optional: ["levels"],
+  },
+  {
+    name: "knock_over",
+    description: "Tip the first domino, or shove the Jenga tower (what: dominoes or tower).",
+    parameters: { what: "string" },
+    optional: ["what"],
   },
   {
     name: "wield",

@@ -8,6 +8,14 @@ import { cleanWeather, weatherIntent } from "./weather";
 import { soundIntent } from "./sounds";
 import { cleanTown, townIntent } from "./town";
 import { hyperIntent } from "./hyper";
+import { ropeIntent } from "./rope";
+import { clothIntent } from "./cloth";
+import { fireIntent } from "./fire";
+import { growthIntent } from "./growth";
+import { smokeRingIntent } from "./vortex";
+import { rigidIntent } from "./rigid";
+import { companionIntent, companionOf, companionPrompt, ordersFromModel } from "./companion";
+import { cleanBest } from "./arcade";
 import { cleanRecent, MAX_SKILLS, skillIntent, skillBrief } from "./skillbook";
 import { bootWorld, ensureAvatar, ensureHelm, labWorld, stepWorld } from "./manifold";
 import { DEFAULT_MODEL_PATH, MEMORY_BUDGET_MB, TOOL_NAMES } from "./os";
@@ -16,7 +24,7 @@ import { completeCritic, criticReady, ensureCritic, releaseCritic } from "./crit
 import { mergeLibrary, type NeuralAsset } from "./library";
 import type { BondedModel, LogEntry, PluginKind, ProposedAction, Skill, World } from "./types";
 import { ENGINE_VERSION, GROK_MODEL } from "./types";
-import { completeResident, ensureResident, releaseResident, residentReady } from "./resident";
+import { chatResident, completeResident, ensureResident, releaseResident, residentReady } from "./resident";
 import { researchTask } from "./research-call";
 import { runModuleD } from "./module-d-call";
 import { settleIntent } from "./turn";
@@ -327,6 +335,16 @@ export const useForge = create<ForgeState>((set, get) => {
         ]);
         return;
       }
+      // "build breakout" (the Hyper Breakout cabinet) needs no model.
+      if (/^(?:(?:please|can you|could you)\s+)?(?:build|make|add|put|set up|give me)\b.*\b(breakout|brick ?breaker)\b/i.test(intent) && !/\b(paint|colou?r|texture)\b/i.test(intent)) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: "build_play", arguments: { kind: "breakout" } });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Arcade", body: ran.result },
+        ]);
+        return;
+      }
       // "build blocks" (the Blocks cabinet) needs no model either.
       if (/^(?:(?:please|can you|could you)\s+)?(?:build|make|add|put|set up|give me)\b.*\bblocks\b/i.test(intent) && !/\b(paint|colou?r|texture)\b/i.test(intent)) {
         const before = get();
@@ -358,6 +376,98 @@ export const useForge = create<ForgeState>((set, get) => {
         commit(ran.ok ? ran.world : before, spawned, [
           { tone: "user", title: "Intent", body: intent },
           { tone: ran.ok ? "engine" : "warn", title: "4D", body: ran.result },
+        ]);
+        return;
+      }
+      // The companion ("follow me", "bring me the gold", "stack the cubes here") (companion.ts).
+      const companionCall = companionIntent(intent, get());
+      if (companionCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: companionCall.tool, arguments: companionCall.arguments });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Companion", body: ran.result },
+        ]);
+        return;
+      }
+      // Spoken to by name in words it does not know ("Pip, tidy up the cubes"): the resident model
+      // rewrites them in the companion's little language.
+      const buddy = companionOf(get());
+      if (buddy && intent.trim().toLowerCase().startsWith(buddy.name.toLowerCase()) && get().residentPower && residentReady(get().residentId)) {
+        const words = intent.trim().slice(buddy.name.length).replace(/^[,:\s]+/, "");
+        const line = ordersFromModel(await chatResident(companionPrompt(words, get())).catch(() => ""));
+        const before = get();
+        const ran = line ? executeProposal(before, { kind: "tool_call", toolName: "order_companion", arguments: { words: line } }) : null;
+        commit(ran?.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran?.ok ? "engine" : "warn", title: "Companion", body: ran ? `${line}\n${ran.result}` : `${buddy.name} doesn't know how to do that yet.` },
+        ]);
+        return;
+      }
+      // Smoke rings ("blow a smoke ring", "blow two smoke rings"): drawn only, nothing in the world changes.
+      const rings = smokeRingIntent(intent);
+      if (rings) {
+        if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("forge:smoke-ring", { detail: rings }));
+        pushLog([
+          { tone: "user", title: "Intent", body: intent },
+          { tone: "engine", title: "Smoke", body: rings.count > 1 ? `${rings.count} smoke rings roll out the way you look; watch the back one leapfrog through.` : "A smoke ring rolls out the way you look." },
+        ]);
+        return;
+      }
+      // Dominoes and Jenga ("line up 30 dominoes", "build a jenga tower", "knock them over") (rigid.ts).
+      const rigidCall = rigidIntent(intent);
+      if (rigidCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: rigidCall.tool, arguments: rigidCall.arguments });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Toys", body: ran.result },
+        ]);
+        return;
+      }
+      // Growth ("grow moss on the column", "frost the bench", "let the steel rust") (growth.ts).
+      const growCall = growthIntent(intent);
+      if (growCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: growCall.tool, arguments: growCall.arguments });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Growth", body: ran.result },
+        ]);
+        return;
+      }
+      // Fire ("set the bench on fire", "light a campfire", "put out the fire") (fire.ts).
+      const fireCall = fireIntent(intent);
+      if (fireCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: fireCall.tool, arguments: fireCall.arguments });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Fire", body: ran.result },
+        ]);
+        return;
+      }
+      // Capes and flags ("give me a red cape", "raise a flag") (cloth.ts).
+      const clothCall = clothIntent(intent);
+      if (clothCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: clothCall.tool, arguments: clothCall.arguments });
+        const spawned = ran.world.nextId > before.nextId ? ran.world.nextId - 1 : before.selectedId;
+        commit(ran.ok ? ran.world : before, spawned, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Cloth", body: ran.result },
+        ]);
+        return;
+      }
+      // Ropes, cables and string lights ("string lights between the bench and the terminal") (rope.ts).
+      const ropeCall = ropeIntent(intent);
+      if (ropeCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: ropeCall.tool, arguments: ropeCall.arguments });
+        const spawned = ran.world.nextId > before.nextId ? ran.world.nextId - 1 : before.selectedId;
+        commit(ran.ok ? ran.world : before, spawned, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Ropes", body: ran.result },
         ]);
         return;
       }
@@ -796,6 +906,7 @@ export const useForge = create<ForgeState>((set, get) => {
           recent: cleanRecent(data.world.recent),
           score: typeof data.world.score === "string" ? data.world.score.slice(0, 120) : undefined,
           town: cleanTown(data.world.town, data.world.entities),
+          best: cleanBest(data.world.best),
           gravity: bootWorld().gravity,
           deltaTime: bootWorld().deltaTime,
         }));
@@ -855,6 +966,7 @@ function persistedWorld(state: ForgeState): World {
     ...(state.weather ? { weather: state.weather } : {}),
     ...(state.score ? { score: state.score } : {}),
     ...(state.town ? { town: state.town } : {}),
+    ...(state.best ? { best: state.best } : {}),
   };
 }
 
@@ -910,6 +1022,7 @@ export function applySharedSave(value: unknown): boolean {
     recent: cleanRecent(save.world.recent),
     score: typeof save.world.score === "string" ? save.world.score.slice(0, 120) : undefined,
     town: cleanTown(save.world.town, save.world.entities),
+    best: cleanBest(save.world.best),
     gravity: bootWorld().gravity,
     deltaTime: bootWorld().deltaTime,
   }));

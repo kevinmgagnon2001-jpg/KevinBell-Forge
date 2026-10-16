@@ -9,12 +9,15 @@ import { carryAlong } from "@/engine/device-apps";
 import { INTERACT_EVENT, LOOK_RATE, lookStick, pilotKeys, pilotStick, pointerClaim, setPilotSpeed, shiftLook, useLook, lookPose, faceLook } from "./look";
 import { stageCamera, stageGl } from "./picture";
 import { fovFor } from "@/engine/view";
-import { solidsFor, stepWalk, WALK } from "@/engine/physics";
+import { groundAt, solidsFor, stepWalk, WALK } from "@/engine/physics";
+import { ledgeAhead, sampleTraverse, type Traverse } from "@/engine/parkour";
+import { nearestParticle, particleVelocity } from "@/engine/rope";
+import { boomReach, easeBoom } from "@/engine/camera-boom";
 import { heightAt } from "@/engine/terrain";
 import { chase, chasePoint, driveSpeed, KEY_PUSH } from "@/engine/drive";
 import { frameCamera, gameById } from "@/engine/arcade";
 import type { LookMode } from "./look";
-import { arcadePlaying, avatarMotion, flight, toggleFlight } from "./body-state";
+import { arcadePlaying, avatarMotion, flight, liveRopes, ropeGrip, toggleFlight, townBodies } from "./body-state";
 
 const EYE = 0.62;
 const MIN_Y = 0.45;
@@ -75,7 +78,32 @@ const body = { vy: 0, grounded: true };
  * Flying steers by looking, like Anthem: you fly where the view points, climbing and diving with it;
  * W boosts, S brakes to a hover.
  */
-const motion = { flew: false, vx: 0, vy: 0, vz: 0, bodyYaw: null as number | null, dash: 0, dashX: 0, dashZ: 0, cam: null as { x: number; y: number; z: number } | null, bank: 0 };
+const motion = {
+  flew: false,
+  vx: 0,
+  vy: 0,
+  vz: 0,
+  bodyYaw: null as number | null,
+  dash: 0,
+  dashX: 0,
+  dashZ: 0,
+  cam: null as { x: number; y: number; z: number } | null,
+  bank: 0,
+  /** A vault or climb under way (parkour.ts), with its clock and the speed it was entered at. */
+  parkour: null as { tr: Traverse; t: number; entry: number } | null,
+  /** The camera boom's length after walls pulled it in (camera-boom.ts). */
+  boom: Number.NaN,
+  /** How long the body has been pushing into a wall: a held push climbs what a jog would not. */
+  press: 0,
+  /** Jump held last frame (a fresh press lets go of a rope). */
+  jumpWas: false,
+};
+/** Hands above the body's centre when hanging from a rope. */
+const HANG_HANDS = 0.85;
+/** Pumping a swing: the stick's push on the hands, m/s². */
+const SWING_PUMP = 7;
+/** Pushing into a ledge this long climbs it without a jump. */
+const PRESS_CLIMB = 0.3;
 const ACCEL = { ground: 11, air: 2.5, fly: 2.2 };
 const FLY = { cruise: 9, boost: 17, sprint: 27, drift: 4 };
 const DASH = { speed: 9, time: 0.2 };
@@ -239,6 +267,18 @@ export function Pilot() {
         });
       },
       build: (kind: string) => useForge.getState().dispatchManual("build_play", { kind }),
+      /** Where the townsfolk are now (for the talk checks). */
+      getTownsfolk: () => Object.entries(townBodies).map(([id, b]) => ({ id: Number(id), x: b.x, z: b.z })),
+      /** A plain box standing on the ground at (x, z), w by d across and h tall (for the parkour checks). */
+      addBox: (x: number, z: number, w: number, d: number, h: number) => {
+        const name = `ProbeBox${Date.now() % 100000}${Math.floor(Math.random() * 1000)}`;
+        useForge.getState().dispatchManual("spawn_entity", { name, x: String(x), y: String(h / 2), z: String(z), asset: "cube" });
+        useForge.setState((state) => {
+          const e = Object.values(state.entities).find((entity) => entity.name === name);
+          if (!e) return state;
+          return { entities: { ...state.entities, [e.id]: { ...e, physics: null, transform: { ...e.transform, position: { x, y: h / 2, z }, scale: { x: w, y: h, z: d } } } } };
+        });
+      },
       setSteer: (value: number) => {
         pilotKeys.delete("KeyA");
         pilotKeys.delete("KeyD");
@@ -351,6 +391,7 @@ export function Pilot() {
       const mover = state.moverHash ? runtimeNow(state.moverHash) : null;
       const pkg = mover ? state.mechanics.find((m) => m.hash === state.moverHash) : undefined;
       if (mover && pkg && !(visit && !visit.rule)) {
+        motion.parkour = null;
         let saved: number[] | undefined;
         try {
           const parsed = JSON.parse(avatar.customData.mover || "null") as unknown;
@@ -470,6 +511,14 @@ export function Pilot() {
         motion.vy = 0;
         motion.bank *= Math.max(0, 1 - dt * 6);
       }
+      if (flying || visit) {
+        motion.parkour = null;
+        ropeGrip.rope = null;
+      }
+      if (motion.parkour) {
+        // Mid-vault or climb: the move carries the body; face the ledge.
+        yaw = turnToward(yaw, motion.parkour.tr.yaw, TURN_RATE * 1.6, dt);
+      }
       if (motion.dash > 0) {
         // A dash aside: a burst, then momentum carries it out.
         motion.dash -= dt;
@@ -485,6 +534,22 @@ export function Pilot() {
       let z = p.z + vz * dt;
       let y = Math.max(MIN_Y, p.y + lift * SPEED * dt);
       let shoved: { id: number; vx: number; vz: number }[] = [];
+      const solids = solidsFor(state.entities);
+      const feet = { x: p.x, y: p.y - WALK.foot, z: p.z };
+      if (!visit && !motion.parkour && !flying && body.grounded && moving > 0.3) {
+        // Running at something knee to chest high vaults or climbs onto it; taller ledges take a
+        // jump, or a moment pushing into them. It goes the way you are going, if you face it.
+        const sp = Math.hypot(vx, vz);
+        const dir = sp > 0.3 ? { x: vx / sp, z: vz / sp } : { x: wx / push, z: wz / push };
+        motion.press = avatarMotion.bumped ? motion.press + dt : 0;
+        if (dir.x * face.x + dir.z * face.z > 0.7) {
+          const tr = ledgeAhead(feet, dir, sp, solids, groundAt, 0.12 + sp * 0.07);
+          if (tr && (jump || motion.press > PRESS_CLIMB || (tr.kind !== "climb" && sp >= 2.2))) {
+            motion.parkour = { tr, t: 0, entry: Math.max(sp, pace) };
+            motion.press = 0;
+          }
+        }
+      } else motion.press = 0;
       // On a visited island its host decides where you are: walk with prediction (prediction.ts), so it
       // still moves on this frame, and let the host correct it.
       if (visit) {
@@ -497,13 +562,71 @@ export function Pilot() {
         z = shown.z;
         avatarMotion.grounded = true;
         avatarMotion.vy = 0;
+      } else if (ropeGrip.rope != null && !flying && liveRopes[ropeGrip.rope]) {
+        // Hanging on a rope: the body hangs under the hands, the stick pumps the swing, and a jump
+        // lets go with the swing's speed.
+        const sim = liveRopes[ropeGrip.rope];
+        const i = Math.min(sim.n - 1, ropeGrip.index);
+        // Pumping works with the swing: pushing the way it already goes adds the most.
+        const swing = particleVelocity(sim, i, dt);
+        const along = swing.x * wx + swing.z * wz;
+        const pump = SWING_PUMP * (along > 0 ? 1 : 0.35);
+        ropeGrip.push = { x: wx * pump, z: wz * pump };
+        x = sim.pos[i * 3];
+        y = sim.pos[i * 3 + 1] - HANG_HANDS;
+        z = sim.pos[i * 3 + 2];
+        body.vy = 0;
+        body.grounded = false;
+        avatarMotion.grounded = true;
+        avatarMotion.vy = 0;
+        avatarMotion.bumped = false;
+        avatarMotion.parkour = { kind: "rope", s: 0.28, up: HANG_HANDS + WALK.foot, ahead: 0.03 };
+        if (jump && !motion.jumpWas) {
+          const v = particleVelocity(sim, i, dt);
+          ropeGrip.rope = null;
+          ropeGrip.cooldown = 0.5;
+          avatarMotion.parkour = null;
+          motion.vx = v.x;
+          motion.vz = v.z;
+          body.vy = Math.max(0, v.y) + WALK.jump * 0.6;
+        } else {
+          motion.vx = (x - p.x) / Math.max(dt, 1e-3);
+          motion.vz = (z - p.z) / Math.max(dt, 1e-3);
+        }
+      } else if (motion.parkour) {
+        const run = motion.parkour;
+        const { tr } = run;
+        run.t += dt;
+        const s = Math.min(1, run.t / tr.duration);
+        const at = sampleTraverse(tr, s);
+        x = at.x;
+        y = at.y + WALK.foot;
+        z = at.z;
+        motion.vx = (x - p.x) / Math.max(dt, 1e-3);
+        motion.vz = (z - p.z) / Math.max(dt, 1e-3);
+        body.vy = 0;
+        avatarMotion.grounded = true;
+        avatarMotion.vy = 0;
+        avatarMotion.bumped = false;
+        avatarMotion.parkour = { kind: tr.kind, s, up: tr.hand.y - at.y, ahead: (tr.hand.x - at.x) * tr.dir.x + (tr.hand.z - at.z) * tr.dir.z };
+        if (s >= 1) {
+          // Out of it: a vault lands running on, a climb stands on the top.
+          motion.parkour = null;
+          avatarMotion.parkour = null;
+          body.grounded = true;
+          const keep = tr.kind === "vault" ? run.entry * 0.92 : 0;
+          motion.vx = tr.dir.x * keep;
+          motion.vz = tr.dir.z * keep;
+          if (tr.kind === "vault") avatarMotion.landed = Math.max(avatarMotion.landed, 2.6 + Math.max(0, tr.top - tr.to.y) * 2);
+        }
       } else {
         // Here at home the body has weight: it walks on what is under it, steps up kerbs, stops at
         // walls, jumps, falls, and shoves loose things. Flying keeps the walls but drops gravity.
+        avatarMotion.parkour = null;
         const walked = stepWalk(
           { x: p.x, y: p.y - WALK.foot, z: p.z, vy: body.vy, grounded: body.grounded },
           { vx, vz, jump, fly: flying ? (Math.abs(flyUp) < 0.01 ? 0 : Math.sign(flyUp)) : null, flySpeed: Math.max(0.01, Math.abs(flyUp)) },
-          solidsFor(state.entities),
+          solids,
           dt,
         );
         body.vy = walked.state.vy;
@@ -521,7 +644,24 @@ export function Pilot() {
         avatarMotion.vy = walked.state.vy;
         avatarMotion.bumped = walked.bumped;
         if (walked.landed > 2) avatarMotion.landed = Math.max(avatarMotion.landed, walked.landed);
+        // Jumping at a hanging rope catches it.
+        ropeGrip.cooldown = Math.max(0, ropeGrip.cooldown - dt);
+        if (!flying && !walked.state.grounded && ropeGrip.cooldown <= 0) {
+          const hands = { x, y: y + HANG_HANDS, z };
+          for (const [id, sim] of Object.entries(liveRopes)) {
+            const near = nearestParticle(sim, hands);
+            if (near.distance < 0.42) {
+              ropeGrip.rope = Number(id);
+              ropeGrip.index = near.index;
+              // Carry the jump's momentum into the rope.
+              const k = near.index * 3;
+              for (const [axis, v] of [[0, motion.vx], [1, walked.state.vy], [2, motion.vz]] as const) sim.prev[k + axis] = sim.pos[k + axis] - (v * dt) / 4;
+              break;
+            }
+          }
+        }
       }
+      motion.jumpWas = jump;
       avatarMotion.flying = flying;
       // How the body moves relative to where it faces, for side steps and walking backwards (Avatar.tsx).
       const sp = Math.hypot(vx, vz);
@@ -604,7 +744,14 @@ export function Pilot() {
     cam.y += (want.y - cam.y) * lag;
     cam.z += (want.z - cam.z) * lag;
     motion.cam = cam;
-    camera.position.set(cam.x, cam.y, cam.z);
+    // A wall or a hill behind you pulls the camera in front of it, then it eases back out.
+    const pivot = { x: pose.x + side.x * shoulder * 0.5, y: pose.y + 0.9, z: pose.z + side.z * shoulder * 0.5 };
+    const arm = Math.hypot(cam.x - pivot.x, cam.y - pivot.y, cam.z - pivot.z);
+    motion.boom = easeBoom(motion.boom, boomReach(pivot, cam, solidsFor(useForge.getState().entities), groundAt), dt);
+    const k = arm > 1e-6 ? Math.min(1, motion.boom / arm) : 1;
+    // Pulled in close, it rises a little so it looks over the head instead of into it.
+    const over = 0.5 * Math.max(0, 1 - motion.boom / 2.2);
+    camera.position.set(pivot.x + (cam.x - pivot.x) * k, pivot.y + (cam.y - pivot.y) * k + over, pivot.z + (cam.z - pivot.z) * k);
     const aimAhead = 3;
     camera.lookAt(pose.x + cf.x * aimAhead + side.x * shoulder * 0.6, pose.y + 0.85 + Math.sin(pitch) * aimAhead, pose.z + cf.z * aimAhead + side.z * shoulder * 0.6);
     // Bank the view a touch into flying turns.
@@ -627,9 +774,11 @@ declare global {
       setStick: (x: number, y: number) => void;
       getStick: () => { x: number; y: number };
       setLook: (x: number, y: number) => void;
-      getMotion: () => { speed: number; grounded: boolean; vy: number; flying: boolean; playing: string | null };
+      getMotion: () => { speed: number; grounded: boolean; vy: number; flying: boolean; playing: string | null; parkour: { kind: string; s: number } | null };
       place: (x: number, z: number, yaw: number, y?: number) => void;
       build: (kind: string) => void;
+      addBox: (x: number, z: number, w: number, d: number, h: number) => void;
+      getTownsfolk: () => { id: number; x: number; z: number }[];
     };
   }
 }
