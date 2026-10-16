@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { EXIT_KEYS, EXIT_PAD, gameById, moveForKey, moveForPad, nearestGame, type GameMove, type GameSpec } from "@/engine/arcade";
 import { useForge } from "@/engine/store";
+import { BlocksGame } from "@/components/blocks/BlocksGame";
 import { INTERACT_EVENT, pilotKeys, pilotStick, useLook } from "./look";
 import { arcadeNear, arcadePlaying, useArcadeNear, useArcadePlaying } from "./body-state";
 
@@ -244,6 +245,14 @@ export function Arcade() {
     if (at) start(at.game, at.label);
   }, []);
 
+  if (game?.screen && playing) {
+    // A game with a screen of its own (Blocks): full screen over everything, until you walk away.
+    return (
+      <div className="arcade-screen" role="dialog" aria-label={playing.label}>
+        <BlocksGame onExit={leave} exitLabel="Walk away" />
+      </div>
+    );
+  }
   if (game && playing) {
     const keyHelp = game.id === "tetris" ? "◀ ▶ move · ↑ rotate · ↓ faster · Space drops · Esc leaves" : "Space releases the marble · Esc leaves";
     return (

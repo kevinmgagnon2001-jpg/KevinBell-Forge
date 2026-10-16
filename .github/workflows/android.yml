@@ -130,6 +130,8 @@ jobs:
           MANIFEST="$(find src-tauri/gen/android/app/src/main -name AndroidManifest.xml | head -n 1)"
           [ -n "$MANIFEST" ] || { echo "::error::tauri android init made no AndroidManifest.xml"; exit 1; }
           node scripts/android-manifest.mjs "$MANIFEST"
+          # Resources for what the manifest adds (the Blocks launcher icon).
+          cp -r src-tauri/android/res/. "$(dirname "$MANIFEST")/res/"
           # Islands and compute devices on your own network speak plain http://. Android blocks
           # that in release builds unless the app opts in.
           GRADLE=src-tauri/gen/android/app/build.gradle.kts

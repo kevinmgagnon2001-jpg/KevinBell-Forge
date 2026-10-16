@@ -834,6 +834,34 @@ export function buildTetris(world: World): World {
   return makeRoom({ ...world, entities, nextId: spawned.nextId }, builtIds);
 }
 
+/**
+ * A Blocks arcade cabinet (src/engine/blocks.ts): a cabinet with a lit screen. Walk up and press
+ * Play, and the game opens full screen (Arcade.tsx).
+ */
+export function buildBlocks(world: World): World {
+  const fresh = withoutTag(world, "blocks");
+  const entities = { ...fresh.entities };
+  let id = fresh.nextId;
+  const x = 2.9;
+  const z = -0.9;
+  const cabinet = sized(
+    makeSpawned(id, { name: "Blocks", asset: "cube", color: "#1a2248", tags: "blocks,play,fixture", physics: "true", kinematic: "true" }),
+    x,
+    0.16 + 0.8,
+    z,
+    0.9,
+    1.6,
+    0.6,
+  );
+  cabinet.customData = { ...cabinet.customData, play: "blocks" };
+  entities[id] = cabinet;
+  id += 1;
+  const screen = sized(makeSpawned(id, { name: "BlocksScreen", asset: "card", color: "#3ec9ff", tags: "blocks,fixture" }), x, 1.3, z + 0.31, 0.62, 0.62, 0.02);
+  entities[id] = screen;
+  id += 1;
+  return makeRoom({ ...world, entities, nextId: id }, [id - 2, id - 1]);
+}
+
 export function buildMarble(world: World): World {
   const fresh = withoutTag(world, "marble");
   const entities = { ...fresh.entities };

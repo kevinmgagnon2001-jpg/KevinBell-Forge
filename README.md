@@ -21,6 +21,11 @@ once. See [docs/GAUGES.md](docs/GAUGES.md).
 You walk with weight now: jump onto things, run, fly, shove loose objects around. Build Tetris or a
 marble run, walk up to it and press Play to take the controls. See [docs/PLAY.md](docs/PLAY.md).
 
+## Blocks, without the ads
+
+The APK also adds a **Blocks** icon: the drag-and-place block puzzle, straight into the game, with no
+ads and nothing sent anywhere. See [docs/BLOCKS.md](docs/BLOCKS.md).
+
 ## Run it from source
 
 ```sh

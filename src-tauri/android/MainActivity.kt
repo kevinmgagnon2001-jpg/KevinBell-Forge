@@ -77,6 +77,17 @@ class MainActivity : TauriActivity() {
     webView.addJavascriptInterface(ForgeApps(this, webView), "ForgeAndroid")
   }
 
+  /**
+   * Opened again from a launcher icon while running: the Blocks icon (an alias of this activity,
+   * scripts/android-manifest.mjs) switches the page to the game, Forge's own icon back to Forge.
+   */
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    val which = launchedAs(intent)
+    page?.post { page?.evaluateJavascript("window.__forgeLaunch && window.__forgeLaunch('$which')", null) }
+  }
+
   /** The words from Android's voice input (ForgeApps.listen), handed to the page's helm. */
   @Deprecated("Activity results through the old callback keep this file free of extra libraries.")
   @Suppress("DEPRECATION")
@@ -108,6 +119,10 @@ class MainActivity : TauriActivity() {
 }
 
 const val SPEECH_REQUEST = 4207
+
+/** "blocks" when opened from the Blocks icon, else "forge". */
+fun launchedAs(intent: Intent?): String =
+  if (intent?.component?.className?.endsWith(".BlocksLauncher") == true) "blocks" else "forge"
 
 fun sendSpeech(webView: WebView?, result: JSONObject) {
   webView?.post { webView.evaluateJavascript("window.__forgeSpeech && window.__forgeSpeech($result)", null) }
@@ -225,6 +240,10 @@ class ForgeApps(private val activity: Activity, private val webView: WebView) {
     }
     return true
   }
+
+  /** Which launcher icon opened Forge: "blocks" (straight into the game) or "forge". */
+  @JavascriptInterface
+  fun launchedAs(): String = launchedAs(activity.intent)
 
   /**
    * Speak to the helm: Android's own voice input (the system's speech app listens, so Forge needs no

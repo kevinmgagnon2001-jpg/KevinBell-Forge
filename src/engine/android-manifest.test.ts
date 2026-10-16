@@ -53,7 +53,8 @@ test("the Android manifest gains launcher queries and a home-screen entry that s
   assert.ok(out.indexOf(".HomeActivity") < out.indexOf("</application>"));
   // The home screen is its own small activity, never MainActivity: Android starts home screens in a
   // task of their own, and a second MainActivity there is a black screen (Tauri draws in only one).
-  assert.doesNotMatch(out, /activity-alias/);
+  // (A plain launcher alias, like Blocks, is fine: it brings back the one running MainActivity.)
+  for (const alias of out.match(/<activity-alias[\s\S]*?<\/activity-alias>/g) ?? []) assert.doesNotMatch(alias, /category.HOME/);
   const main = /<activity\b[^>]*android:name="\.MainActivity"[\s\S]*?<\/activity>/.exec(out)?.[0] ?? "";
   assert.doesNotMatch(main, /category.HOME/);
   assert.match(main, /launchMode="singleTask"/);
@@ -71,4 +72,14 @@ test("the Android manifest gains launcher queries and a home-screen entry that s
   assert.match(main, /configChanges="orientation\|keyboardHidden\|keyboard\|screenSize\|locale\|smallestScreenSize\|screenLayout\|uiMode"/);
   const bare = patchManifest(GENERATED.replace(/\s*android:configChanges="[^"]*"/, ""));
   assert.match(bare, /android:configChanges="orientation\|screenSize\|screenLayout\|smallestScreenSize"/);
+});
+
+test("Blocks gets its own launcher icon, after MainActivity, and can buzz", () => {
+  const out = patchManifest(GENERATED);
+  const alias = out.indexOf('android:name=".BlocksLauncher"');
+  assert.ok(alias > out.indexOf('android:name=".MainActivity"'), "an alias follows its activity");
+  assert.match(out, /android:targetActivity="\.MainActivity"/);
+  assert.match(out, /android:label="Blocks"/);
+  assert.match(out, /android\.permission\.VIBRATE/);
+  assert.equal(patchManifest(out), out, "patching twice changes nothing");
 });

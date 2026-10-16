@@ -329,7 +329,7 @@ function LabConsole() {
       z: String(Math.round((p.z + z) * 100) / 100),
     });
   };
-  const play = (kind: "tetris" | "marble") => {
+  const play = (kind: "tetris" | "marble" | "blocks") => {
     act("build_play", { kind });
     useForge.getState().setRunning(true);
   };
@@ -391,6 +391,9 @@ function LabConsole() {
         </button>
         <button type="button" onClick={() => play("marble")}>
           Marble run
+        </button>
+        <button type="button" onClick={() => act("build_play", { kind: "blocks" })}>
+          Blocks
         </button>
         <button type="button" onClick={() => act("play_move", { move: "left" })}>
           Piece left

@@ -85,4 +85,25 @@ if [ "$HOME_PID" != "$PID" ]; then
   echo "::error title=Android smoke test::Forge restarted when Home was pressed (pid $PID -> ${HOME_PID:-none}); see logcat.txt"; exit 1
 fi
 echo "Home brings back the running Forge."
+
+# The Blocks icon (an alias of MainActivity, scripts/android-manifest.mjs) must bring back the same
+# running Forge, switched to the game, not start a second copy.
+adb logcat -c
+adb shell am start -n "$PKG/.BlocksLauncher" > "$OUT/blocks-start.txt" 2>&1
+sleep 8
+adb exec-out screencap -p > "$OUT/screen-blocks.png"
+adb logcat -d > "$OUT/logcat-blocks.txt"
+BLOCKS_PID="$(adb shell pidof "$PKG" | tr -d '\r')"
+adb shell dumpsys activity activities > "$OUT/activities-blocks.txt" 2>&1 || true
+if grep -q "FATAL EXCEPTION" "$OUT/logcat-blocks.txt"; then
+  echo "::error title=Android smoke test::opening the Blocks icon crashed Forge; see logcat-blocks.txt"; exit 1
+fi
+if [ "$BLOCKS_PID" != "$PID" ]; then
+  echo "::error title=Android smoke test::the Blocks icon restarted Forge (pid $PID -> ${BLOCKS_PID:-none}); see blocks-start.txt and logcat-blocks.txt"; exit 1
+fi
+SCREENS="$(grep -oE "ActivityRecord\{[0-9a-f]+ u0 $PKG/\.(MainActivity|BlocksLauncher)" "$OUT/activities-blocks.txt" | sort -u | wc -l | tr -d ' ')"
+if [ "${SCREENS:-0}" -ne 1 ]; then
+  echo "::error title=Android smoke test::after the Blocks icon there are ${SCREENS:-0} Forge screens (want 1); see activities-blocks.txt and screen-blocks.png"; exit 1
+fi
+echo "The Blocks icon opens the running Forge (screen-blocks.png)."
 echo "Forge is running (pid $PID)."
