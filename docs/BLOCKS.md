@@ -11,6 +11,13 @@ controls to learn. (You can move or hide the Forge icon; Blocks works on its own
 
 In a browser it is at `/blocks` (or `/?app=blocks`).
 
+## How it looks
+
+The classic look is the default: a white board with thin black lines, every block one blue, the
+score big and blue at the top, the three pieces below, and **New Game** (asks first if a game is
+going) and **Settings** along the bottom. Settings shows the best score and has New game, Sound,
+Vibration, and "Colourful blocks" for the bright look. The Android icon is a blue-and-white grid.
+
 ## Playing
 
 - Drag a shape from the bottom onto the board. It floats a little above your finger so you can see

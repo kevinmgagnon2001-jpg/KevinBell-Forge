@@ -2935,3 +2935,163 @@
   inset: 0;
   z-index: 60;
 }
+
+/* Blocks, classic look (the default): white, thin black grid lines, one blue, big blue score, and
+   New Game / Settings along the bottom, like the game she is used to. */
+.blk.is-classic {
+  --blk-text: #111;
+  --blk-muted: #555;
+  background: #fff;
+  color: #111;
+  font-family: "Nunito", "Varela Round", ui-rounded, "SF Pro Rounded", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+.blk-top.is-classic {
+  justify-content: center;
+  min-height: 5.5rem;
+}
+
+.blk.is-classic .blk-score {
+  color: #1677ff;
+  font-size: clamp(3.2rem, 15vw, 4.4rem);
+  font-weight: 900;
+  line-height: 1;
+}
+
+.blk.is-classic .blk-board {
+  width: min(98vw, 56dvh, 560px);
+  border: 2px solid #111;
+  border-radius: 0;
+  background: #111;
+  box-shadow: none;
+}
+
+.blk.is-classic .blk-cell {
+  border-radius: 0;
+  background: #fff;
+}
+
+.blk.is-classic .blk-cell.is-full {
+  background: var(--blk);
+  box-shadow: inset 0 0 0 1.5px #0b1f44;
+}
+
+.blk.is-classic .blk-cell.is-ghost {
+  background: #9cc3ff;
+  box-shadow: inset 0 0 0 1.5px #1677ff;
+}
+
+.blk.is-classic .blk-cell.is-lit:not(.is-ghost) {
+  filter: none;
+  box-shadow: inset 0 0 0 2px #ffb400;
+}
+
+.blk.is-classic .blk-cell.is-lit:not(.is-full):not(.is-ghost) {
+  background: #e8f1ff;
+}
+
+.blk.is-classic .blk-tray {
+  width: min(98vw, 560px);
+  height: clamp(120px, 20dvh, 180px);
+}
+
+.blk.is-classic .blk-slot.is-stuck {
+  opacity: 0.3;
+}
+
+.blk.is-classic .blk-popup {
+  background: #fff;
+  color: #1677ff;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 12%);
+}
+
+.blk.is-classic .blk-popup.is-big {
+  color: #1677ff;
+}
+
+.blk-bottom {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  padding: 0 0.6rem 0.4rem;
+}
+
+.blk-new,
+.blk-settings {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  border: 0;
+  background: transparent;
+  color: #1677ff;
+  font: inherit;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.blk-fab {
+  display: grid;
+  place-items: center;
+  width: 62px;
+  height: 62px;
+  border-radius: 50%;
+  background: #1677ff;
+  color: #fff;
+  font-size: 2.6rem;
+  font-weight: 400;
+  line-height: 1;
+  box-shadow: 0 6px 14px rgb(22 119 255 / 35%);
+}
+
+.blk-settings svg {
+  margin-bottom: 0.15rem;
+}
+
+.blk.is-classic .blk-menu.is-classic {
+  top: auto;
+  right: 0.75rem;
+  bottom: calc(max(0.6rem, env(safe-area-inset-bottom)) + 6.5rem);
+  background: #fff;
+  box-shadow: 0 12px 36px rgb(0 0 0 / 22%);
+}
+
+.blk.is-classic .blk-menu button {
+  color: #111;
+}
+
+.blk.is-classic .blk-menu button:active {
+  background: #eef4ff;
+}
+
+.blk-menu-best {
+  margin: 0.4rem 0.9rem 0.2rem;
+  color: #1677ff;
+  font-weight: 800;
+}
+
+.blk.is-classic .blk-over {
+  background: rgb(255 255 255 / 94%);
+}
+
+.blk.is-classic .blk-over-title {
+  color: #555;
+}
+
+.blk.is-classic .blk-over-score {
+  color: #1677ff;
+}
+
+.blk.is-classic .blk-over-best {
+  color: #333;
+}
+
+.blk.is-classic .blk-play {
+  background: #1677ff;
+  color: #fff;
+  box-shadow: none;
+}
+
+.blk.is-classic .blk-link {
+  color: #1677ff;
+}

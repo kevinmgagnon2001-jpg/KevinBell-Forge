@@ -987,3 +987,15 @@ and mountains around it, under a late-afternoon sky.
   any launcher activity, and with two icons now it could open Blocks, which never loads the world,
   so "the page never reported the phone's apps". The test now opens `.MainActivity` by name, and
   then opens `.BlocksLauncher` on its own to check the Blocks icon.
+
+## Blocks: the classic look
+- The look she knows, as the default (BlocksGame.tsx, "Blocks, classic look" in styles.css): white
+  board, 1 px black grid lines, every block one blue (#1677ff) with a dark edge, a big blue score
+  alone at the top, the three pieces below, a round blue + New Game button bottom left and a blue
+  gear Settings bottom right. New Game asks first when a game is going. Settings shows the best
+  score and holds Sound, Vibration and "Colourful blocks" (the bright look, off by default).
+- Tray pieces shrink to fit their third of the tray (the 5-long bar no longer crowds its neighbour).
+- The Android launcher icon is now a blue-and-white tile grid on white.
+- Checked: typecheck, lint (no new warnings), `npm run test:engine` (234 pass), build; in Chromium at
+  412x915: placing pieces, the New Game question, Settings, the tray with the longest bars; no
+  console errors.
