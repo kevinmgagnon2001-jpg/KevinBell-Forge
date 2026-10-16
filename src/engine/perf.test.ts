@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { AUTO, autoStart, autoStep, frameStats, LADDER, startRung, type AutoState } from "./perf.ts";
+import { AUTO, autoStart, autoStep, frameStats, isPauseGap, LADDER, startRung, type AutoState } from "./perf.ts";
 
 const run = (state: AutoState, from: number, to: number, fps: number, thermal = 0, every = 500) => {
   let s = state;
@@ -59,4 +59,11 @@ test("frame stats", () => {
   const s = frameStats([16, 16, 16, 50]);
   assert.equal(Math.round(s.fps), 41);
   assert.equal(s.worst, 50);
+});
+
+test("a frame spanning a pause (another app, the lock screen) is not a slow frame", () => {
+  assert.equal(isPauseGap(8.3, false), false);
+  assert.equal(isPauseGap(240, false), false, "a real hitch still counts");
+  assert.equal(isPauseGap(8.3, true), true, "the first frame back is skipped");
+  assert.equal(isPauseGap(300_000, false), true, "minutes away, even without a visibility event");
 });
