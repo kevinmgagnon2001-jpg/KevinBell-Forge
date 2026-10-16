@@ -263,6 +263,17 @@ export const TOOLS: ToolSchema[] = [
     optional: ["kind", "from", "to", "length", "sag", "color", "name"],
   },
   {
+    name: "wear_cape",
+    description: "Put a cape on your body (color violet, night, crimson, teal, gold, white or #rrggbb), or take it off (color none). It is real cloth: it swings, streams when you run or fly, and catches the wind.",
+    parameters: { color: "string" },
+  },
+  {
+    name: "raise_flag",
+    description: "Put up a flagpole with a cloth flag that flies in the wind. style is 4d, rainbow, pirate or white; height in metres.",
+    parameters: { style: "string", x: "f32", z: "f32", height: "f32", name: "string" },
+    optional: ["style", "x", "z", "height", "name"],
+  },
+  {
     name: "wield",
     description: "Hold the hyper sword (item hyper-sword), whose blade is a hypercube turning through 4D, or put it away (item none).",
     parameters: { item: "string" },

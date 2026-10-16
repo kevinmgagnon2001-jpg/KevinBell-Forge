@@ -1162,3 +1162,14 @@ and mountains around it, under a late-afternoon sky.
 - Avatar.tsx: a rope hang pose: both hands round the rope, one over the other, legs together.
 - Checked: typecheck, lint, engine tests; in Chromium: hang a rope, run and jump at it, caught,
   W swings it back and forth, Space lets go moving upward; no console errors.
+
+## Capes and flags (Papers roadmap: cloth)
+- cloth.ts (tested): a particle grid with structural, soft shear and bending links, tethers to the
+  nearest pin, capsule colliders, the land, and wind per triangle (pressure by how squarely it meets
+  it, drag downwind, a travelling flutter). A cape hangs from three pins and gathers; a flag hangs
+  from its pole. Tools `wear_cape`, `raise_flag`; plain requests.
+- Cloth.tsx: your cape, pinned across the shoulders and pushed out of the body, rebuilt if you are
+  carried off; flags on poles with a gold finial, patterns drawn on canvas (4D film with a
+  tesseract, rainbow, pirate, white); double-sided sheen fabric; the weather's gusting wind.
+- Checked: typecheck, lint, `npm run test:engine`; in Chromium: a violet cape streaming in the wind
+  and a 4D flag flying; no console errors.

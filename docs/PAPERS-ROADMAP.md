@@ -120,9 +120,11 @@ Notes on what was built differently from the plan:
   - Stable stacks, chains, ragdolls and breakable joints; "Jenga collapse" sandboxes.
   - On the CPU for about 1–3k bodies; keep today's sleep. WebGPU later for big scenes.
   - Touches: `physics.ts` (stepBodies, collidePairs), `manifold.ts`.
-- [ ] **Soft bodies and cloth on the same core** (M). *Vertex Block Descent (SIGGRAPH 2024)*
+- [x] **Soft bodies and cloth on the same core** (M). *Vertex Block Descent (SIGGRAPH 2024)*
   (related).
   - Jelly blocks, flags, capes and inflatables, using meshes under about 5k vertices on the CPU.
+  - Done for cloth (cloth.ts, Cloth.tsx): capes and flags by position-based dynamics, not VBD.
+    Not done: jelly blocks and inflatables (volume constraints), the AVBD core under all of it.
 - [x] **Ropes, cables and hair** (M). *Stable Cosserat Rods (SIGGRAPH 2025), TMP "This New
   Physics Engine Is 45x Faster!"*
   - Ropes, grappling hooks, hanging cables, swaying grass and avatar hair.

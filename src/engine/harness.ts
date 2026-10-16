@@ -12,6 +12,7 @@ import { setSound } from "./sounds.ts";
 import { askTown, fillTown, sendTownsfolk } from "./town.ts";
 import { placeHyper, wield } from "./hyper.ts";
 import { hangRope } from "./rope.ts";
+import { raiseFlag, wearCape } from "./cloth.ts";
 import { listSkills, MAX_SKILLS, noteCall, repeatTool, runSteps, saveSkill } from "./skillbook.ts";
 import { allowedAssetUrl, localTexture } from "./asset-url.ts";
 import type { Entity, HarnessEvent, PhysicsBody, ProposedAction, Skill, Snapshot, World } from "./types.ts";
@@ -178,6 +179,8 @@ export function dispatchTool(world: World, name: string, args: Record<string, st
   if (name === "fill_town") return fillTown(world, args);
   if (name === "place_hyper") return placeHyper(world, args);
   if (name === "hang_rope") return hangRope(world, args);
+  if (name === "wear_cape") return wearCape(world, args);
+  if (name === "raise_flag") return raiseFlag(world, args);
   if (name === "wield") return wield(world, args);
   if (name === "ask_town") return askTown(world, args);
   if (name === "send_npc") return sendTownsfolk(world, args);

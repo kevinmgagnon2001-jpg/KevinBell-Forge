@@ -39,6 +39,7 @@ import { PostFX } from "./PostFX";
 import { HyperBubble } from "./Hyper";
 import { Ropes } from "./Rope";
 import { Talk, TalkBubble } from "./Talk";
+import { Cape, Flags } from "./Cloth";
 import { ROPE_TAG } from "@/engine/rope";
 import type { ShapeName } from "@/engine/polytope";
 import { Activity, ArrowBigUp, Eye, House, LayoutGrid, Maximize2, Minimize2, Move, PersonStanding, PlaneLanding, RotateCw, ScanEye, Wind } from "lucide-react";
@@ -1342,6 +1343,8 @@ function Stage({ scenery, shadows, post }: { scenery: SceneryLevel | "off"; shad
       <Town />
       <Ropes />
       <TalkBubble />
+      <Cape />
+      <Flags />
       <OrbitControls
         makeDefault
         enableDamping

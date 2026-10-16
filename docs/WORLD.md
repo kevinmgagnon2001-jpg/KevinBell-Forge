@@ -111,3 +111,16 @@ the world's boxes, the land and people. It is a light stand-in for Stable Cosser
 Push the stick the way you are swinging to pump it higher (it adds most when it goes with the
 swing), and jump to let go with the swing's speed. Your weight is a heavy particle in the rope's
 own simulation, so the rope bends and sways with you.
+
+## Capes and flags
+
+"Give me a cape" (violet, night, crimson, teal, gold, white, or "a red cape"), "take the cape off",
+"raise a flag" (4D, rainbow, pirate or white). Tools `wear_cape` and `raise_flag`
+(`src/engine/cloth.ts`, drawn by `Cloth.tsx`). Both are real cloth: a grid of particles with links
+across, down and on the diagonals (soft, so it drapes and folds), skip-one links against folding,
+and tethers so it never stretches. The cape is pinned across your shoulders and pushed out of your
+body (capsules for the torso, legs and head), so it swings as you walk and streams when you run or
+fly. Wind pushes each little triangle by how squarely it meets it, drags the cloth downwind and
+sheds waves along a flag to its free edge. Fabric uses a sheen material so the folds catch the
+light.
+

@@ -9,6 +9,7 @@ import { soundIntent } from "./sounds";
 import { cleanTown, townIntent } from "./town";
 import { hyperIntent } from "./hyper";
 import { ropeIntent } from "./rope";
+import { clothIntent } from "./cloth";
 import { cleanBest } from "./arcade";
 import { cleanRecent, MAX_SKILLS, skillIntent, skillBrief } from "./skillbook";
 import { bootWorld, ensureAvatar, ensureHelm, labWorld, stepWorld } from "./manifold";
@@ -370,6 +371,18 @@ export const useForge = create<ForgeState>((set, get) => {
         commit(ran.ok ? ran.world : before, spawned, [
           { tone: "user", title: "Intent", body: intent },
           { tone: ran.ok ? "engine" : "warn", title: "4D", body: ran.result },
+        ]);
+        return;
+      }
+      // Capes and flags ("give me a red cape", "raise a flag") (cloth.ts).
+      const clothCall = clothIntent(intent);
+      if (clothCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: clothCall.tool, arguments: clothCall.arguments });
+        const spawned = ran.world.nextId > before.nextId ? ran.world.nextId - 1 : before.selectedId;
+        commit(ran.ok ? ran.world : before, spawned, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Cloth", body: ran.result },
         ]);
         return;
       }
