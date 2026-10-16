@@ -36,7 +36,7 @@ export const TOOLS: ToolSchema[] = [
   },
   {
     name: "edit_entity",
-    description: "Change an existing entity. Use this instead of spawn when the command edits, recolors, moves, resizes, or renames.",
+    description: "Change an existing entity. Use this instead of spawn when the command edits, recolors, moves, resizes, or renames. scale grows it evenly; sx, sy, sz stretch one axis (sy 1.5 is taller). finish glint makes it sparkle (snow, glitter, metal flake), plain takes that off.",
     parameters: {
       id: "u64",
       name: "string",
@@ -46,8 +46,30 @@ export const TOOLS: ToolSchema[] = [
       z: "f32",
       asset: "string",
       scale: "f32",
+      sx: "f32",
+      sy: "f32",
+      sz: "f32",
+      finish: "string",
     },
-    optional: ["name", "color", "x", "y", "z", "asset", "scale"],
+    optional: ["name", "color", "x", "y", "z", "asset", "scale", "sx", "sy", "sz", "finish"],
+  },
+  {
+    name: "repeat",
+    description:
+      "Do the last change again, or run a saved skill by name. words are tweaks: taller, bigger, smaller, wider, a colour, to the left/right/in front/behind, higher, 3 times. Copies go to the next free spot.",
+    parameters: { skill: "string", words: "string", times: "f32" },
+    optional: ["skill", "words", "times"],
+  },
+  {
+    name: "save_skill",
+    description: "Keep the last count changes (default 1) as a named skill that can be run again by name, anywhere, with tweaks.",
+    parameters: { name: "string", count: "f32", description: "string" },
+    optional: ["count", "description"],
+  },
+  {
+    name: "list_skills",
+    description: "List the skills this world has learned.",
+    parameters: {},
   },
   {
     name: "delete_entity",
@@ -197,6 +219,47 @@ export const TOOLS: ToolSchema[] = [
     description: "Change the mesh, skin or stat of gauges. id is one id, a comma list, or * for every gauge.",
     parameters: { id: "string", mesh: "string", skin: "string", stat: "string" },
     optional: ["mesh", "skin", "stat"],
+  },
+  {
+    name: "set_weather",
+    description:
+      "Change the weather, time of day or mood live. words is a phrase (rain at dusk, foggy morning, snow at midnight, rainy tokyo alley, stop the rain, 7pm, speed up time). Or set numbers: hour 0-24, cloud rain snow fog wind storm 0-1, mood neon eerie cozy dreamy cold apocalyptic or none, flow (game minutes per second).",
+    parameters: { words: "string", hour: "f32", cloud: "f32", rain: "f32", snow: "f32", fog: "f32", wind: "f32", storm: "f32", mood: "string", flow: "f32" },
+    optional: ["words", "hour", "cloud", "rain", "snow", "fog", "wind", "storm", "mood", "flow"],
+  },
+  {
+    name: "set_sound",
+    description:
+      "Give an entity a sound from words (creak, chime, hum, whoosh, drip, beep, crackle, engine, thunder, squeak, knock, bubble, purr, zap, pop, choir; with ghostly, deep, high, loud, quiet, slow, fast, keep looping), or id scene for the scene's music (calm, sad, happy, spooky). words none removes it.",
+    parameters: { id: "string", words: "string" },
+  },
+  {
+    name: "fill_town",
+    description: "Add people who live here: each has a plan for the day, remembers what they do, and walks round others. count (default 8), place a named spot to make them its regulars.",
+    parameters: { count: "f32", place: "string" },
+    optional: ["count", "place"],
+  },
+  {
+    name: "ask_town",
+    description: "What a townsperson did today and is doing now (name), or who is about (no name).",
+    parameters: { name: "string" },
+    optional: ["name"],
+  },
+  {
+    name: "send_npc",
+    description: "Send a townsperson (name, or everyone) to a place by name, or home.",
+    parameters: { name: "string", place: "string" },
+  },
+  {
+    name: "place_hyper",
+    description: "Place a 4D bubble: a regular polytope turning through the fourth dimension inside an iridescent bubble. shape is tesseract, 24-cell, 600-cell or 120-cell (the most vertices). size in metres.",
+    parameters: { shape: "string", x: "f32", z: "f32", size: "f32", name: "string" },
+    optional: ["shape", "x", "z", "size", "name"],
+  },
+  {
+    name: "wield",
+    description: "Hold the hyper sword (item hyper-sword), whose blade is a hypercube turning through 4D, or put it away (item none).",
+    parameters: { item: "string" },
   },
   {
     name: "build_gauge_rig",

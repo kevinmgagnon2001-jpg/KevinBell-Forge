@@ -118,6 +118,21 @@ export async function settleIntent(opts: {
       proposal = interpretResident(opts.world, opts.label, opts.intent, message, [], opts.model);
     }
     trace = runHarness(opts.world, opts.intent, proposal, opts.focus, opts.gaze);
+    // Errors go back to the model, which gets three tries in all (as in Voyager's loop).
+    for (let attempt = 2; attempt <= 3 && !trace.ok && !isRefusal(trace.result); attempt += 1) {
+      let retry: ProposedAction | null = null;
+      try {
+        const turn = await opts.proposeTurn(residentPrompt(opts.scene, `${opts.intent}\n(Try ${attempt} of 3. The last call ${trace.proposal.toolName ?? "message"} failed: ${trace.result.slice(0, 200)}. Fix the call.)`));
+        const parsed = (turn.toolCalls.length ? proposalFromToolCalls(turn.toolCalls) : null) ?? parseResidentReply(turn.text);
+        retry = parsed.kind === "tool_call" ? parsed : null;
+      } catch {
+        retry = null;
+      }
+      if (!retry) break;
+      const again = runHarness(opts.world, opts.intent, retry, opts.focus, opts.gaze);
+      notes.push({ tone: again.ok ? "engine" : "warn", title: `Retry ${attempt}`, body: again.ok ? again.result : `${retry.toolName}: ${again.result}` });
+      trace = again;
+    }
     if (!trace.ok && !isRefusal(trace.result)) {
       const local = interpretResident(opts.world, opts.label, opts.intent, trace.result, [], opts.model);
       const again = runHarness(opts.world, opts.intent, local, opts.focus, opts.gaze);

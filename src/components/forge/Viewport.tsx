@@ -29,10 +29,19 @@ import { AvatarFigure } from "./Avatar";
 import { Arcade } from "./Arcade";
 import { MovesButton, MovesOverlay } from "./Moves";
 import { HelmAsk } from "./HelmAsk";
-import { toggleFlight, useArcadePlaying, useFlight } from "./body-state";
+import { toggleFlight, townBodies, useArcadePlaying, useFlight } from "./body-state";
 import { stepBodies } from "@/engine/physics";
 import { rotationLabel, setRotation, useRotation } from "./rotation";
 import { nextRotation } from "@/engine/view";
+import { addGlint, glintsAllowed, setGlintsAllowed } from "./glint";
+import { SoundStage } from "./SoundStage";
+import { PostFX } from "./PostFX";
+import { HyperBubble } from "./Hyper";
+import type { ShapeName } from "@/engine/polytope";
+import { Activity, ArrowBigUp, Eye, House, LayoutGrid, Maximize2, Minimize2, Move, PersonStanding, PlaneLanding, RotateCw, ScanEye, Wind } from "lucide-react";
+import type { Post } from "@/engine/perf";
+import { Town } from "./Town";
+import { NPC_TAG } from "@/engine/town";
 
 const UP = new Vector3(0, 1, 0);
 
@@ -218,6 +227,15 @@ function SplatCloud({
 
 /** A lab texture pack wrapped on this body (surfaces.ts), for the solids inside it. */
 const SurfaceContext = createContext<Surface | null>(null);
+/** Sparkle on this body's surfaces (customData.finish "glint"; glint.ts). */
+const GlintContext = createContext(false);
+
+/** A ref for a body's material that gives it flakes when the body asks for them. */
+function useGlintRef(on: boolean) {
+  return useMemo(() => (material: MeshStandardMaterial | null) => {
+    if (material && on) addGlint(material, 1.2, 70);
+  }, [on]);
+}
 
 function Solid({
   children,
@@ -234,13 +252,16 @@ function Solid({
   polished?: boolean;
 }) {
   const surface = useContext(SurfaceContext);
+  const glint = useContext(GlintContext) && glintsAllowed();
+  const glintRef = useGlintRef(glint);
   if (surface) {
     // A new material per surface: maps appearing or going need the shader rebuilt.
     return (
       <mesh>
         {children}
         <meshStandardMaterial
-          key={surface.key}
+          ref={glintRef}
+          key={`${surface.key}${glint ? "-glint" : ""}`}
           color="#ffffff"
           map={surface.map}
           normalMap={surface.normalMap}
@@ -259,7 +280,8 @@ function Solid({
     <mesh>
       {children}
       <meshStandardMaterial
-        key={map ? "mapped" : "plain"}
+        ref={glintRef}
+        key={`${map ? "mapped" : "plain"}${glint ? "-glint" : ""}`}
         color={map ? "#ffffff" : tone}
         map={map ?? undefined}
         roughness={polished ? 0.2 : 0.62}
@@ -893,6 +915,7 @@ function BodyInner({ entity, selected }: { entity: Entity; selected: boolean }) 
       />
     ) : null;
   if (entity.customData.method === "nanite") return <ClusterCut />;
+  if (entity.customData.hyper) return <HyperBubble shape={entity.customData.hyper as ShapeName} />;
   if (entity.tags.includes(SCREEN_TAG)) return <DeviceMesh entity={entity} />;
   if (entity.tags.includes(TV_TAG)) return <TvMesh />;
   if (entity.tags.includes(GAUGE_TAG)) return <GaugeMesh entity={entity} />;
@@ -903,7 +926,7 @@ function BodyInner({ entity, selected }: { entity: Entity; selected: boolean }) 
       <>
         <AvatarMesh entity={entity} tone={tone} />
         {plate}
-        {neural ?? <SplatCloud seed={entity.id * 17} count={56} color={tone} size={0.028} />}
+        {neural ?? (entity.tags.includes(NPC_TAG) ? null : <SplatCloud seed={entity.id * 17} count={56} color={tone} size={0.028} />)}
       </>
     );
   }
@@ -921,7 +944,9 @@ function BodyInner({ entity, selected }: { entity: Entity; selected: boolean }) 
     <>
       {neural}
       {neural ? null : (
-        <AssetMesh asset={rep.assetId} selected={selected} tone={tone} map={map} screen={entity.customData.role === "terminal"} floor={entity.tags.includes("floor")} />
+        <GlintContext.Provider value={entity.customData.finish === "glint"}>
+          <AssetMesh asset={rep.assetId} selected={selected} tone={tone} map={map} screen={entity.customData.role === "terminal"} floor={entity.tags.includes("floor")} />
+        </GlintContext.Provider>
       )}
     </>
   );
@@ -1048,8 +1073,17 @@ function EntityNode({
     if (ref.current && !reduce) ref.current.scale.setScalar(0.94);
   }, [reduce, entity.id]);
 
+  const turn = useRef<Group>(null);
+  const npc = entity.tags.includes(NPC_TAG);
   useFrame((_, delta) => {
     const group = ref.current;
+    // Townsfolk move between commits: follow the live town (Town.tsx).
+    const live = npc ? townBodies[entity.id] : undefined;
+    if (group && live) {
+      group.position.x = live.x;
+      group.position.z = live.z;
+      turn.current?.quaternion.set(0, Math.sin(live.yaw / 2), 0, Math.cos(live.yaw / 2));
+    }
     if (!group || reduce) return;
     const current = group.scale.x;
     const next = current + (1 - current) * Math.min(1, delta * 8);
@@ -1080,7 +1114,7 @@ function EntityNode({
         setDragging(true);
       }}
     >
-      <group scale={[s.x, s.y, s.z] as Vector3Tuple} quaternion={quat}>
+      <group ref={turn} scale={[s.x, s.y, s.z] as Vector3Tuple} quaternion={quat}>
         <Body entity={entity} selected={selected} />
       </group>
       {entity.physics ? <VelocityMark velocity={entity.physics.velocity} /> : null}
@@ -1136,6 +1170,13 @@ function GazeLock() {
     ray.current.params.Points.threshold = 0.03;
     ray.current.params.Line.threshold = 0.02;
     ray.current.setFromCamera(ndc.current, camera);
+    // Walking about, only what is within arm's reach (past the camera's own distance) counts as looked at.
+    if (mode === "bench") ray.current.far = Infinity;
+    else {
+      const me = Object.values(useForge.getState().entities).find((e) => e.tags.includes("architect"));
+      const p = me?.transform.position;
+      ray.current.far = (p ? camera.position.distanceTo(new Vector3(p.x, p.y, p.z)) : 0) + 2.2;
+    }
     const hits = ray.current.intersectObjects(scene.children, true);
     let meshId: number | null = null;
     let pointId: number | null = null;
@@ -1250,7 +1291,7 @@ function TextureDeck() {
   );
 }
 
-function Stage({ scenery, shadows }: { scenery: SceneryLevel | "off"; shadows: boolean }) {
+function Stage({ scenery, shadows, post }: { scenery: SceneryLevel | "off"; shadows: boolean; post: Post }) {
   const entities = useForge((s) => s.entities);
   const selectedId = useForge((s) => s.selectedId);
   const gazeId = useGazeId();
@@ -1278,7 +1319,7 @@ function Stage({ scenery, shadows }: { scenery: SceneryLevel | "off"; shadows: b
         </>
       ) : (
         <>
-          <Scenery level={scenery} shadows={shadows} />
+          <Scenery level={scenery} shadows={shadows} eleven={post === "eleven"} />
           {/* The building grid, faint over the plaza's 1 m tiles. */}
           <gridHelper args={[30, 30, "#3d3a35", "#4d4943"]} position={[0, 0.004, 0]} material-transparent material-opacity={0.32} material-depthWrite={false} />
         </>
@@ -1297,6 +1338,8 @@ function Stage({ scenery, shadows }: { scenery: SceneryLevel | "off"; shadows: b
       ))}
       <Pilot />
       <Settle paused={dragging} />
+      <SoundStage />
+      <Town />
       <OrbitControls
         makeDefault
         enableDamping
@@ -1329,11 +1372,13 @@ function Settle({ paused }: { paused: boolean }) {
   return null;
 }
 
-function HoldKey({ code, label }: { code: string; label: string }) {
+function HoldKey({ code, label, icon }: { code: string; label: string; icon?: ReactNode }) {
   return (
     <button
       type="button"
-      className="visor-key"
+      className={icon ? "visor-key bubble-icon" : "visor-key"}
+      aria-label={label}
+      title={label}
       onPointerDown={(event) => {
         event.preventDefault();
         pilotKeys.add(code);
@@ -1344,7 +1389,7 @@ function HoldKey({ code, label }: { code: string; label: string }) {
       // A long press is "keep walking", not "select this text" or "open a menu".
       onContextMenu={(event) => event.preventDefault()}
     >
-      {label}
+      {icon ?? label}
     </button>
   );
 }
@@ -1406,7 +1451,9 @@ function Stick({ target, label, side }: { target: { x: number; y: number }; labe
       onContextMenu={(event) => event.preventDefault()}
     >
       <span className="stick-knob" style={{ transform: `translate(${knob.x}px, ${knob.y}px)` }} />
-      <span className="stick-label">{label}</span>
+      <span className="stick-label" aria-hidden="true">
+        {side === "move" ? <Move /> : <Eye />}
+      </span>
     </div>
   );
 }
@@ -1425,24 +1472,18 @@ function Steer() {
     <div className="steer">
       <div className="pad-left">
         <Stick target={pilotStick} label="Move" side="move" />
-        <div className="lift" aria-label={flying ? "Up and down" : "Jump and fly"}>
-          {flying ? (
-            <>
-              <HoldKey code="Space" label="Up" />
-              <HoldKey code="KeyC" label="Down" />
-            </>
-          ) : (
-            <HoldKey code="Space" label="Jump" />
-          )}
-          <button type="button" className={`visor-key ${flying ? "is-on" : ""}`} aria-pressed={flying} onClick={toggleFlight}>
-            {flying ? "Land" : "Fly"}
+        <div className="lift" aria-label={flying ? "Flying" : "Jump and fly"}>
+          {/* Flying steers by looking (climb and dive with the view), so it needs no up and down. */}
+          {flying ? null : <HoldKey code="Space" label="Jump" icon={<ArrowBigUp aria-hidden="true" />} />}
+          <button type="button" className={`visor-key bubble-icon ${flying ? "is-on" : ""}`} aria-pressed={flying} aria-label={flying ? "Land" : "Fly"} title={flying ? "Land (F)" : "Fly (F): steer by looking, W boosts, S hovers"} onClick={toggleFlight}>
+            {flying ? <PlaneLanding aria-hidden="true" /> : <Wind aria-hidden="true" />}
           </button>
         </div>
       </div>
       <div className="steer-actions">
-        <DeviceButton className="steer-home" />
-        <button type="button" className="steer-home" onClick={home}>
-          Find room
+        <DeviceButton className="steer-home bubble-icon" />
+        <button type="button" className="steer-home bubble-icon" aria-label="Find room" title="Back to the room" onClick={home}>
+          <House aria-hidden="true" />
         </button>
       </div>
       <Stick target={lookStick} label="Look" side="look" />
@@ -1456,24 +1497,24 @@ function ModeBar() {
   const rotation = useRotation();
   return (
     <div className="mode-bar" role="toolbar" aria-label="View">
-      <button type="button" className={mode === "third" ? "is-on" : ""} onClick={() => setMode("third")}>
-        3rd
+      <button type="button" className={`bubble-icon ${mode === "third" ? "is-on" : ""}`} aria-label="Third person" title="Third person" onClick={() => setMode("third")}>
+        <PersonStanding aria-hidden="true" />
       </button>
-      <button type="button" className={mode === "first" ? "is-on" : ""} onClick={() => setMode("first")}>
-        Helm
+      <button type="button" className={`bubble-icon ${mode === "first" ? "is-on" : ""}`} aria-label="Helm" title="Helm: first person" onClick={() => setMode("first")}>
+        <ScanEye aria-hidden="true" />
       </button>
-      <button type="button" className={mode === "bench" ? "is-on" : ""} onClick={() => setMode("bench")}>
-        Bench
+      <button type="button" className={`bubble-icon ${mode === "bench" ? "is-on" : ""}`} aria-label="Bench" title="Bench: the whole lab from above" onClick={() => setMode("bench")}>
+        <LayoutGrid aria-hidden="true" />
       </button>
-      <button type="button" className={immersive ? "is-on" : ""} onClick={() => setImmersive(!immersive)}>
-        {immersive ? "Window" : "Fill"}
+      <button type="button" className={`bubble-icon ${immersive ? "is-on" : ""}`} aria-label={immersive ? "Window" : "Fill"} title={immersive ? "Back to the window" : "Fill the screen"} onClick={() => setImmersive(!immersive)}>
+        {immersive ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
       </button>
-      <button type="button" className={rotation !== "system" ? "is-on" : ""} onClick={() => setRotation(nextRotation(rotation))} aria-label={`Screen rotation: ${rotationLabel(rotation)}`} title="Screen rotation: Auto turns with the phone">
-        ⟳ {rotationLabel(rotation)}
+      <button type="button" className={`bubble-icon ${rotation !== "system" ? "is-on" : ""}`} onClick={() => setRotation(nextRotation(rotation))} aria-label={`Screen rotation: ${rotationLabel(rotation)}`} title={`Screen rotation: ${rotationLabel(rotation)}`}>
+        <RotateCw aria-hidden="true" />
       </button>
       <MovesButton />
-      <button type="button" className={perfOpen ? "is-on" : ""} onClick={togglePerf} aria-label="Performance">
-        Stats
+      <button type="button" className={`bubble-icon ${perfOpen ? "is-on" : ""}`} onClick={togglePerf} aria-label="Performance" title="Stats and quality">
+        <Activity aria-hidden="true" />
       </button>
     </div>
   );
@@ -1493,7 +1534,7 @@ function Visor() {
         {looked ? `Looking at ${looked.name}` : "Looking at the lab"}
         {last ? ` · ${last.title}: ${last.body.replace(/\s+/g, " ").slice(0, 72)}` : ""}
       </p>
-      <p className="visor-hint">Left stick walks (push all the way, or hold Shift, to run), right stick looks. Space jumps, F flies. Walk up to a game to play it.</p>
+      <p className="visor-hint">The stick walks where you push it: a little walks, all the way runs. WASD jogs, Shift runs, Q/E dash, Space jumps. F flies: look to steer, W boosts, S hovers.</p>
       {immersive ? <HelmAsk /> : null}
     </div>
   );
@@ -1513,6 +1554,7 @@ export function Viewport() {
   const rung = LADDER[perfState.start === null ? begin.start : perfState.rung];
   const scenery = rung.scenery;
   const shadows = rung.shadows && scenery !== "off" && scenery !== "min";
+  setGlintsAllowed(scenery !== "off" && scenery !== "min");
   // The flat software picture is a debug view for machines with no GPU output.
   // It is off by default because it paints over the real renderer.
   const soft = useMemo(() => softRenderRequested(), []);
@@ -1536,7 +1578,8 @@ export function Viewport() {
         gl={{ antialias: quality.antialias, alpha: false, powerPreference: quality.powerPreference, failIfMajorPerformanceCaveat: false, preserveDrawingBuffer: soft }}
         style={{ width: "100%", height: "100%", touchAction: "none" }}
       >
-        <Stage scenery={scenery} shadows={shadows} />
+        <Stage scenery={scenery} shadows={shadows} post={scenery === "off" ? "none" : rung.post} />
+        <PostFX post={scenery === "off" ? "none" : rung.post} />
         <PerfProbe />
       </Canvas>
       {soft ? <RoomPicture /> : null}

@@ -1,5 +1,7 @@
 import { Component, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
-import { Pause, Play, RotateCcw, SkipForward } from "lucide-react";
+import { Compass, Maximize2, Minimize2, Moon, Pause, Play, RotateCcw, ScrollText, SkipForward, Sun, Undo2 } from "lucide-react";
+import { setTheme, startTheme, useTheme } from "./theme";
+import { HyperBackdrop, HyperMark } from "./HyperBackdrop";
 import { ENGINE_SCRIPT, LAB_TOUR, TOOLS } from "@/engine/os";
 import { NAMED_COLORS } from "@/engine/color";
 import { RESIDENT_MODELS, residentById } from "@/engine/resident-catalog";
@@ -224,6 +226,17 @@ function ResidentBay() {
     </div>
   );
 }
+function ThemeButton() {
+  const theme = useTheme();
+  useEffect(() => startTheme(), []);
+  const next = theme === "dark" ? "light" : "dark";
+  return (
+    <button type="button" className="btn btn-ghost bubble-icon" aria-label={`${next === "light" ? "Light" : "Dark"} theme`} title={`Switch to the ${next} theme`} onClick={() => setTheme(next)}>
+      {theme === "dark" ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
+    </button>
+  );
+}
+
 function Header({
   onScript,
   onDemo,
@@ -244,8 +257,11 @@ function Header({
   return (
     <header className="topbar">
       <div className="brand">
-        <p className="brand-kicker">Harness · v0.1.0</p>
-        <h1>AetherForge</h1>
+        <HyperMark />
+        <div>
+          <p className="brand-kicker">Harness · v0.1.0</p>
+          <h1>AetherForge</h1>
+        </div>
       </div>
       <dl className="stats">
         <div>
@@ -272,33 +288,27 @@ function Header({
       <ResidentBay />
       <div className="top-actions">
         <span className={running ? "live-dot is-on" : "live-dot"} aria-hidden="true" />
-        <button type="button" className="btn btn-ghost" onClick={() => useForge.getState().stepSim(1)}>
+        <button type="button" className="btn btn-ghost bubble-icon" aria-label="Step" title="Step one tick" onClick={() => useForge.getState().stepSim(1)}>
           <SkipForward aria-hidden="true" />
-          Step
         </button>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => useForge.getState().setRunning(!running)}
-        >
+        <button type="button" className="btn btn-primary bubble-icon" aria-label={running ? "Pause" : "Run"} title={running ? "Pause the world" : "Run the world"} onClick={() => useForge.getState().setRunning(!running)}>
           {running ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
-          {running ? "Pause" : "Run"}
         </button>
-        <button type="button" className="btn btn-ghost" onClick={onScript} disabled={scripting}>
-          Run script
+        <button type="button" className="btn btn-ghost bubble-icon" aria-label="Run script" title="Run the script" onClick={onScript} disabled={scripting}>
+          <ScrollText aria-hidden="true" />
         </button>
-        <button type="button" className="btn btn-ghost" onClick={onDemo} disabled={scripting}>
-          Tour the lab
+        <button type="button" className="btn btn-ghost bubble-icon" aria-label="Tour the lab" title="Tour the lab" onClick={onDemo} disabled={scripting}>
+          <Compass aria-hidden="true" />
         </button>
-        <button type="button" className="btn btn-ghost" onClick={() => useForge.getState().dispatchManual("undo", {})}>
-          Undo
+        <button type="button" className="btn btn-ghost bubble-icon" aria-label="Undo" title="Undo the last change" onClick={() => useForge.getState().dispatchManual("undo", {})}>
+          <Undo2 aria-hidden="true" />
         </button>
-        <button type="button" className="btn btn-ghost" onClick={() => setImmersive(!immersive)}>
-          {immersive ? "Window" : "Fill view"}
+        <button type="button" className="btn btn-ghost bubble-icon" aria-label={immersive ? "Window" : "Fill view"} title={immersive ? "Back to the window" : "Fill the screen with the view"} onClick={() => setImmersive(!immersive)}>
+          {immersive ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
         </button>
-        <button type="button" className="btn btn-ghost" onClick={() => useForge.getState().reset()}>
+        <ThemeButton />
+        <button type="button" className="btn btn-ghost bubble-icon" aria-label="Reset" title="Reset the lab" onClick={() => useForge.getState().reset()}>
           <RotateCcw aria-hidden="true" />
-          Reset
         </button>
       </div>
     </header>
@@ -904,6 +914,7 @@ function ForgeShell() {
 
   return (
     <div className={look.immersive ? "app is-immersive" : "app"}>
+      <HyperBackdrop />
       <SimClock />
       <DropRunner />
       <PortalWatcher />

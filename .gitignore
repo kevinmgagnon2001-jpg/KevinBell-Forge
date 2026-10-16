@@ -10,3 +10,5 @@ src-tauri/gen/
 *.keystore
 forge-android-signing*
 screenshots/
+.grok/preview.log
+.grok/preview.pid

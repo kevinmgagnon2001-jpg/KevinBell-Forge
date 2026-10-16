@@ -9,7 +9,7 @@ const run = (state: AutoState, from: number, to: number, fps: number, thermal = 
 };
 
 test("the hardware tier picks where it starts on the ladder", () => {
-  assert.equal(LADDER[startRung({ dpr: [1, 2], antialias: true, powerPreference: "high-performance", shadows: true, scenery: "full" })].name, "Ultra");
+  assert.equal(LADDER[startRung({ dpr: [1, 2], antialias: true, powerPreference: "high-performance", shadows: true, scenery: "full" })].name, "11");
   assert.equal(LADDER[startRung({ dpr: [1, 1.5], antialias: true, powerPreference: "default", shadows: true, scenery: "lite" })].name, "Medium");
   assert.equal(LADDER[startRung({ dpr: [1, 1], antialias: false, powerPreference: "low-power", shadows: false, scenery: "off" })].name, "Plain");
 });

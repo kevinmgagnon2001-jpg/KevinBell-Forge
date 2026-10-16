@@ -3,6 +3,9 @@
  * forests, a lake, mountains in the haze, clouds and drifting motes. Drawn only; nothing here is an
  * entity, saved, shared or collided with (the land itself is src/engine/terrain.ts).
  *
+ * The sky, light, fog, rain and snow follow the world's weather (weather.ts), easing from one to the
+ * next.
+ *
  * How much is drawn follows the device (hardware.ts: full / lite / min), or ?scenery=full|lite|min|off.
  */
 import { useFrame, useThree } from "@react-three/fiber";
@@ -19,6 +22,9 @@ import {
   ConeGeometry,
   CylinderGeometry,
   DirectionalLight,
+  Fog,
+  HemisphereLight,
+  AmbientLight,
   DoubleSide,
   Float32BufferAttribute,
   Group,
@@ -43,6 +49,10 @@ import {
 } from "three";
 import { mergeGeometries, mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { SceneryLevel } from "@/engine/hardware";
+import { useForge } from "@/engine/store";
+import { lightning } from "./body-state";
+import { addGlint } from "./glint";
+import { blendSky, skyFor, weatherOf, type RGB, type Sky, type Weather } from "@/engine/weather";
 import { fbm, heightAt, LAKE, LAND_HALF, noise2, PLAZA_RADIUS, scatter, seeded, slopeAt, WATER_Y } from "@/engine/terrain";
 
 /** Late afternoon: the sun low over the lake, warm haze on the horizon. */
@@ -60,10 +70,10 @@ const SUN = new Vector3(-0.5, 0.36, -0.79).normalize();
 const FOG_NEAR = 45;
 const FOG_FAR = 340;
 
-const COUNTS: Record<SceneryLevel, { land: number; pines: number; leafy: number; rocks: number; grass: number; flowers: number; clouds: number; motes: number; shadowMap: number }> = {
-  full: { land: 220, pines: 520, leafy: 260, rocks: 150, grass: 16000, flowers: 1100, clouds: 16, motes: 220, shadowMap: 2048 },
-  lite: { land: 150, pines: 300, leafy: 150, rocks: 90, grass: 6500, flowers: 450, clouds: 10, motes: 110, shadowMap: 1024 },
-  min: { land: 64, pines: 80, leafy: 36, rocks: 20, grass: 0, flowers: 0, clouds: 4, motes: 0, shadowMap: 512 },
+const COUNTS: Record<SceneryLevel, { land: number; pines: number; leafy: number; rocks: number; grass: number; flowers: number; clouds: number; motes: number; shadowMap: number; drops: number }> = {
+  full: { land: 220, pines: 520, leafy: 260, rocks: 150, grass: 16000, flowers: 1100, clouds: 16, motes: 220, shadowMap: 2048, drops: 9000 },
+  lite: { land: 150, pines: 300, leafy: 150, rocks: 90, grass: 6500, flowers: 450, clouds: 10, motes: 110, shadowMap: 1024, drops: 4500 },
+  min: { land: 64, pines: 80, leafy: 36, rocks: 20, grass: 0, flowers: 0, clouds: 4, motes: 0, shadowMap: 512, drops: 1600 },
 };
 
 const ignoreRays = () => {};
@@ -127,7 +137,15 @@ uniform vec3 uHorizon;
 uniform vec3 uBelow;
 uniform vec3 uSun;
 uniform vec3 uSunDir;
+uniform vec3 uMoonDir;
+uniform float uStars;
+uniform float uFlash;
 varying vec3 vDir;
+float hash3(vec3 p) {
+  p = fract(p * 0.3183099 + 0.1);
+  p *= 17.0;
+  return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
 void main() {
   vec3 d = normalize(vDir);
   float h = d.y;
@@ -137,25 +155,67 @@ void main() {
   // Warm haze along the horizon, strongest towards the sun.
   col = mix(col, uSun, exp(-abs(h) * 10.0) * (0.25 + 0.45 * pow(s, 3.0)));
   col += uSun * (pow(s, 1400.0) * 9.0 + pow(s, 60.0) * 0.55 + pow(s, 6.0) * 0.18);
+  if (uStars > 0.002 && h > -0.02) {
+    // Stars: one in a few hundred cells of the sky, each its own brightness; and the moon.
+    vec3 cell = floor(d * 260.0);
+    float r = hash3(cell);
+    float star = step(0.9972, r) * smoothstep(-0.02, 0.2, h) * (0.35 + 0.65 * hash3(cell + 3.1));
+    col += vec3(0.9, 0.93, 1.0) * star * uStars * 1.6;
+    float m = max(dot(d, uMoonDir), 0.0);
+    col += vec3(0.88, 0.92, 1.0) * (smoothstep(0.99955, 0.9997, m) * 1.6 + pow(m, 90.0) * 0.12) * uStars;
+  }
+  col += vec3(0.72, 0.78, 1.0) * uFlash;
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
 
-function makeSky(): Mesh {
+type SkyUniforms = {
+  uTop: { value: Color };
+  uHorizon: { value: Color };
+  uBelow: { value: Color };
+  uSun: { value: Color };
+  uSunDir: { value: Vector3 };
+  uMoonDir: { value: Vector3 };
+  uStars: { value: number };
+  uFlash: { value: number };
+};
+
+function skyUniforms(): SkyUniforms {
+  return {
+    uTop: { value: new Color(SKY.top) },
+    uHorizon: { value: new Color(SKY.horizon) },
+    uBelow: { value: new Color(SKY.below) },
+    uSun: { value: new Color(SKY.sun) },
+    uSunDir: { value: SUN.clone() },
+    uMoonDir: { value: new Vector3(0.3, 0.7, 0.6).normalize() },
+    uStars: { value: 0 },
+    uFlash: { value: 0 },
+  };
+}
+
+const setRgb = (c: Color, rgb: RGB) => c.setRGB(rgb[0], rgb[1], rgb[2], SRGBColorSpace);
+
+/** Put a sky's colours and directions into the dome's uniforms. */
+function paintSky(u: SkyUniforms, sky: Sky, flash = 0) {
+  setRgb(u.uTop.value, sky.top);
+  setRgb(u.uHorizon.value, sky.horizon);
+  setRgb(u.uBelow.value, sky.below);
+  setRgb(u.uSun.value, sky.sun);
+  u.uSunDir.value.set(...sky.sunDir);
+  u.uMoonDir.value.set(-sky.sunDir[0] * 0.6 + 0.2, Math.max(0.25, -sky.sunDir[1]) + 0.35, -sky.sunDir[2] * 0.6 + 0.3).normalize();
+  u.uStars.value = sky.stars;
+  u.uFlash.value = flash;
+}
+
+function makeSky(uniforms: SkyUniforms = skyUniforms()): Mesh {
   const material = new ShaderMaterial({
     vertexShader: SKY_VERT,
     fragmentShader: SKY_FRAG,
     side: BackSide,
     depthWrite: false,
     fog: false,
-    uniforms: {
-      uTop: { value: new Color(SKY.top) },
-      uHorizon: { value: new Color(SKY.horizon) },
-      uBelow: { value: new Color(SKY.below) },
-      uSun: { value: new Color(SKY.sun) },
-      uSunDir: { value: SUN.clone() },
-    },
+    uniforms,
   });
   const mesh = new Mesh(new SphereGeometry(500, 48, 24), material);
   mesh.renderOrder = -10;
@@ -163,8 +223,8 @@ function makeSky(): Mesh {
   return scenery(mesh);
 }
 
-function SkyDome({ follow = true }: { follow?: boolean }) {
-  const sky = useBuilt(makeSky, []);
+function SkyDome({ follow = true, uniforms }: { follow?: boolean; uniforms: SkyUniforms }) {
+  const sky = useBuilt(() => makeSky(uniforms), [uniforms]);
   const camera = useThree((s) => s.camera);
   useFrame(() => {
     if (follow) sky.position.copy(camera.position);
@@ -263,6 +323,7 @@ function makePlaza(): Group {
   floor.position.y = -0.012;
   floor.receiveShadow = true;
   group.add(floor);
+  group.userData.floor = floor.material;
   const stone = new MeshStandardMaterial({ color: "#8c867c", roughness: 0.75, metalness: 0.02 });
   const curb = new Mesh(new TorusGeometry(PLAZA_RADIUS, 0.2, 10, 160), stone);
   curb.rotation.x = Math.PI / 2;
@@ -298,6 +359,8 @@ function makePlaza(): Group {
     post.add(base, shaft, lamp, cap, halo);
     group.add(post);
   }
+  group.userData.lampGlass = lampGlass;
+  group.userData.lampGlow = glow;
   return scenery(group);
 }
 
@@ -522,8 +585,9 @@ function windy(material: MeshStandardMaterial, time: { value: number }, strength
   material.customProgramCacheKey = () => `forge-wind-${strength}`;
 }
 
-function makeMeadow(level: SceneryLevel, time: { value: number }, motion: boolean, shadows: boolean): Group {
-  const n = COUNTS[level];
+function makeMeadow(level: SceneryLevel, time: { value: number }, motion: boolean, shadows: boolean, dense = 1): Group {
+  const base = COUNTS[level];
+  const n = { ...base, grass: Math.round(base.grass * dense), flowers: Math.round(base.flowers * dense) };
   const group = new Group();
   if (!n.grass) return group;
   const rand = seeded(505);
@@ -609,6 +673,7 @@ function makeClouds(level: SceneryLevel): Group {
     const a = rand() * Math.PI * 2;
     const r = 150 + rand() * 170;
     const material = new SpriteMaterial({ map: textures[i % textures.length], color: "#fff4ea", transparent: true, opacity: 0.6 + rand() * 0.3, depthWrite: false, fog: false });
+    material.userData.opacity = material.opacity;
     const cloud = new Sprite(material);
     const w = 70 + rand() * 90;
     cloud.scale.set(w, w * (0.32 + rand() * 0.14), 1);
@@ -661,6 +726,114 @@ function makeMotes(level: SceneryLevel, time: { value: number }): Points | null 
   return scenery(points);
 }
 
+// ---------- rain and snow ----------
+
+const DROP_VERT = /* glsl */ `
+uniform float uTime;
+uniform float uAmount;
+uniform float uSnow;
+uniform float uWind;
+uniform vec3 uCam;
+attribute float seed;
+varying float vAlpha;
+varying float vSnow;
+const vec3 BOX = vec3(40.0, 24.0, 40.0);
+void main() {
+  float fall = mix(15.0, 1.4, uSnow) * (0.75 + seed * 0.5);
+  vec3 p = position;
+  p.y -= uTime * fall;
+  p.x += uTime * uWind * mix(4.0, 1.8, uSnow) + uSnow * sin(uTime * 1.3 + seed * 31.0) * 0.7;
+  p.z += uSnow * cos(uTime * 1.1 + seed * 17.0) * 0.6;
+  vec3 world = uCam + mod(p - uCam + BOX * 0.5, BOX) - BOX * 0.5;
+  // Only a share of the drops fall: as many as the amount asks for.
+  vAlpha = step(fract(seed * 7.31), uAmount) * smoothstep(0.0, 2.0, world.y);
+  vSnow = uSnow;
+  vec4 mv = viewMatrix * vec4(world, 1.0);
+  gl_PointSize = clamp(mix(26.0, 5.0, uSnow) * (1.0 + seed * 0.4) / -mv.z * 6.0, 1.0, mix(48.0, 14.0, uSnow));
+  gl_Position = projectionMatrix * mv;
+}`;
+const DROP_FRAG = /* glsl */ `
+uniform vec3 uTint;
+varying float vAlpha;
+varying float vSnow;
+void main() {
+  vec2 c = gl_PointCoord - 0.5;
+  // Rain: a thin streak down the middle of the point. Snow: a soft round flake.
+  float streak = (1.0 - smoothstep(0.0, 0.05, abs(c.x))) * (1.0 - smoothstep(0.35, 0.5, abs(c.y)));
+  float flake = 1.0 - smoothstep(0.15, 0.5, length(c));
+  float a = mix(streak * 0.42, flake * 0.9, vSnow) * vAlpha;
+  if (a < 0.01) discard;
+  gl_FragColor = vec4(mix(uTint, vec3(1.0), vSnow * 0.7), a);
+}`;
+
+function makeDrops(level: SceneryLevel) {
+  const count = COUNTS[level].drops;
+  const rand = seeded(909);
+  const positions = new Float32Array(count * 3);
+  const seeds = new Float32Array(count);
+  for (let i = 0; i < count; i += 1) {
+    positions.set([(rand() - 0.5) * 40, rand() * 24, (rand() - 0.5) * 40], i * 3);
+    seeds[i] = rand();
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute("position", new BufferAttribute(positions, 3));
+  geometry.setAttribute("seed", new BufferAttribute(seeds, 1));
+  const uniforms = {
+    uTime: { value: 0 },
+    uAmount: { value: 0 },
+    uSnow: { value: 0 },
+    uWind: { value: 0 },
+    uCam: { value: new Vector3() },
+    uTint: { value: new Color("#c9d6e6") },
+  };
+  const material = new ShaderMaterial({ vertexShader: DROP_VERT, fragmentShader: DROP_FRAG, uniforms, transparent: true, depthWrite: false });
+  const points = new Points(geometry, material);
+  points.frustumCulled = false;
+  points.visible = false;
+  points.renderOrder = 5;
+  return { points: scenery(points), uniforms };
+}
+
+// ---------- weather: the sky, light and fog follow the world ----------
+
+/**
+ * Eases the live sky toward the world's weather each frame (about two seconds to settle), and runs
+ * the clock when the weather says time passes. Lightning comes in random flashes during a storm.
+ */
+function useWeatherSky(onFrame: (sky: Sky, flash: number, dt: number) => void) {
+  const weather = useForge((s) => s.weather);
+  const live = useRef<{ sky: Sky; hour: number; from: Weather | undefined; flash: number; next: number }>({
+    sky: skyFor(weatherOf({ weather })),
+    hour: weatherOf({ weather }).hour,
+    from: weather,
+    flash: 0,
+    next: 3,
+  });
+  useFrame((_, delta) => {
+    const dt = Math.min(delta, 0.1);
+    const l = live.current;
+    const w = weatherOf({ weather });
+    if (l.from !== weather) {
+      l.from = weather;
+      l.hour = w.hour;
+    }
+    if (w.flow > 0) l.hour = (l.hour + (dt * w.flow) / 60) % 24;
+    const target = skyFor(w.flow > 0 ? { ...w, hour: l.hour } : w);
+    l.sky = blendSky(l.sky, target, 1 - Math.exp(-dt / 0.7));
+    // Lightning: a double flicker every few seconds, more often the stronger the storm.
+    l.next -= dt;
+    if (l.sky.storm > 0.2 && l.next <= 0) {
+      l.flash = 1;
+      l.next = 1.5 + Math.random() * (9 / l.sky.storm);
+      lightning.at = performance.now();
+    }
+    l.flash *= Math.exp(-dt * 7);
+    const flicker = l.flash > 0.02 ? l.flash * (0.6 + 0.4 * Math.sin(performance.now() * 0.06)) : 0;
+    onFrame(l.sky, flicker, dt);
+  });
+  return weather;
+}
+
 // ---------- shadows on the lab's own bodies ----------
 
 /** Bodies come and go; let every solid one cast and catch the sun's shadow. */
@@ -690,16 +863,19 @@ function useReducedMotion(): boolean {
   return useMemo(() => typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches, []);
 }
 
-export function Scenery({ level, shadows }: { level: SceneryLevel; shadows: boolean }) {
+export function Scenery({ level, shadows, eleven = false }: { level: SceneryLevel; shadows: boolean; eleven?: boolean }) {
   const motion = !useReducedMotion();
   const time = useMemo(() => ({ value: 0 }), []);
   const land = useBuilt(() => makeLand(COUNTS[level].land), [level]);
   const plaza = useBuilt(makePlaza, []);
   const water = useBuilt(makeWater, []);
   const woods = useBuilt(() => makeWoods(level, shadows), [level, shadows]);
-  const meadow = useBuilt(() => makeMeadow(level, time, motion, shadows), [level, motion, shadows]);
+  const meadow = useBuilt(() => makeMeadow(level, time, motion, shadows, eleven ? 1.8 : 1), [level, motion, shadows, eleven]);
   const clouds = useBuilt(() => makeClouds(level), [level]);
   const motes = useMemo(() => makeMotes(level, time), [level, time]);
+  const drops = useBuilt(() => makeDrops(level).points, [level]);
+  // Snow sparkles on the plaza (glint.ts); not on the lowest rung.
+  const floorGlint = useMemo(() => (level === "min" ? null : addGlint(plaza.userData.floor as MeshStandardMaterial, 0, 28)), [plaza, level]);
   useEffect(
     () => () => {
       if (motes) disposeTree(motes);
@@ -707,8 +883,68 @@ export function Scenery({ level, shadows }: { level: SceneryLevel; shadows: bool
     [motes],
   );
   const sun = useRef<DirectionalLight>(null);
+  const hemi = useRef<HemisphereLight>(null);
+  const ambient = useRef<AmbientLight>(null);
   const sunAt = useMemo(() => SUN.clone().multiplyScalar(70), []);
   const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera);
+  // The dome you see eases between skies; the one reflections are rendered from jumps to the target.
+  const liveSky = useMemo(skyUniforms, []);
+  const envSky = useMemo(skyUniforms, []);
+  const fogRef = useRef<Fog>(null);
+  const wind = useRef(0.2);
+  const weather = useWeatherSky((sky, flash, dt) => {
+    paintSky(liveSky, sky, flash * 0.5);
+    const fog = fogRef.current;
+    if (fog) {
+      setRgb(fog.color, sky.fog);
+      fog.near = sky.fogNear;
+      fog.far = sky.fogFar;
+    }
+    if (scene.background instanceof Color) setRgb(scene.background, sky.horizon);
+    const light = sun.current;
+    if (light) {
+      setRgb(light.color, sky.light);
+      light.intensity = sky.sunIntensity + flash * 1.5;
+      light.position.set(sky.lightDir[0] * 70, sky.lightDir[1] * 70, sky.lightDir[2] * 70);
+    }
+    if (hemi.current) {
+      setRgb(hemi.current.color, sky.hemiSky);
+      setRgb(hemi.current.groundColor, sky.hemiGround);
+      hemi.current.intensity = sky.hemiIntensity + flash * 1.2;
+    }
+    if (ambient.current) ambient.current.intensity = 0.12 + flash * 0.8;
+    scene.environmentIntensity = sky.env;
+    const glass = plaza.userData.lampGlass as MeshStandardMaterial | undefined;
+    const glow = plaza.userData.lampGlow as SpriteMaterial | undefined;
+    if (glass) glass.emissiveIntensity = 0.5 + sky.lamps * 3;
+    if (glow) glow.opacity = 0.12 + sky.lamps * 0.75;
+    const floor = plaza.userData.floor as MeshStandardMaterial | undefined;
+    if (floorGlint) floorGlint.uGlint.value = sky.snow * 1.6 + sky.wet * 0.25;
+    if (floor) {
+      floor.roughness = 0.82 - sky.wet * 0.55;
+      floor.color.setScalar(1 - sky.wet * 0.3);
+    }
+    for (const cloud of clouds.children as Sprite[]) {
+      setRgb(cloud.material.color, sky.cloudShade);
+      cloud.material.opacity = (cloud.material.userData.opacity as number) * sky.cloudOpacity;
+    }
+    const amount = Math.max(sky.rain, sky.snow);
+    const u = (drops.material as ShaderMaterial).uniforms;
+    drops.visible = amount > 0.01;
+    if (drops.visible) {
+      u.uTime.value += dt;
+      u.uAmount.value = amount;
+      u.uSnow.value = sky.snow / Math.max(0.001, sky.snow + sky.rain);
+      u.uWind.value = sky.wind;
+      (u.uCam.value as Vector3).copy(camera.position);
+      setRgb(u.uTint.value as Color, sky.fog.map((v) => 0.55 + v * 0.45) as RGB);
+    }
+    wind.current = sky.wind;
+  });
+  useLayoutEffect(() => {
+    paintSky(envSky, skyFor(weatherOf({ weather })));
+  }, [envSky, weather]);
 
   useLayoutEffect(() => {
     const light = sun.current;
@@ -721,7 +957,7 @@ export function Scenery({ level, shadows }: { level: SceneryLevel; shadows: bool
 
   useFrame((_, dt) => {
     if (!motion) return;
-    time.value += Math.min(dt, 0.1);
+    time.value += Math.min(dt, 0.1) * (0.6 + wind.current * 1.6);
     clouds.rotation.y += Math.min(dt, 0.1) * 0.0025;
     const normal = (water.material as MeshStandardMaterial).normalMap;
     if (normal) {
@@ -730,13 +966,13 @@ export function Scenery({ level, shadows }: { level: SceneryLevel; shadows: bool
     }
   });
 
-  const shadowMap = COUNTS[level].shadowMap;
+  const shadowMap = eleven ? 4096 : COUNTS[level].shadowMap;
   return (
     <>
       <color attach="background" args={[SKY.horizon]} />
-      <fog attach="fog" args={[SKY.fog, FOG_NEAR, FOG_FAR]} />
-      <hemisphereLight args={[SKY.hemiSky, SKY.hemiGround, 0.75]} />
-      <ambientLight intensity={0.12} />
+      <fog ref={fogRef} attach="fog" args={[SKY.fog, FOG_NEAR, FOG_FAR]} />
+      <hemisphereLight ref={hemi} args={[SKY.hemiSky, SKY.hemiGround, 0.75]} />
+      <ambientLight ref={ambient} intensity={0.12} />
       <directionalLight
         ref={sun}
         position={sunAt}
@@ -754,10 +990,11 @@ export function Scenery({ level, shadows }: { level: SceneryLevel; shadows: bool
         shadow-normalBias={0.04}
       />
       {/* Reflections and soft light on every material, from the same sky (rendered once). */}
-      <Environment frames={1} resolution={level === "full" ? 128 : 64} environmentIntensity={0.55}>
-        <SkyDome follow={false} />
+      {/* Rendered again (once) whenever the weather changes. */}
+      <Environment key={weather?.label ?? "clear"} frames={1} resolution={level === "full" ? 128 : 64} environmentIntensity={0.55}>
+        <SkyDome follow={false} uniforms={envSky} />
       </Environment>
-      <SkyDome />
+      <SkyDome uniforms={liveSky} />
       <primitive object={land} />
       <primitive object={plaza} />
       <primitive object={water} />
@@ -765,6 +1002,7 @@ export function Scenery({ level, shadows }: { level: SceneryLevel; shadows: bool
       <primitive object={meadow} />
       <primitive object={clouds} />
       {motes ? <primitive object={motes} /> : null}
+      <primitive object={drops} />
       {shadows ? <ShadowFlags /> : null}
     </>
   );

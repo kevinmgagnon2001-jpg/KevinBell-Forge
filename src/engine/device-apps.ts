@@ -116,7 +116,7 @@ export const SCREEN_TAG = "device-screen";
 /** Dispatched on window to pull the phone out from anywhere (or bring it, if it is not with you). */
 export const OPEN_DEVICE_EVENT = "forge:open-device";
 /** Close enough to pick it up (metres from the avatar). */
-export const SCREEN_REACH = 2.4;
+export const SCREEN_REACH = 1.6;
 /** Bumped when the device's shape changes, so an older one in a saved world is replaced. */
 const MODEL = "handheld-1";
 /** Where it waits in the lab: a few steps ahead and to the right of where you start. */

@@ -4,6 +4,11 @@ import { nearestColorName } from "./color";
 import { executeProposal } from "./harness";
 import { gaugeIntent } from "./gauges";
 import { cleanMoves, moveIntent } from "./motion";
+import { cleanWeather, weatherIntent } from "./weather";
+import { soundIntent } from "./sounds";
+import { cleanTown, townIntent } from "./town";
+import { hyperIntent } from "./hyper";
+import { cleanRecent, MAX_SKILLS, skillIntent, skillBrief } from "./skillbook";
 import { bootWorld, ensureAvatar, ensureHelm, labWorld, stepWorld } from "./manifold";
 import { DEFAULT_MODEL_PATH, MEMORY_BUDGET_MB, TOOL_NAMES } from "./os";
 import { DEFAULT_RESIDENT_ID, isResidentId, residentById, type ResidentId } from "./resident-catalog";
@@ -236,7 +241,7 @@ function sceneBrief(world: World): string {
     lines.push(`${ids} ${piece} ${color} ${state} tetris x${list.length}`);
   }
   return lines
-    .concat((world.skills ?? []).slice(-4).map((skill) => `skill ${skill.name} (${skill.job})`))
+    .concat(skillBrief(world).slice(-6))
     .join("\n");
 }
 
@@ -341,6 +346,63 @@ export const useForge = create<ForgeState>((set, get) => {
         commit(ran.ok ? ran.world : before, before.selectedId, [
           { tone: "user", title: "Intent", body: intent },
           { tone: ran.ok ? "engine" : "warn", title: "Moves", body: `${moveCall.tool} ${argLine(moveCall.arguments)}\n${ran.result}` },
+        ]);
+        return;
+      }
+      // 4D bubbles and the hyper sword ("make a 4d bubble", "give me the 4d sword") (hyper.ts).
+      const hyperCall = hyperIntent(intent);
+      if (hyperCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: hyperCall.tool, arguments: hyperCall.arguments });
+        const spawned = ran.world.nextId > before.nextId ? ran.world.nextId - 1 : before.selectedId;
+        commit(ran.ok ? ran.world : before, spawned, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "4D", body: ran.result },
+        ]);
+        return;
+      }
+      // Townsfolk ("fill the plaza with people", "what did Mia do today?", "send Leo to the bench") (town.ts).
+      const townCall = townIntent(intent, get());
+      if (townCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: townCall.tool, arguments: townCall.arguments });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Town", body: ran.result },
+        ]);
+        return;
+      }
+      // Skills ("do that again, but taller", "remember that as lamp", "lamp to the left") (skillbook.ts).
+      const skillCall = skillIntent(intent, get());
+      if (skillCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: skillCall.tool, arguments: skillCall.arguments });
+        const spawned = ran.world.nextId > before.nextId ? ran.world.nextId - 1 : before.selectedId;
+        commit(ran.ok ? ran.world : before, spawned, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Skills", body: ran.result },
+        ]);
+        return;
+      }
+      // Weather and time ("make it rain at dusk", "foggy morning", "7pm") come from fixed tables (weather.ts).
+      const weatherCall = weatherIntent(intent);
+      if (weatherCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: weatherCall.tool, arguments: weatherCall.arguments });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: "Weather", body: ran.result },
+        ]);
+        return;
+      }
+      // Sounds and sparkle ("make the door creak like a ghost ship", "score this scene", "make it sparkle").
+      const soundCall = soundIntent(intent, get(), get().selectedId);
+      if (soundCall) {
+        const before = get();
+        const ran = executeProposal(before, { kind: "tool_call", toolName: soundCall.tool, arguments: soundCall.arguments });
+        commit(ran.ok ? ran.world : before, before.selectedId, [
+          { tone: "user", title: "Intent", body: intent },
+          { tone: ran.ok ? "engine" : "warn", title: soundCall.tool === "set_sound" ? "Sound" : "Finish", body: ran.result },
         ]);
         return;
       }
@@ -681,6 +743,10 @@ export const useForge = create<ForgeState>((set, get) => {
         moverHash: state.moverHash,
         // Moves you made stay through a reset, like your mechanics.
         moves: state.moves,
+        weather: undefined,
+        recent: [],
+        score: undefined,
+        town: undefined,
       })),
     despawn: (id) => {
       const state = get();
@@ -726,6 +792,10 @@ export const useForge = create<ForgeState>((set, get) => {
           skills: cleanSkills(data.world.skills),
           compat: Array.isArray(data.world.compat) ? data.world.compat.filter((item): item is string => typeof item === "string").slice(0, 8) : [],
           moves: cleanMoves(data.world.moves),
+          weather: cleanWeather(data.world.weather),
+          recent: cleanRecent(data.world.recent),
+          score: typeof data.world.score === "string" ? data.world.score.slice(0, 120) : undefined,
+          town: cleanTown(data.world.town, data.world.entities),
           gravity: bootWorld().gravity,
           deltaTime: bootWorld().deltaTime,
         }));
@@ -765,7 +835,7 @@ function cleanSkills(value: unknown): Skill[] {
       const row = skill as Skill;
       return typeof row.name === "string" && Array.isArray(row.steps);
     })
-    .slice(-12);
+    .slice(-MAX_SKILLS);
 }
 
 function persistedWorld(state: ForgeState): World {
@@ -778,9 +848,13 @@ function persistedWorld(state: ForgeState): World {
     eventLog: state.eventLog.slice(-64),
     events: state.events.slice(-64),
     undo: (state.undo ?? []).slice(-16),
-    skills: (state.skills ?? []).slice(-12),
+    skills: (state.skills ?? []).slice(-MAX_SKILLS),
+    recent: state.recent ?? [],
     compat: (state.compat ?? []).slice(0, 8),
     moves: state.moves ?? [],
+    ...(state.weather ? { weather: state.weather } : {}),
+    ...(state.score ? { score: state.score } : {}),
+    ...(state.town ? { town: state.town } : {}),
   };
 }
 
@@ -832,6 +906,10 @@ export function applySharedSave(value: unknown): boolean {
     skills: cleanSkills(save.world.skills),
     compat: Array.isArray(save.world.compat) ? save.world.compat.filter((item): item is string => typeof item === "string").slice(0, 8) : [],
     moves: cleanMoves(save.world.moves),
+    weather: cleanWeather(save.world.weather),
+    recent: cleanRecent(save.world.recent),
+    score: typeof save.world.score === "string" ? save.world.score.slice(0, 120) : undefined,
+    town: cleanTown(save.world.town, save.world.entities),
     gravity: bootWorld().gravity,
     deltaTime: bootWorld().deltaTime,
   }));

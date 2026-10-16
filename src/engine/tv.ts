@@ -12,7 +12,7 @@ import type { Entity, World } from "./types.ts";
 
 export const TV_TAG = "tv";
 /** Close enough to use the remote (metres from the avatar). */
-export const TV_REACH = 5;
+export const TV_REACH = 2.6;
 /** The screen, in metres; the player is 16:9 and fills it. */
 export const TV_SCREEN = { width: 1.6, height: 0.9, y: 1.35 };
 

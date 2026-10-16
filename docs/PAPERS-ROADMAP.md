@@ -9,6 +9,16 @@ videos were matched to papers through transcript mirrors (rosetta.to) and the pa
 Where a transcript did not name the paper, the match is marked *(likely)*; papers TMP did not
 cover are marked *(related)*. Check a paper's page before building from it.
 
+**Done (October 2026, see docs/WORLD.md):** all of Phase 1, NPCs with memory and a day, and crowds.
+Notes on what was built differently from the plan:
+- Sounds are synthesised on the device from a recipe the words pick (sounds.ts, synth.ts), not fetched
+  from a cloud model; a cloud generator can fill the same recipe slot later.
+- Plans and reflections are made by rules on the device (town.ts). The model is not yet asked to
+  rewrite plans; `planDay` and `remember` are the places to hook it in, batched every few minutes.
+- Phases are worked out by hand (springs.ts `stepPhase`, `alignPhase`): stopping finishes the step,
+  starting aligns the cycle to the legs. Moves with legs only play standing, so they need no phase.
+- Crowds use sampled reciprocal velocity obstacles with a replan when stuck, not full ORCA lines.
+
 ## Rules every item keeps
 
 - **The frame budget comes first.** Anything heavy is optional and has a cheap fallback; check it
@@ -43,33 +53,33 @@ cover are marked *(related)*. Check a paper's page before building from it.
 
 ## Phase 1: quick wins (on device, little risk)
 
-- [ ] **Skill library from the helm** (S–M). *Voyager (2023), TMP "NVIDIA's New AI Mastered
+- [x] **Skill library from the helm** (S–M). *Voyager (2023), TMP "NVIDIA's New AI Mastered
   Minecraft 15X Faster!"*
   - A helm command that works is kept as a named skill (its WASM program and parameters).
   - "Do that again, but taller" re-runs it with new parameters.
   - Errors from the VM go back to the LLM, which retries up to three times.
   - Touches: `harness.ts`, `os.ts`, `vm.ts`, `store.ts`; skills are saved with the world, like
     moves are.
-- [ ] **World events: weather, time of day, mood** (S–M). *Genie 3 (2025), TMP "DeepMind Just
+- [x] **World events: weather, time of day, mood** (S–M). *Genie 3 (2025), TMP "DeepMind Just
   Made The Most Powerful Game AI Engine!"* (the idea, not the model).
   - "Rain at dusk", "foggy morning", "rainy Tokyo alley" set light, fog, sky, particles and post
     effects live, with smooth transitions.
   - A preset table, plus LLM-chosen parameters for new phrases.
-- [ ] **Glinty materials** (S). *Glinty NDFs in constant time (Kemppinen et al., SIGGRAPH Asia
+- [x] **Glinty materials** (S). *Glinty NDFs in constant time (Kemppinen et al., SIGGRAPH Asia
   2025), TMP "Adobe & NVIDIA's New Tech Shouldn't Be Real Time. But It Is."* (likely)
   - Sparkle for snow, sand, frost and metal paint as one fragment-shader include.
   - Only on hero materials, and switched off on the lowest quality rung.
-- [ ] **Jiggle and secondary motion** (S). *Fast Complementary Dynamics (SIGGRAPH 2023)*
+- [x] **Jiggle and secondary motion** (S). *Fast Complementary Dynamics (SIGGRAPH 2023)*
   (related).
   - Spring-damper secondary bones (tails, antennae, hats, belly) on the avatar and figures, run in
     the vertex shader or on a few CPU springs.
-- [ ] **Phase-aligned move blending** (M). *DeepPhase (Starke et al., SIGGRAPH 2022), TMP "EA's
+- [x] **Phase-aligned move blending** (M). *DeepPhase (Starke et al., SIGGRAPH 2022), TMP "EA's
   New AI: Next Level Gaming Animations!"*
   - Every move in the library gets a phase. Blends (walk → jog → stop) line the phases up, so the
     feet never slide.
   - Start with phases worked out by hand from foot contacts; a small learned model can come later.
   - Touches: `motion.ts` (sampleMove, composeMove), `Avatar.tsx`.
-- [ ] **Generated sound for things** (S). *Fugatto (NVIDIA, 2024), TMP "NVIDIA's New AI: Stunning
+- [x] **Generated sound for things** (S). *Fugatto (NVIDIA, 2024), TMP "NVIDIA's New AI: Stunning
   Voice Generator!"*; *V2A (DeepMind, 2024), TMP "DeepMind's New AI Found The Sound Of Pixels!"*
   - "Make the door creak like a ghost ship", "score this scene": a cloud sound or music API, with
     the clip cached and attached to the entity.
@@ -77,7 +87,7 @@ cover are marked *(related)*. Check a paper's page before building from it.
 
 ## Phase 2: headline features
 
-- [ ] **NPCs with memory and a day** (M). *Generative Agents (2023), TMP "25 ChatGPT AIs Play A
+- [x] **NPCs with memory and a day** (M). *Generative Agents (2023), TMP "25 ChatGPT AIs Play A
   Game - So What Happened?"*
   - Each NPC entity has a memory stream (observations, reflections) in the same format as the
     intent log, and a daily plan.
@@ -88,7 +98,7 @@ cover are marked *(related)*. Check a paper's page before building from it.
   - Speak to an avatar: speech-to-text (already in `speech.ts`), then the LLM in character, then
     on-device TTS (Android TTS, or Piper on desktop).
   - Mouth shapes from visemes on the jointed head.
-- [ ] **Crowds that find their way** (M). *TRACE & PACER (CVPR 2023), TMP "NVIDIA's AI Finally
+- [x] **Crowds that find their way** (M). *TRACE & PACER (CVPR 2023), TMP "NVIDIA's AI Finally
   Solved Walking In Games"*
   - "Fill the plaza with people." ORCA-style steering stands in for the diffusion planner, and the
     AABB walker plus move library for the RL follower.

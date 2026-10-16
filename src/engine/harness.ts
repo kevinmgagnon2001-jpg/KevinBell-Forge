@@ -7,6 +7,11 @@ import { buildBlocks, buildMarble, buildTetris, createAgent, makeSpawned, playTe
 import { clusterDag } from "./cluster-lod.ts";
 import { composeMove, keepMove, moveFromKeys, moveLength, movesOf, PRIMITIVES, slug, type Move } from "./motion.ts";
 import { toolByName } from "./os.ts";
+import { applyWeatherArgs } from "./weather.ts";
+import { setSound } from "./sounds.ts";
+import { askTown, fillTown, sendTownsfolk } from "./town.ts";
+import { placeHyper, wield } from "./hyper.ts";
+import { listSkills, MAX_SKILLS, noteCall, repeatTool, runSteps, saveSkill } from "./skillbook.ts";
 import { allowedAssetUrl, localTexture } from "./asset-url.ts";
 import type { Entity, HarnessEvent, PhysicsBody, ProposedAction, Skill, Snapshot, World } from "./types.ts";
 import { V3 } from "./types.ts";
@@ -49,6 +54,8 @@ function remember(world: World): World {
     entities: world.entities,
     nextId: world.nextId,
     skills: world.skills ?? [],
+    ...(world.weather ? { weather: world.weather } : {}),
+    ...(world.score ? { score: world.score } : {}),
   };
   return { ...world, undo: [...(world.undo ?? []), snap].slice(-16) };
 }
@@ -67,7 +74,7 @@ export function registerSkill(world: World, skill: Skill): World {
   if (!name) return world;
   const skills = world.skills ?? [];
   if (skills.some((item) => item.name === name)) return world;
-  return { ...world, skills: [...skills, skill].slice(-12) };
+  return { ...world, skills: [...skills, skill].slice(-MAX_SKILLS) };
 }
 
 function parseF32(value: string | undefined): number | null {
@@ -157,6 +164,26 @@ export function dispatchTool(world: World, name: string, args: Record<string, st
     const seq = String((Number(figure.customData.moveSeq) || 0) + 1);
     const entities = { ...next.entities, [figure.id]: { ...figure, customData: { ...figure.customData, move: move.id, moveSeq: seq } } };
     return { ok: true, detail: `${figure.tags.includes("architect") ? "You" : figure.name}: ${move.name}${move.loop ? " (until you say stop)" : ""}.`, world: { ...next, entities } };
+  }
+
+  if (name === "repeat") {
+    const run = repeatTool(world, args, dispatchTool);
+    return { ok: run.ok, detail: run.detail, world: run.world };
+  }
+  if (name === "save_skill") return saveSkill(world, args);
+  if (name === "list_skills") return { ok: true, detail: listSkills(world), world };
+
+  if (name === "set_sound") return setSound(world, args);
+  if (name === "fill_town") return fillTown(world, args);
+  if (name === "place_hyper") return placeHyper(world, args);
+  if (name === "wield") return wield(world, args);
+  if (name === "ask_town") return askTown(world, args);
+  if (name === "send_npc") return sendTownsfolk(world, args);
+
+  if (name === "set_weather") {
+    const made = applyWeatherArgs(world, args);
+    if ("error" in made) return { ok: false, detail: made.error, world };
+    return { ok: true, detail: `The sky turns: ${made.weather.label}.`, world: { ...world, weather: made.weather } };
   }
 
   if (name === "place_gauge") {
@@ -364,6 +391,8 @@ export function dispatchTool(world: World, name: string, args: Record<string, st
         entities: snap.entities,
         nextId: snap.nextId,
         skills: snap.skills ?? [],
+        weather: snap.weather,
+        score: snap.score,
         undo: stack.slice(0, -1),
       },
     };
@@ -606,6 +635,24 @@ function patchEntity(entity: Entity, args: Record<string, string>): { entity: En
     };
     changed = true;
   }
+  const finish = args.finish?.trim().toLowerCase();
+  if (finish === "glint" || finish === "plain") {
+    const has = next.customData.finish === "glint";
+    if ((finish === "glint") !== has) {
+      const { finish: _f, ...rest } = next.customData;
+      next = { ...next, customData: finish === "glint" ? { ...rest, finish: "glint" } : rest };
+      changed = true;
+    }
+  }
+  const axes = [parseF32(args.sx), parseF32(args.sy), parseF32(args.sz)].map((v) => (v != null && v > 0 ? Math.min(4, Math.max(0.25, v)) : 1));
+  if (axes.some((v) => v !== 1)) {
+    const scale = next.transform.scale;
+    const grown = { x: scale.x * axes[0], y: scale.y * axes[1], z: scale.z * axes[2] };
+    // Stretched from the ground up: the bottom stays put.
+    const p = next.transform.position;
+    next = { ...next, transform: { ...next.transform, scale: grown, position: { ...p, y: p.y + (grown.y - scale.y) / 2 } } };
+    changed = true;
+  }
   const x = parseF32(args.x);
   const y = parseF32(args.y);
   const z = parseF32(args.z);
@@ -673,18 +720,13 @@ function deleteEntities(world: World, rawId: string | undefined): ToolOutcome {
 }
 
 function runSkill(world: World, skill: Skill, args: Record<string, string>): ToolOutcome {
-  let current = world;
-  const notes: string[] = [];
-  for (const step of skill.steps) {
-    if (step.tool === skill.name || step.tool === "define_skill") {
-      return { ok: false, detail: `skill '${skill.name}' cannot call itself`, world: current };
-    }
-    const outcome = dispatchTool(current, step.tool, fillArgs(step.arguments, args));
-    if (!outcome.ok) return { ok: false, detail: outcome.detail, world: current };
-    current = outcome.world;
-    notes.push(outcome.detail);
+  if (skill.steps.some((step) => step.tool === skill.name || step.tool === "define_skill" || step.tool === "save_skill")) {
+    return { ok: false, detail: `skill '${skill.name}' cannot call itself`, world };
   }
-  return { ok: true, detail: `Skill '${skill.name}': ${notes.join("; ") || "ok"}`, world: current };
+  // $name placeholders take the call's arguments; saved literal arguments the call names are overridden.
+  const steps = skill.steps.map((step) => ({ tool: step.tool, arguments: fillArgs(step.arguments, args) }));
+  const run = runSteps(world, steps, dispatchTool, args);
+  return { ok: run.ok, detail: run.ok ? `Skill '${skill.name}': ${run.detail || "ok"}` : run.detail, world: run.ok ? run.world : world };
 }
 
 export function executeProposal(
@@ -700,10 +742,10 @@ export function executeProposal(
     const result = "Tool call missing name";
     return { world: recordEvent(world, result), result, ok: false };
   }
-  const quiet = name === "undo" || name === "query_scene";
+  const quiet = name === "undo" || name === "query_scene" || name === "list_skills" || name === "ask_town";
   const base = quiet ? world : remember(world);
   const outcome = dispatchTool(base, name, proposal.arguments);
-  const settled = outcome.ok ? outcome.world : { ...outcome.world, undo: world.undo ?? [] };
+  const settled = outcome.ok ? noteCall(base, outcome.world, name, proposal.arguments) : { ...outcome.world, undo: world.undo ?? [] };
   const result = outcome.ok ? outcome.detail : `Tool '${name}' failed: ${outcome.detail}`;
   return { world: record(settled, name, outcome.ok, outcome.detail), result, ok: outcome.ok };
 }

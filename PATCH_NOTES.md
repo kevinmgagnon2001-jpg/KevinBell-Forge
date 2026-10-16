@@ -999,3 +999,71 @@ and mountains around it, under a late-afternoon sky.
 - Checked: typecheck, lint (no new warnings), `npm run test:engine` (234 pass), build; in Chromium at
   412x915: placing pieces, the New Game question, Settings, the tray with the longest bars; no
   console errors.
+
+## A world that remembers, builds and moves (Papers roadmap: Phase 1, and two of Phase 2)
+- World events (weather.ts, Scenery.tsx): weather, time of day and mood from a sentence, live, with
+  smooth transitions; stars, moon, lightning, rain and snow particles, wet ground, lamps at night.
+  `set_weather` tool; saved, shared, undone.
+- Skill library (skillbook.ts): every change is remembered; "again, but taller / red / to the left /
+  3 times"; "remember the last 3 things as campfire" saves a program of tool calls whose steps refer
+  to their own new copies (@k); "campfire, but bigger" builds it in front of you; failed model calls
+  retry with the error, three tries in all. edit_entity gained sx, sy, sz and finish.
+- Secondary motion and phase (springs.ts, Avatar.tsx): antenna and ponytail on springs; the walk
+  finishes its step when you stop and starts aligned with the legs.
+- Glints (glint.ts): constant-time sparkle on bodies with the glint finish and on snow.
+- Sounds (sounds.ts, synth.ts, SoundStage.tsx): 19 procedural kinds from words, positional; a scene
+  score; rain, wind and thunder from the weather.
+- Townsfolk (town.ts, Town.tsx): people with habits, a day's plan and a memory stream with
+  reflections; sampled reciprocal velocity obstacles with replanning; questions and errands.
+- Guide: docs/WORLD.md. Roadmap boxes ticked in docs/PAPERS-ROADMAP.md, with notes on what differs.
+- Checked: typecheck, lint (no new warnings), `npm run test:engine` (262 pass, 34 new), production
+  build. In Chromium at 1280x800: rain at dusk, a neon alley, snow at midnight and at noon, a
+  sparkling Clay with a ghost-ship creak, a score, ten townsfolk walking in the rain; no console errors.
+
+## Bubbles, a modern third person, Anthem flight, and graphics at 11
+- UI (styles.css, theme.ts): every control is a soap bubble with a shimmering thin-film rim; a dark
+  "4D bubble" night theme (default) and a pearl light theme (sun/moon bubble in the top bar,
+  remembered per device). Controls are icons (lucide) with aria-label and title; the sticks carry
+  move and look glyphs.
+- Third person (pilot.tsx): an orbit camera over the shoulder with a little lag; WASD and the stick
+  move relative to the camera with momentum; forward turns the body to where it goes, sideways and
+  back side-step and backpedal (the legs step aside or cycle backwards, Avatar.tsx); Q and E dash.
+  Mechanics (car, plane) still steer with A and D.
+- Flight: steer by looking. You fly where the view points, climbing and diving with it; W boosts
+  (Shift more), S brakes to a hover, A and D drift; the camera pulls back with speed and banks into
+  turns. The Up and Down buttons are gone.
+- Interaction range: the crosshair only picks things within about 2 m past the body; the Play prompt
+  shows within 2.2 m (was 3.2), the phone within 1.6 m (was 2.4), the TV remote within 2.6 m (was 5).
+- Graphics: a new top rung "11" (perf.ts, PostFX.tsx): N8AO ambient occlusion at full size, bloom,
+  AgX tone mapping, SMAA, vignette and grain, 4096 shadow maps and a 1.8x denser meadow. Ultra keeps
+  half-size AO and bloom; High has bloom and SMAA. Allowed to run at 30-45 fps; auto quality steps
+  down below 28.
+- CLAUDE.md records what the owner wants from every session (showcase quality, bubbles, the feel).
+- Checked: typecheck, lint (no errors), `npm run test:engine` (262 pass), production build, the built
+  app in Chromium with no console errors. In Chromium (software GL, 1-2 fps, so feel was not judged):
+  D steps right without turning the camera, A left; flying, looking up climbs and looking down dives;
+  dark and light themes at 1280x800 and 390x844 (the top bar's bubbles wrap on phones).
+
+## Walking by the stick: chase a point, walk to run by how far you push
+- drive.ts (tested): the stick puts a point on the ground around you (direction of the push, further
+  the harder you push) and the body chases it, turning toward it and slowing to a pivot when it is
+  behind. Speed follows the push smoothly: a walk up to half way, then easing up to a run
+  (1.5, 4.6, 7.4 m/s). Keys jog, Shift runs. Replaces the forward-turns, sideways-strafes split and
+  the sudden switch to a run at a full push.
+- Checked in Chromium (software GL): a 45% push walks at 1.3 m/s, a full push runs at 7.4 m/s, a push
+  right turns and steps right; typecheck, lint, engine tests.
+
+## The 4D bubble (after Adventure Time)
+- polytope.ts (tested): the tesseract, 24-cell, 600-cell and 120-cell (the 120-cell built as the dual
+  of the 600-cell's 600 tetrahedra), every edge checked equal; double rotation through the six planes
+  of 4D and perspective casting from w; a red-violet-green palette by depth.
+- Hyper.tsx: 4D bubbles (glowing additive edges and vertex sparks inside a thin-film fresnel bubble
+  and a haze) and the hyper sword (a hypercube blade turning only in planes that keep its length,
+  a light core, and ghost cubes glitching off it), held in the avatar's right hand.
+- HyperBackdrop.tsx: a 120-cell turning behind the app on a 2D canvas (30 fps cap, paused when hidden,
+  still for reduced motion) and a tesseract mark by the name. Dark-theme bubble rims take the 4D
+  palette; panels are frosted glass over it.
+- Tools place_hyper and wield; instant commands in hyper.ts.
+- Checked: typecheck, lint (no errors), `npm run test:engine` (271 pass), production build and the
+  built app with no console errors; in Chromium at the 11 rung: a 120-cell bubble and the sword in
+  hand, glowing.

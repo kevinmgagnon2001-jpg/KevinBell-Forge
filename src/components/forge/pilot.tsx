@@ -10,6 +10,8 @@ import { INTERACT_EVENT, LOOK_RATE, lookStick, pilotKeys, pilotStick, pointerCla
 import { stageCamera, stageGl } from "./picture";
 import { fovFor } from "@/engine/view";
 import { solidsFor, stepWalk, WALK } from "@/engine/physics";
+import { heightAt } from "@/engine/terrain";
+import { chase, chasePoint, driveSpeed, KEY_PUSH } from "@/engine/drive";
 import { frameCamera, gameById } from "@/engine/arcade";
 import type { LookMode } from "./look";
 import { arcadePlaying, avatarMotion, flight, toggleFlight } from "./body-state";
@@ -17,8 +19,6 @@ import { arcadePlaying, avatarMotion, flight, toggleFlight } from "./body-state"
 const EYE = 0.62;
 const MIN_Y = 0.45;
 const SPEED = 4.6;
-/** Holding Shift (or the stick pushed all the way while walking) runs. */
-const RUN = 7.4;
 const TURN = 1.8;
 const BENCH_EYE = { x: 0.2, y: 16.4, z: 7.6 };
 const BENCH_AT = { x: 0.2, y: 0.2, z: 0.4 };
@@ -68,6 +68,25 @@ function readGamepad(dt: number): { lift: number; jump: boolean } {
 /** Where the body stands and how it is falling, between frames. */
 const body = { vy: 0, grounded: true };
 
+/**
+ * Third person moves like a modern action game: the camera orbits on its own (drag, right stick), the
+ * stick and WASD move relative to the camera, and the body carries momentum. Walking forward the body
+ * turns to where it goes; sideways or back it keeps facing ahead and side-steps. Q and E dash aside.
+ * Flying steers by looking, like Anthem: you fly where the view points, climbing and diving with it;
+ * W boosts, S brakes to a hover.
+ */
+const motion = { flew: false, vx: 0, vy: 0, vz: 0, bodyYaw: null as number | null, dash: 0, dashX: 0, dashZ: 0, cam: null as { x: number; y: number; z: number } | null, bank: 0 };
+const ACCEL = { ground: 11, air: 2.5, fly: 2.2 };
+const FLY = { cruise: 9, boost: 17, sprint: 27, drift: 4 };
+const DASH = { speed: 9, time: 0.2 };
+const TURN_RATE = 11;
+
+/** Turn an angle toward another by at most `rate * dt`, the short way round. */
+function turnToward(from: number, to: number, rate: number, dt: number): number {
+  const d = Math.atan2(Math.sin(to - from), Math.cos(to - from));
+  return from + Math.max(-rate * dt, Math.min(rate * dt, d));
+}
+
 /** Ease the camera toward the field of view for this mode on this screen (view.ts), so a rotation glides. */
 function setFov(camera: { fov?: number; aspect?: number; updateProjectionMatrix?: () => void }, mode: LookMode, delta: number) {
   if (camera.fov == null) return;
@@ -111,6 +130,19 @@ export function Pilot() {
       pilotKeys.add(event.code);
     };
     const up = (event: KeyboardEvent) => pilotKeys.delete(event.code);
+    const dashKey = (event: KeyboardEvent) => {
+      const tag = (event.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || event.repeat || arcadePlaying.get()) return;
+      if ((event.code === "KeyQ" || event.code === "KeyE") && motion.dash <= 0 && !flight.get()) {
+        motion.dash = DASH.time;
+        // Aside from where the camera looks: Q to the left, E to the right.
+        const face = heading(lookPose.yaw);
+        const side = event.code === "KeyQ" ? 1 : -1;
+        motion.dashX = -face.z * -side;
+        motion.dashZ = face.x * -side;
+      }
+    };
+    window.addEventListener("keydown", dashKey);
     const blur = () => {
       pilotKeys.clear();
       pilotStick.x = 0;
@@ -124,6 +156,7 @@ export function Pilot() {
     return () => {
       window.removeEventListener("keydown", down);
       window.removeEventListener("keyup", up);
+      window.removeEventListener("keydown", dashKey);
       window.removeEventListener("blur", blur);
     };
   }, []);
@@ -288,7 +321,10 @@ export function Pilot() {
     // Flying, Space climbs and Shift (or C) sinks; walking, Space jumps and Shift runs.
     const lift = clamp1((keys.has("Space") ? 1 : 0) - ((flying && keys.has("ShiftLeft")) || keys.has("ControlLeft") || keys.has("KeyC") ? 1 : 0) + padLift);
     const jump = !flying && (keys.has("Space") || pad.jump);
-    const sprint = !flying && (keys.has("ShiftLeft") || keys.has("ShiftRight") || Math.hypot(pilotStick.x, pilotStick.y) > 0.95);
+    const sprint = !flying && (keys.has("ShiftLeft") || keys.has("ShiftRight"));
+    // How hard the walk is pushed: the stick by how far it is dragged; keys jog, or run with Shift.
+    const keyed = ["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].some((code) => keys.has(code));
+    const drive = Math.min(1, Math.max(keyed ? (sprint ? KEY_PUSH.run : KEY_PUSH.jog) : 0, Math.hypot(pilotStick.x, pilotStick.y)));
     const pose = { x: 0, y: 0, z: 0, fx: 0, fz: 1, ok: false };
     useForge.setState((state) => {
       const avatar = Object.values(state.entities).find((entity) => entity.tags.includes("architect"));
@@ -298,13 +334,16 @@ export function Pilot() {
         lookPose.yaw = storeYaw;
         lookPose.pitch = mode === "first" ? -0.08 : -0.16;
         lookPrimed.current = true;
-      } else if (Math.abs(storeYaw - lookPose.yaw) > 0.35) {
+      } else if (motion.bodyYaw != null && Math.abs(Math.atan2(Math.sin(storeYaw - motion.bodyYaw), Math.cos(storeYaw - motion.bodyYaw))) > 0.35) {
         // The forge turned the body (a command or a skill). Follow it.
         lookPose.yaw = storeYaw;
+        motion.bodyYaw = storeYaw;
       }
-      // Chase cam: A and D turn the body. Helm: A and D strafe, drag looks.
-      if (mode === "third") lookPose.yaw += turn * TURN * dt;
-      const strafe = mode === "first" ? -turn : 0;
+      if (motion.bodyYaw == null) motion.bodyYaw = storeYaw;
+      // A mechanic (a car, a plane) steers itself: A and D turn it, as before.
+      const steering = !!state.moverHash && mode === "third";
+      if (steering) lookPose.yaw += turn * TURN * dt;
+      const strafe = steering ? 0 : -turn;
       const p = avatar.transform.position;
       const visit = [...liveVisits].find((v) => v.contains(p));
       for (const v of liveVisits) if (v !== visit && v.predictor) v.leave();
@@ -338,6 +377,7 @@ export function Pilot() {
           out = stepUnderRules(mover, slots, { forward: gas, strafe, turn: asked, steer: turn, lift, dt, action: 0 }, [], DEFAULT_RULES);
         }
         lookPose.yaw = out[3];
+        motion.bodyYaw = out[3];
         const face = heading(out[3]);
         const speed = Math.abs(out[5]);
         setPilotSpeed(speed);
@@ -377,29 +417,81 @@ export function Pilot() {
         const { look: _look, mover: _mover, ...rest } = avatar.customData;
         return { entities: { ...state.entities, [avatar.id]: { ...avatar, customData: rest } } };
       }
-      const yaw = lookPose.yaw;
-      const face = heading(yaw);
-      const right = { x: -face.z, z: face.x };
-      let vx = face.x * gas + right.x * strafe;
-      let vz = face.z * gas + right.z * strafe;
+      // The camera's frame: forward is where it looks, right is to its right.
+      const camFace = heading(lookPose.yaw);
+      const camRight = { x: -camFace.z, z: camFace.x };
+      let wx = camFace.x * gas + camRight.x * strafe;
+      let wz = camFace.z * gas + camRight.z * strafe;
       // Diagonals are no faster than straight ahead.
-      const push = Math.hypot(vx, vz);
+      const push = Math.hypot(wx, wz);
       if (push > 1) {
-        vx /= push;
-        vz /= push;
+        wx /= push;
+        wz /= push;
       }
-      const pace = sprint && gas > 0 ? RUN : SPEED;
       const moving = Math.min(1, push);
-      setPilotSpeed(moving * pace);
-      let x = p.x + vx * pace * dt;
-      let z = p.z + vz * pace * dt;
+      const pace = driveSpeed(drive);
+      let yaw = motion.bodyYaw ?? lookPose.yaw;
+      let flyUp = 0;
+      if (flying && !motion.flew) motion.vy = Math.max(motion.vy, 5);
+      motion.flew = flying;
+      if (flying) {
+        // Fly where you look: the view's pitch climbs and dives. W boosts, S brakes to a hover.
+        const aim = mode === "first" ? lookPose.pitch : lookPose.pitch + 0.16;
+        const boost = gas > 0.1 ? (sprint || keys.has("ShiftLeft") ? FLY.sprint : FLY.boost) : gas < -0.1 ? 0 : FLY.cruise;
+        const cos = Math.cos(aim);
+        const tx = camFace.x * cos * boost + camRight.x * strafe * FLY.drift;
+        const tz = camFace.z * cos * boost + camRight.z * strafe * FLY.drift;
+        const ty = Math.sin(aim) * boost + lift * SPEED;
+        const k = 1 - Math.exp(-dt * ACCEL.fly);
+        motion.vx += (tx - motion.vx) * k;
+        motion.vz += (tz - motion.vz) * k;
+        motion.vy += (ty - motion.vy) * k;
+        flyUp = motion.vy;
+        yaw = turnToward(yaw, lookPose.yaw, TURN_RATE * 0.6, dt);
+        // Lean into turns.
+        const yawRate = Math.atan2(Math.sin(lookPose.yaw - yaw), Math.cos(lookPose.yaw - yaw));
+        motion.bank += (Math.max(-0.7, Math.min(0.7, yawRate * 1.5)) - motion.bank) * Math.min(1, dt * 4);
+      } else {
+        // Walking: momentum, quick on the ground and loose in the air.
+        const k = 1 - Math.exp(-dt * (body.grounded ? ACCEL.ground : ACCEL.air));
+        let want = { x: wx * pace, z: wz * pace };
+        if (mode === "first") yaw = lookPose.yaw;
+        else if (moving > 0.05) {
+          // Third person: the push puts a point on the ground around you and the body chases it,
+          // turning to step that way (springs back to a pivot when the point is behind).
+          const dir = Math.hypot(wx, wz) || 1;
+          const point = chasePoint(p.x, p.z, wx / dir, wz / dir, drive);
+          const run = chase(yaw, p.x, p.z, point, pace, dt, TURN_RATE);
+          yaw = run.yaw;
+          want = { x: run.vx, z: run.vz };
+        }
+        motion.vx += (want.x - motion.vx) * k;
+        motion.vz += (want.z - motion.vz) * k;
+        motion.vy = 0;
+        motion.bank *= Math.max(0, 1 - dt * 6);
+      }
+      if (motion.dash > 0) {
+        // A dash aside: a burst, then momentum carries it out.
+        motion.dash -= dt;
+        motion.vx = motion.dashX * DASH.speed + wx * pace * 0.3;
+        motion.vz = motion.dashZ * DASH.speed + wz * pace * 0.3;
+      }
+      motion.bodyYaw = yaw;
+      const face = heading(yaw);
+      const vx = motion.vx;
+      const vz = motion.vz;
+      setPilotSpeed(Math.hypot(vx, vz));
+      let x = p.x + vx * dt;
+      let z = p.z + vz * dt;
       let y = Math.max(MIN_Y, p.y + lift * SPEED * dt);
       let shoved: { id: number; vx: number; vz: number }[] = [];
       // On a visited island its host decides where you are: walk with prediction (prediction.ts), so it
       // still moves on this frame, and let the host correct it.
       if (visit) {
-        const walker = visit.predictor ?? visit.walk({ position: p, yaw: yaw - (mode === "third" ? turn * TURN * dt : 0) });
-        walker.input(gas, strafe, yaw - walker.predicted.yaw, dt);
+        const walker = visit.predictor ?? visit.walk({ position: p, yaw });
+        const along = (vx * face.x + vz * face.z) / Math.max(pace, 1e-3);
+        const aside = -(vx * -face.z + vz * face.x) / Math.max(pace, 1e-3);
+        walker.input(clamp1(along), clamp1(aside), yaw - walker.predicted.yaw, dt);
         const shown = visit.toLocal(walker.shown().position);
         x = shown.x;
         z = shown.z;
@@ -410,7 +502,7 @@ export function Pilot() {
         // walls, jumps, falls, and shoves loose things. Flying keeps the walls but drops gravity.
         const walked = stepWalk(
           { x: p.x, y: p.y - WALK.foot, z: p.z, vy: body.vy, grounded: body.grounded },
-          { vx: vx * pace, vz: vz * pace, jump, fly: flying ? lift : null, flySpeed: SPEED },
+          { vx, vz, jump, fly: flying ? (Math.abs(flyUp) < 0.01 ? 0 : Math.sign(flyUp)) : null, flySpeed: Math.max(0.01, Math.abs(flyUp)) },
           solidsFor(state.entities),
           dt,
         );
@@ -419,6 +511,11 @@ export function Pilot() {
         x = walked.state.x;
         y = walked.state.y + WALK.foot;
         z = walked.state.z;
+        // A wall takes the momentum that ran into it.
+        if (walked.bumped) {
+          motion.vx = (x - p.x) / Math.max(dt, 1e-3);
+          motion.vz = (z - p.z) / Math.max(dt, 1e-3);
+        }
         shoved = walked.shoved;
         avatarMotion.grounded = walked.state.grounded;
         avatarMotion.vy = walked.state.vy;
@@ -426,6 +523,10 @@ export function Pilot() {
         if (walked.landed > 2) avatarMotion.landed = Math.max(avatarMotion.landed, walked.landed);
       }
       avatarMotion.flying = flying;
+      // How the body moves relative to where it faces, for side steps and walking backwards (Avatar.tsx).
+      const sp = Math.hypot(vx, vz);
+      avatarMotion.side = sp > 0.3 && !flying ? (vx * Math.cos(yaw) - vz * Math.sin(yaw)) / sp : 0;
+      avatarMotion.back = sp > 0.3 && !flying && vx * face.x + vz * face.z < -0.2 * sp;
       avatarMotion.speed = Math.hypot(x - p.x, z - p.z) / Math.max(dt, 1e-3);
       pose.x = x;
       pose.y = y;
@@ -434,7 +535,7 @@ export function Pilot() {
       pose.fz = face.z;
       pose.ok = true;
       const yawStr = String(Math.round(yaw * 1000) / 1000);
-      const speedStr = String(Math.round(moving * pace * 100) / 100);
+      const speedStr = String(Math.round(Math.hypot(vx, vz) * 100) / 100);
       const moved = Math.hypot(x - p.x, y - p.y, z - p.z) > 1e-5 || yawStr !== (avatar.customData.yaw || "0") || speedStr !== (avatar.customData.speed || "0");
       const gliding = [...liveVisits].some((v) => v.others(state).size > 0);
       if (!moved && !gliding && !shoved.length) return state;
@@ -483,10 +584,31 @@ export function Pilot() {
       stageCamera.current = camera;
       return;
     }
-    const back = 6.2;
-    const rise = 3.4 + pitch * 0.5;
-    camera.position.set(pose.x - pose.fx * back, pose.y + rise, pose.z - pose.fz * back);
-    camera.lookAt(pose.x + pose.fx * 2.2, pose.y + 0.85, pose.z + pose.fz * 2.2);
+    // Third person: an orbit camera over the shoulder that follows with a little lag. Pitch swings it
+    // over and under the body; flying it pulls back with speed.
+    const speedNow = Math.hypot(motion.vx, motion.vy, motion.vz);
+    const back = (flight.get() ? 5.6 + Math.min(4, speedNow * 0.18) : 4.6) * (1 + Math.max(0, -pitch) * 0.25);
+    const camYaw = lookPose.yaw;
+    const cf = heading(camYaw);
+    const side = { x: -cf.z, z: cf.x };
+    const height = 1.25 - Math.sin(pitch) * back * 0.9;
+    const shoulder = 0.55;
+    const want = {
+      x: pose.x - cf.x * back * Math.cos(pitch * 0.6) + side.x * shoulder,
+      y: Math.max(pose.y - 0.4, pose.y + height, heightAt(pose.x, pose.z) + 0.3),
+      z: pose.z - cf.z * back * Math.cos(pitch * 0.6) + side.z * shoulder,
+    };
+    const cam = motion.cam ?? { ...want };
+    const lag = 1 - Math.exp(-dt * (flight.get() ? 9 : 14));
+    cam.x += (want.x - cam.x) * lag;
+    cam.y += (want.y - cam.y) * lag;
+    cam.z += (want.z - cam.z) * lag;
+    motion.cam = cam;
+    camera.position.set(cam.x, cam.y, cam.z);
+    const aimAhead = 3;
+    camera.lookAt(pose.x + cf.x * aimAhead + side.x * shoulder * 0.6, pose.y + 0.85 + Math.sin(pitch) * aimAhead, pose.z + cf.z * aimAhead + side.z * shoulder * 0.6);
+    // Bank the view a touch into flying turns.
+    if (flight.get() && Math.abs(motion.bank) > 0.001) camera.rotateZ(-motion.bank * 0.25);
     stageCamera.current = camera;
   });
 
