@@ -22,16 +22,31 @@ import {
   wrapEffect,
 } from "@react-three/postprocessing";
 import { BlendFunction, KernelSize, ToneMappingMode, type GodRaysEffect } from "postprocessing";
-import { useLayoutEffect, useMemo, useRef, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { ACESFilmicToneMapping, NoToneMapping, Vector2 } from "three";
 import type { Post } from "@/engine/perf";
 import { AtmosphereEffect, air, sunDisc } from "./atmosphere";
 
 const Atmosphere = wrapEffect(AtmosphereEffect);
 
-/** Keeps the god rays to daylight. */
-function Steady({ rays }: { rays: RefObject<GodRaysEffect | null> }) {
+/** The part of N8AO's pass this file turns (n8ao ships no types). */
+type N8AOPostPass = { configuration: { intensity: number } };
+
+/** ?nofx=air,rays,ao,bloom for comparing the picture with a pass left out. */
+const OFF = new Set(typeof location === "undefined" ? [] : (new URLSearchParams(location.search).get("nofx") ?? "").split(","));
+
+/**
+ * Keeps the god rays to daylight, and the occlusion in step with the light: contact shadow is the
+ * sky's light blocked, so under a dim night sky it is faint (at full strength it crushed the night
+ * into black shapes).
+ */
+function Steady({ rays, ao, aoBase }: { rays: RefObject<GodRaysEffect | null>; ao: RefObject<N8AOPostPass | null>; aoBase: number }) {
   useFrame(() => {
+    const pass = ao.current;
+    if (pass) {
+      const light = Math.max(0, Math.min(1, (air.sunDir.y + 0.08) * 4));
+      pass.configuration.intensity = aoBase * (0.25 + 0.75 * light);
+    }
     const r = rays.current;
     if (r) {
       // Fade out as the sun sets or hides behind weather.
@@ -42,9 +57,24 @@ function Steady({ rays }: { rays: RefObject<GodRaysEffect | null> }) {
   return null;
 }
 
+/**
+ * Deep night, checked once a second. The occlusion pass comes out of the chain then: in a scene this
+ * dark it blotted dim shapes into black squares (even switched off, only leaving the chain cured it).
+ */
+function useNight(): boolean {
+  const [night, setNight] = useState(() => air.sunDir.y < -0.06);
+  useEffect(() => {
+    const timer = window.setInterval(() => setNight((was) => (was ? air.sunDir.y < -0.02 : air.sunDir.y < -0.06)), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  return night;
+}
+
 export function PostFX({ post }: { post: Post }) {
+  const night = useNight();
   const gl = useThree((s) => s.gl);
   const rays = useRef<GodRaysEffect | null>(null);
+  const aoPass = useRef<N8AOPostPass | null>(null);
   const fringe = useMemo(() => new Vector2(0.0006, 0.0004), []);
   // The composer tone maps at the end; the renderer must not do it a second time.
   useLayoutEffect(() => {
@@ -57,12 +87,15 @@ export function PostFX({ post }: { post: Post }) {
   if (post === "none") return null;
   const eleven = post === "eleven";
   const air3d = post !== "lite";
+  const ao = air3d && !night && !OFF.has("ao");
+  const atmos = air3d && !OFF.has("air");
+  const godRays = air3d && !OFF.has("rays");
   return (
     <>
       <EffectComposer multisampling={0} enableNormalPass={false}>
-        {air3d ? <N8AO aoRadius={eleven ? 1.6 : 1.2} distanceFalloff={0.9} intensity={eleven ? 3.2 : 2.4} quality={eleven ? "high" : "medium"} halfRes={!eleven} color="#0b0a10" /> : <></>}
-        {air3d ? <Atmosphere /> : <></>}
-        {air3d ? (
+        {ao ? <N8AO ref={aoPass} aoRadius={eleven ? 1.6 : 1.2} distanceFalloff={0.9} intensity={eleven ? 3.2 : 2.4} quality={eleven ? "high" : "medium"} halfRes={!eleven} color="#0b0a10" /> : <></>}
+        {atmos ? <Atmosphere /> : <></>}
+        {godRays ? (
           <GodRays
             ref={rays}
             sun={sunDisc}
@@ -90,7 +123,7 @@ export function PostFX({ post }: { post: Post }) {
         {eleven ? <Vignette offset={0.32} darkness={0.42} /> : <></>}
         {eleven ? <Noise premultiply blendFunction={BlendFunction.SOFT_LIGHT} opacity={0.18} /> : <></>}
       </EffectComposer>
-      {air3d ? <Steady rays={rays} /> : null}
+      {air3d ? <Steady rays={rays} ao={aoPass} aoBase={eleven ? 3.2 : 2.4} /> : null}
     </>
   );
 }
