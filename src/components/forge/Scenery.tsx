@@ -10,6 +10,7 @@
  */
 import { useFrame, useThree } from "@react-three/fiber";
 import { Environment } from "@react-three/drei";
+import { air, placeSun, sunDisc } from "./atmosphere";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import {
   AdditiveBlending,
@@ -941,6 +942,14 @@ export function Scenery({ level, shadows, eleven = false }: { level: SceneryLeve
       setRgb(u.uTint.value as Color, sky.fog.map((v) => 0.55 + v * 0.45) as RGB);
     }
     wind.current = sky.wind;
+    // The air the finishing passes draw (atmosphere.ts): sun, haze and wet, linear light.
+    air.sunDir.set(sky.sunDir[0], sky.sunDir[1], sky.sunDir[2]).normalize();
+    air.sunColor.setRGB(sky.sun[0], sky.sun[1], sky.sun[2], SRGBColorSpace);
+    air.fogColor.setRGB(sky.fog[0], sky.fog[1], sky.fog[2], SRGBColorSpace);
+    air.haze = Math.max(0, Math.min(1, 1 - (sky.fogFar - 18) / 340));
+    air.sunUp = Math.max(0, Math.min(1, sky.sunDir[1]));
+    air.wet = Math.max(sky.rain, sky.snow * 0.7);
+    placeSun(camera);
   });
   useLayoutEffect(() => {
     paintSky(envSky, skyFor(weatherOf({ weather })));
@@ -995,6 +1004,7 @@ export function Scenery({ level, shadows, eleven = false }: { level: SceneryLeve
         <SkyDome follow={false} uniforms={envSky} />
       </Environment>
       <SkyDome uniforms={liveSky} />
+      <primitive object={sunDisc} />
       <primitive object={land} />
       <primitive object={plaza} />
       <primitive object={water} />
