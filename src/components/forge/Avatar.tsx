@@ -12,9 +12,11 @@
  * (springs.ts stepPhase, alignPhase); the antenna on the pack and the ponytail swing on springs
  * driven by how the body speeds up and turns (secondary motion).
  */
+import { wearOn } from "./detail";
 import { useFrame } from "@react-three/fiber";
-import { useRef, type ReactNode } from "react";
-import { Vector3, type Group } from "three";
+import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
+import { MeshStandardMaterial, Vector3, type Group } from "three";
+import { attachSuit } from "./body";
 import type { Entity } from "@/engine/types";
 import { inpaint, LEGS, legIk, movesOf, sampleMove, type Move } from "@/engine/motion";
 import { groundUnderFoot, solidsFor } from "@/engine/physics";
@@ -159,16 +161,6 @@ function parkourPose(t: Pose, pk: { kind: string; s: number; up: number; ahead: 
   if (both) reachArm("R", grip);
 }
 
-function Limb({ length, radius, color }: { length: number; radius: number; color: string }) {
-  // A capsule hanging down from its joint.
-  return (
-    <mesh position={[0, -length / 2, 0]} castShadow>
-      <capsuleGeometry args={[radius, Math.max(0.01, length - radius * 2), 4, 10]} />
-      <meshStandardMaterial color={color} roughness={0.62} metalness={0.12} />
-    </mesh>
-  );
-}
-
 export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; tone: string; live: boolean; head?: ReactNode }) {
   // Townsfolk wear their own colour (town.ts); everyone else the suit.
   const suit = entity.customData.suit || SUIT;
@@ -193,6 +185,14 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
   const set = (name: Joint) => (g: Group | null) => {
     joints.current[name] = g;
   };
+  // One smooth skinned suit over the skeleton (body.ts) instead of capsules meeting at the joints.
+  const suitMaterial = useMemo(() => new MeshStandardMaterial({ roughness: 0.58, metalness: 0.12 }), []);
+  useEffect(() => {
+    suitMaterial.color.set(suit);
+    wearOn(suitMaterial, "suit");
+  }, [suit, suitMaterial]);
+  useLayoutEffect(() => attachSuit(joints.current, { hipY: HIP_Y, thigh: THIGH, shin: SHIN, torso: TORSO, upperArm: UPPER_ARM, forearm: FOREARM }, suitMaterial) ?? undefined, [suitMaterial]);
+  useEffect(() => () => suitMaterial.dispose(), [suitMaterial]);
 
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.1);
@@ -430,11 +430,7 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
     <group ref={set("root")}>
       <group>
         <group ref={set("pelvis")} position={[0, HIP_Y, 0]}>
-          {/* Hips and belt. */}
-          <mesh position={[0, 0.02, 0]} scale={[1, 0.75, 0.72]} castShadow>
-            <sphereGeometry args={[0.15, 16, 12]} />
-            <meshStandardMaterial color={suit} roughness={0.6} metalness={0.1} />
-          </mesh>
+          {/* Belt (the hips are the skinned suit, body.ts). */}
           <mesh position={[0, 0.08, 0]} rotation={[Math.PI / 2, 0, 0]} scale={[1, 0.72, 1]}>
             <torusGeometry args={[0.145, 0.018, 8, 24]} />
             <meshStandardMaterial color={TRIM} roughness={0.35} metalness={0.7} />
@@ -442,17 +438,15 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
           {/* Legs. */}
           {(["L", "R"] as const).map((side) => (
             <group key={side} ref={set(`hip${side}`)} position={[side === "L" ? 0.09 : -0.09, 0, 0]}>
-              <Limb length={THIGH} radius={0.065} color={suit} />
               <group ref={set(`knee${side}`)} position={[0, -THIGH, 0]}>
-                <mesh position={[0, 0, 0.02]}>
+                <mesh position={[0, 0, 0.042]}>
                   <sphereGeometry args={[0.05, 10, 8]} />
-                  <meshStandardMaterial color={SUIT_LIGHT} roughness={0.5} metalness={0.2} />
+                  <meshStandardMaterial color={SUIT_LIGHT} roughness={0.5} metalness={0.2}  onUpdate={(m: MeshStandardMaterial) => wearOn(m, "suit")} />
                 </mesh>
-                <Limb length={SHIN} radius={0.055} color={suit} />
                 {/* Boot. */}
                 <mesh position={[0, -SHIN - 0.005, 0.045]} castShadow>
                   <boxGeometry args={[0.1, 0.07, 0.22]} />
-                  <meshStandardMaterial color={BOOT} roughness={0.55} metalness={0.2} />
+                  <meshStandardMaterial color={BOOT} roughness={0.55} metalness={0.2}  onUpdate={(m: MeshStandardMaterial) => wearOn(m, "suit")} />
                 </mesh>
               </group>
             </group>
@@ -460,29 +454,25 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
           {/* Spine and everything above it. */}
           <group ref={set("chest")} position={[0, 0.07, 0]}>
             <group ref={chestShell}>
-              <mesh position={[0, TORSO / 2, 0]} scale={[1, 1, 0.68]} castShadow>
-                <capsuleGeometry args={[0.15, TORSO - 0.22, 6, 14]} />
-                <meshStandardMaterial color={suit} roughness={0.58} metalness={0.12} />
-              </mesh>
               {/* Chest plate with a lit core, and shoulder pads. */}
-              <mesh position={[0, TORSO * 0.66, 0.085]} rotation={[-0.12, 0, 0]}>
+              <mesh position={[0, TORSO * 0.66, 0.122]} rotation={[-0.12, 0, 0]}>
                 <boxGeometry args={[0.2, 0.15, 0.03]} />
-                <meshStandardMaterial color={SUIT_LIGHT} roughness={0.4} metalness={0.35} />
+                <meshStandardMaterial color={SUIT_LIGHT} roughness={0.4} metalness={0.35}  onUpdate={(m: MeshStandardMaterial) => wearOn(m, "suit")} />
               </mesh>
-              <mesh position={[0, TORSO * 0.66, 0.103]}>
+              <mesh position={[0, TORSO * 0.66, 0.14]}>
                 <circleGeometry args={[0.028, 16]} />
                 <meshStandardMaterial color={GLOW} emissive={GLOW} emissiveIntensity={1.4} toneMapped={false} />
               </mesh>
             </group>
             {/* A pack on the back, with an antenna on a spring. */}
-            <mesh position={[0, TORSO * 0.55, -0.12]} castShadow>
+            <mesh position={[0, TORSO * 0.55, -0.15]} castShadow>
               <boxGeometry args={[0.2, 0.24, 0.08]} />
-              <meshStandardMaterial color={SUIT_LIGHT} roughness={0.5} metalness={0.3} />
+              <meshStandardMaterial color={SUIT_LIGHT} roughness={0.5} metalness={0.3}  onUpdate={(m: MeshStandardMaterial) => wearOn(m, "suit")} />
             </mesh>
-            <group ref={antenna} position={[0.07, TORSO * 0.55 + 0.12, -0.13]}>
+            <group ref={antenna} position={[0.07, TORSO * 0.55 + 0.12, -0.16]}>
               <mesh position={[0, 0.17, 0]}>
                 <cylinderGeometry args={[0.006, 0.009, 0.34, 6]} />
-                <meshStandardMaterial color={BOOT} roughness={0.4} metalness={0.6} />
+                <meshStandardMaterial color={BOOT} roughness={0.4} metalness={0.6}  onUpdate={(m: MeshStandardMaterial) => wearOn(m, "suit")} />
               </mesh>
               <mesh position={[0, 0.35, 0]}>
                 <sphereGeometry args={[0.022, 10, 8]} />
@@ -493,11 +483,9 @@ export function AvatarFigure({ entity, tone, live, head }: { entity: Entity; ton
               <group key={side} ref={set(`shoulder${side}`)} position={[side === "L" ? 0.2 : -0.2, TORSO - 0.02, 0]}>
                 <mesh scale={[1, 0.8, 1]}>
                   <sphereGeometry args={[0.065, 12, 10]} />
-                  <meshStandardMaterial color={SUIT_LIGHT} roughness={0.45} metalness={0.3} />
+                  <meshStandardMaterial color={SUIT_LIGHT} roughness={0.45} metalness={0.3}  onUpdate={(m: MeshStandardMaterial) => wearOn(m, "suit")} />
                 </mesh>
-                <Limb length={UPPER_ARM} radius={0.048} color={suit} />
                 <group ref={set(`elbow${side}`)} position={[0, -UPPER_ARM, 0]}>
-                  <Limb length={FOREARM} radius={0.042} color={suit} />
                   {side === "R" && entity.customData.wield === "hyper-sword" ? (
                     // In the right hand, the blade out ahead.
                     <group position={[0, -FOREARM - 0.04, 0.02]} rotation={[Math.PI / 2 - 0.25, 0, 0]}>

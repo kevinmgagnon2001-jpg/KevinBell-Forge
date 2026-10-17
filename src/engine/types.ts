@@ -116,7 +116,12 @@ export type World = {
   town?: Town;
   /** The best score in each arcade game, by game id (arcade.ts). */
   best?: Record<string, number>;
+  /** Words you taught ("when I say party, ..."), phrases.ts. */
+  phrases?: Phrase[];
 };
+
+/** A phrase you taught: saying `say` runs `does` (phrases.ts). */
+export type Phrase = { say: string; does: string };
 
 export const IDENTITY: Quat = { x: 0, y: 0, z: 0, w: 1 };
 

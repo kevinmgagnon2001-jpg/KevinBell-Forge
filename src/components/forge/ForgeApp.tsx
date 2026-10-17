@@ -1,4 +1,4 @@
-import { Component, useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
+import { Component, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Compass, Maximize2, Minimize2, Moon, Pause, Play, RotateCcw, ScrollText, SkipForward, Sun, Undo2 } from "lucide-react";
 import { setTheme, startTheme, useTheme } from "./theme";
 import { HyperBackdrop, HyperMark } from "./HyperBackdrop";
@@ -7,6 +7,8 @@ import { NAMED_COLORS } from "@/engine/color";
 import { RESIDENT_MODELS, residentById } from "@/engine/resident-catalog";
 import { meteredConnection, residentCached } from "@/engine/resident";
 import { startPersist, useForge } from "@/engine/store";
+import { CATALOG, completions } from "@/engine/catalog";
+import { EXAMPLES } from "@/engine/planner";
 import { DropRunner, PortalWatcher } from "./Bridge";
 import { DevicesCard } from "./Devices";
 import { MechanicsCard } from "./Mechanics";
@@ -21,13 +23,32 @@ import { LookProvider, useLook } from "./look";
 import { listen, useCanListen } from "./speech";
 
 const CHIPS: { label: string; intent: string }[] = [
-  { label: "Walk forward", intent: "Walk the avatar forward" },
-  { label: "Turn left", intent: "Turn the avatar left" },
-  { label: "Paint me gold", intent: "Paint the avatar gold" },
-  { label: "Spawn critic", intent: "Spawn a critic agent named Critic" },
-  { label: "Pull marble", intent: "Pull a marble texture onto the avatar" },
-  { label: "Platform at origin", intent: "Create a small platform near the origin" },
+  { label: "Row of cubes", intent: "a row of five rainbow cubes in front of me" },
+  { label: "Tower", intent: "stack 6 crates on the bench" },
+  { label: "Paint it", intent: "paint it violet" },
+  { label: "Throw it", intent: "throw it" },
+  { label: "Campfire", intent: "light a campfire" },
+  { label: "What's here?", intent: "what's here?" },
 ];
+
+const PAST_KEY = "forge-intent-history";
+
+function readPast(): string[] {
+  try {
+    const raw = JSON.parse(globalThis.localStorage?.getItem(PAST_KEY) ?? "[]") as unknown;
+    return Array.isArray(raw) ? raw.filter((line): line is string => typeof line === "string").slice(-40) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePast(lines: string[]) {
+  try {
+    globalThis.localStorage?.setItem(PAST_KEY, JSON.stringify(lines.slice(-40)));
+  } catch {
+    /* private mode: history lasts the visit */
+  }
+}
 
 function fmt(n: number) {
   return Number.isFinite(n) ? String(Math.round(n * 100) / 100) : "0";
@@ -109,8 +130,8 @@ function ManifoldBanner({ opening, fault }: { opening: boolean; fault: string })
     <aside className={quiet ? "manifold-banner is-quiet" : "manifold-banner"}>
       <div className="panel-head">
         <h2>Manifold</h2>
-        <span className={status === "ready" && !fault ? "live-pill is-on" : "live-pill"}>
-          {fault ? "3D off" : status === "ready" ? "Live" : status === "error" ? "Model failed" : `Model ${Math.round(progress)}%`}
+        <span className={(status === "ready" || !power) && !fault ? "live-pill is-on" : "live-pill"}>
+          {fault ? "3D off" : !power || status === "ready" ? "Live" : status === "error" ? "Model failed" : `Model ${Math.round(progress)}%`}
         </span>
       </div>
       <p className="panel-lead">
@@ -195,7 +216,7 @@ function ResidentBay() {
   const progress = useForge((s) => s.residentProgress);
   const spec = residentById(id);
   const statusLine = !power
-    ? "Off"
+    ? "Off · own planner"
     : status === "ready"
       ? "In this page"
       : status === "error"
@@ -324,14 +345,26 @@ function IntentDock() {
   const modelId = useForge((s) => s.residentId);
   const spec = residentById(modelId);
 
+  const phrases = useForge((s) => s.phrases);
+  // Up and Down walk back through what you sent (kept on this device).
+  const [past, setPast] = useState<string[]>(() => readPast());
+  const [back, setBack] = useState(-1);
+  // As you type: your phrases, the catalog and examples that start with your words (Tab takes the first).
+  const pool = useMemo(() => [...(phrases ?? []).map((p) => p.say), ...past.slice().reverse(), ...CATALOG.map((item) => item.intent), ...EXAMPLES], [phrases, past]);
+  const offers = useMemo(() => completions(intent, pool), [intent, pool]);
+
   const submit = (value: string) => {
     const next = value.trim();
-    if (!next || busy || !power) return;
+    if (!next || busy) return;
     void useForge.getState().submitIntent(next);
+    const kept = [...past.filter((line) => line !== next), next].slice(-40);
+    setPast(kept);
+    writePast(kept);
+    setBack(-1);
     setIntent("");
   };
 
-  const forgeLabel = !power ? "Off" : busy || status === "loading" ? "Loading…" : "Forge";
+  const forgeLabel = busy ? "Working…" : "Forge";
   const [listening, setListening] = useState(false);
   const speech = useCanListen();
   // Say it instead of typing (speech.ts): the words land in the box and go straight to the forge.
@@ -360,27 +393,59 @@ function IntentDock() {
           className="field"
           value={intent}
           maxLength={400}
-          placeholder={power ? "Create a small platform near the origin" : `Turn ${spec.short} on to forge`}
-          onChange={(event) => setIntent(event.target.value)}
+          placeholder={power && status === "ready" ? `Ask ${spec.short} anything, or: a row of five red cubes` : "a row of five red cubes · paint it blue · throw it · help"}
+          onChange={(event) => {
+            setIntent(event.target.value);
+            setBack(-1);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Tab" && offers.length && !event.shiftKey) {
+              event.preventDefault();
+              setIntent(offers[0]);
+            } else if (event.key === "ArrowUp" && past.length) {
+              event.preventDefault();
+              const at = back < 0 ? past.length - 1 : Math.max(0, back - 1);
+              setBack(at);
+              setIntent(past[at]);
+            } else if (event.key === "ArrowDown" && back >= 0) {
+              event.preventDefault();
+              const at = back + 1;
+              setBack(at >= past.length ? -1 : at);
+              setIntent(at >= past.length ? "" : past[at]);
+            }
+          }}
           autoComplete="off"
-          disabled={!power}
+          aria-describedby={offers.length ? "intent-offers" : undefined}
         />
         {speech ? (
           <button type="button" className="btn dock-mic" aria-label={listening ? "Listening" : "Speak an intent"} onClick={() => void speak()} disabled={listening}>
             {listening ? "…" : "🎙"}
           </button>
         ) : null}
-        <button type="submit" className="btn btn-primary" disabled={!intent.trim() || (!/forge:\/\/\S+/i.test(intent) && (busy || !power))}>
-          {busy && status === "ready" ? "Writing…" : forgeLabel}
+        <button type="submit" className="btn btn-primary" disabled={!intent.trim() || (!/forge:\/\/\S+/i.test(intent) && busy)}>
+          {busy && power && status === "ready" ? "Writing…" : forgeLabel}
         </button>
       </div>
-      <div className="chips">
-        {CHIPS.map((chip) => (
+      <div className="chips" id="intent-offers" aria-live="polite">
+        {offers.length
+          ? offers.map((line) => (
+              <button
+                key={line}
+                type="button"
+                className="chip chip-offer"
+                disabled={busy}
+                title="Tap to send (Tab fills it in)"
+                onClick={() => submit(line)}
+              >
+                {line}
+              </button>
+            ))
+          : CHIPS.map((chip) => (
           <button
             key={chip.label}
             type="button"
             className="chip"
-            disabled={busy || !power}
+            disabled={busy}
             onClick={() => void useForge.getState().submitIntent(chip.intent)}
           >
             {chip.label}

@@ -62,6 +62,8 @@ export const KINDS: Word[] = [
   { words: ["fog", "foggy", "mist", "misty", "haze", "hazy"], set: { fog: 0.75 } },
   { words: ["windy", "wind", "breezy", "gusty", "gale"], set: { wind: 0.85 } },
   { words: ["calm", "still"], set: { wind: 0.05 } },
+  // Last, so it wins over "cloudy" inside it.
+  { words: ["partly cloudy", "some clouds", "scattered clouds", "fair weather clouds", "puffy clouds", "fluffy clouds"], set: { cloud: 0.45, rain: 0, snow: 0 } },
 ];
 
 /** Moods: a cast over the light, and sometimes their own weather. */
@@ -242,7 +244,7 @@ const smooth = (a: number, b: number, x: number) => {
 
 /** Light at a few sun heights (sine of elevation), from deep night to full day. */
 const STOPS: { at: number; top: string; horizon: string; below: string; sun: string; fog: string; light: string; hemiSky: string; hemiGround: string; sunI: number; hemiI: number }[] = [
-  { at: -0.35, top: "#03060f", horizon: "#0b1322", below: "#05070b", sun: "#3a4a6a", fog: "#0b111c", light: "#7d93c4", hemiSky: "#23324f", hemiGround: "#0d0f14", sunI: 0.35, hemiI: 0.32 },
+  { at: -0.35, top: "#03060f", horizon: "#0b1322", below: "#05070b", sun: "#3a4a6a", fog: "#0b111c", light: "#7d93c4", hemiSky: "#2b3d62", hemiGround: "#10131a", sunI: 0.35, hemiI: 0.42 },
   { at: -0.08, top: "#0d1a3a", horizon: "#3b3550", below: "#1a1a22", sun: "#ff8a5c", fog: "#2b2a3a", light: "#a8a6d6", hemiSky: "#45507a", hemiGround: "#1b1a20", sunI: 0.45, hemiI: 0.4 },
   { at: 0.06, top: "#29468a", horizon: "#f09a62", below: "#6e5a52", sun: "#ff9f5a", fog: "#c08a6e", light: "#ffb27a", hemiSky: "#9fb0d8", hemiGround: "#4a3a30", sunI: 1.35, hemiI: 0.6 },
   // Late afternoon: the look the lab always had (Scenery.tsx SKY).
@@ -321,7 +323,8 @@ export function skyFor(w: Weather): Sky {
   const lightDir: [number, number, number] = moonUp ? normalize([-sunDir[0] * 0.6 + 0.2, 0.75, -sunDir[2] * 0.6 + 0.3]) : height < 0.04 ? normalize([sunDir[0], 0.04, sunDir[2]]) : sunDir;
   if (moonUp) {
     light = mix(light, hex("#9fb4e6"), 0.6);
-    sunIntensity = 0.35 * (1 - overcast * 0.7);
+    // Moonlight bright enough to read shapes by, blue, with crisp shadows.
+    sunIntensity = 0.55 * (1 - overcast * 0.7);
   }
   return {
     top,

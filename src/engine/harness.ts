@@ -342,7 +342,8 @@ export function dispatchTool(world: World, name: string, args: Record<string, st
     if (vz == null) return { ok: false, detail: "argument 'vz' is not a valid f32", world };
     const entity = world.entities[id];
     if (!entity) return { ok: false, detail: `entity ${id} not found`, world };
-    if (entity.physics?.isKinematic) return { ok: false, detail: `entity ${id} is kinematic`, world };
+    // free: the planner's "throw the column": a fixed exhibit is let loose on purpose.
+    if (entity.physics?.isKinematic && args.free !== "1") return { ok: false, detail: `entity ${id} is kinematic`, world };
     const body: PhysicsBody = entity.physics
       ? { ...entity.physics, velocity: { x: vx, y: vy, z: vz }, isKinematic: false }
       : {
@@ -770,4 +771,30 @@ export function executeProposal(
   const settled = outcome.ok ? noteCall(base, outcome.world, name, proposal.arguments) : { ...outcome.world, undo: world.undo ?? [] };
   const result = outcome.ok ? outcome.detail : `Tool '${name}' failed: ${outcome.detail}`;
   return { world: record(settled, name, outcome.ok, outcome.detail), result, ok: outcome.ok };
+}
+
+/**
+ * Several calls as one change (the planner's "a row of five cubes", "paint them all red"): one undo
+ * step for the lot, each call run on the world the one before left. A failed call is reported and
+ * the rest still run.
+ */
+export function executePlan(
+  world: World,
+  calls: { tool: string; arguments: Record<string, string> }[],
+): { world: World; results: string[]; ok: boolean; done: number } {
+  // Undo steps walk back through the stack themselves; anything else is one step to undo.
+  const onlyUndo = calls.every((call) => call.tool === "undo");
+  let current = onlyUndo ? world : remember(world);
+  const results: string[] = [];
+  let done = 0;
+  for (const call of calls) {
+    const outcome = dispatchTool(current, call.tool, call.arguments);
+    const after = outcome.ok ? noteCall(current, outcome.world, call.tool, call.arguments) : current;
+    current = record(after, call.tool, outcome.ok, outcome.detail);
+    results.push(outcome.ok ? outcome.detail : `${call.tool} failed: ${outcome.detail}`);
+    if (outcome.ok) done += 1;
+  }
+  // Nothing changed: drop the snapshot again so undo is not wasted on it.
+  if (!done && !onlyUndo) current = { ...current, undo: world.undo ?? [] };
+  return { world: current, results, ok: done === calls.length, done };
 }

@@ -73,7 +73,7 @@ test("the sky: the old lab look at 16:30, night is dark with stars, fog closes i
   const day = skyFor(DEFAULT_WEATHER);
   assert.ok(Math.abs(day.sunIntensity - 2.3) < 0.15 && day.stars < 0.05 && day.fogFar > 300);
   const night = skyFor({ ...DEFAULT_WEATHER, hour: 1, cloud: 0 });
-  assert.ok(night.stars > 0.8 && night.lamps > 0.8 && night.sunIntensity < 0.5);
+  assert.ok(night.stars > 0.8 && night.lamps > 0.8 && night.sunIntensity < 0.6, "moonlight, fainter than any day");
   assert.ok(night.top[0] + night.top[1] + night.top[2] < 0.2);
   assert.ok(sunAt(1)[1] < 0 && sunAt(12.8)[1] > 0.5 && sunAt(6.3)[1] < 0.05);
   const fog = skyFor({ ...DEFAULT_WEATHER, fog: 1 });

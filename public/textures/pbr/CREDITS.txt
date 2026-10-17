@@ -1,0 +1,1 @@
+Textures from Poly Haven (https://polyhaven.com), CC0: square_cobblestone, leafy_grass, rocky_terrain_02, mossy_rock, pine_bark, concrete_floor_worn_001, fabric_leather_02. 1k maps re-encoded as WebP. diff = colour, nor_gl = OpenGL normal, arm = AO / roughness / metalness.

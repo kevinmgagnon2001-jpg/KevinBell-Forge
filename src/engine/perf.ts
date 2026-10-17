@@ -64,7 +64,23 @@ export const AUTO = {
   backoff: 300000,
   /** Android "moderate" heat steps down at most this often. */
   heatEvery: 20000,
+  /** "Severe" heat steps down at most this often (it was every 3 s: 11 to Plain in 16 s). */
+  severeEvery: 8000,
+  /**
+   * Heat alone does not take the picture below these rungs while the frame rate holds: a warm phone
+   * at 60 fps is warm from the screen, the radio and the charger as much as from drawing. "critical"
+   * has no floor.
+   */
+  moderateFloor: "High",
+  severeFloor: "Low",
 };
+
+/** The lowest rung heat alone may take the picture to, by thermal status. */
+export function heatFloor(thermal: number): number {
+  if (thermal >= 4) return LADDER.length - 1;
+  if (thermal >= 3) return at(AUTO.severeFloor);
+  return at(AUTO.moderateFloor);
+}
 
 export function autoStart(rung: number, now: number): AutoState {
   return { rung, ceiling: rung, lowSince: null, highSince: null, lastChange: now, lastUp: -Infinity, noUpUntil: 0 };
@@ -79,9 +95,12 @@ export function autoStep(state: AutoState, sample: Sample): AutoState {
     const regretted = now - s.lastUp < AUTO.regret;
     return { ...s, rung: s.rung + 1, lastChange: now, lowSince: null, highSince: null, noUpUntil: regretted ? now + AUTO.backoff : s.noUpUntil };
   };
-  // Hot phone: severe heat steps down now; moderate heat steps down every so often.
-  if (thermal >= 3 && now - state.lastChange > 3000) return down(state);
-  if (thermal === 2 && now - state.lastChange > AUTO.heatEvery) return down(state);
+  // Hot phone: severe heat steps down every few seconds, moderate heat every so often, each only as
+  // far as its floor unless the frame rate is suffering too (then the frame rate rule below goes on).
+  if (thermal >= 2 && state.rung < heatFloor(thermal)) {
+    const every = thermal >= 4 ? 4000 : thermal >= 3 ? AUTO.severeEvery : AUTO.heatEvery;
+    if (now - state.lastChange > every) return down(state);
+  }
 
   let s = state;
   if (fps < AUTO.lowFps) {

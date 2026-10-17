@@ -9,7 +9,10 @@
  * How much is drawn follows the device (hardware.ts: full / lite / min), or ?scenery=full|lite|min|off.
  */
 import { useFrame, useThree } from "@react-three/fiber";
-import { Environment } from "@react-three/drei";
+import { Environment, SoftShadows } from "@react-three/drei";
+import { air, placeSun, sunDisc } from "./atmosphere";
+import { addDetail, applyScan } from "./detail";
+import { makeCardTrees } from "./trees";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import {
   AdditiveBlending,
@@ -140,11 +143,40 @@ uniform vec3 uSunDir;
 uniform vec3 uMoonDir;
 uniform float uStars;
 uniform float uFlash;
+uniform float uTime;
+uniform float uCover;
+uniform float uCloudQ;
+uniform vec3 uShade;
 varying vec3 vDir;
 float hash3(vec3 p) {
   p = fract(p * 0.3183099 + 0.1);
   p *= 17.0;
   return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float hash2(vec2 p) {
+  p = fract(p * vec2(0.1031, 0.1030));
+  p += dot(p, p.yx + 33.33);
+  return fract((p.x + p.y) * p.x);
+}
+float noise2(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(hash2(i), hash2(i + vec2(1.0, 0.0)), u.x), mix(hash2(i + vec2(0.0, 1.0)), hash2(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+// Cloud density on the cloud deck: domain-warped fbm, cut by coverage. Octaves by quality.
+float cloudAt(vec2 p) {
+  vec2 w = vec2(noise2(p * 0.5 + uTime * 0.02), noise2(p * 0.5 + 7.3 - uTime * 0.015));
+  p += (w - 0.5) * 1.6;
+  float a = 0.5;
+  float v = 0.0;
+  for (int i = 0; i < 6; i++) {
+    if (float(i) >= uCloudQ) break;
+    v += a * noise2(p);
+    p = p * 2.03 + vec2(uTime * 0.03, 0.0);
+    a *= 0.5;
+  }
+  return smoothstep(1.0 - uCover, 1.0 - uCover + 0.32, v);
 }
 void main() {
   vec3 d = normalize(vDir);
@@ -155,6 +187,22 @@ void main() {
   // Warm haze along the horizon, strongest towards the sun.
   col = mix(col, uSun, exp(-abs(h) * 10.0) * (0.25 + 0.45 * pow(s, 3.0)));
   col += uSun * (pow(s, 1400.0) * 9.0 + pow(s, 60.0) * 0.55 + pow(s, 6.0) * 0.18);
+  if (uCloudQ > 0.5 && h > 0.0) {
+    // A deck of cloud overhead: the ray meets a plane, so clouds shrink toward the horizon.
+    vec2 deck = d.xz / (h + 0.06) * 1.4 + vec2(uTime * 0.05, uTime * 0.02);
+    float c = cloudAt(deck);
+    if (c > 0.002) {
+      // Light through the cloud: a few steps toward the sun; thick means dark bellies.
+      vec2 toSun = normalize(uSunDir.xz + 1e-4) * 0.22;
+      float thick = cloudAt(deck + toSun) + cloudAt(deck + toSun * 2.2) * 0.7;
+      float lit = exp(-thick * 1.4);
+      // Silver lining near the sun, a soft glow all over.
+      float edge = pow(s, 10.0) * (1.0 - c) * 3.5;
+      vec3 shade = mix(uShade * 0.45, uShade * 1.05, lit) + uSun * (lit * 0.35 + edge);
+      float fade = smoothstep(0.0, 0.16, h);
+      col = mix(col, shade, c * fade * 0.92);
+    }
+  }
   if (uStars > 0.002 && h > -0.02) {
     // Stars: one in a few hundred cells of the sky, each its own brightness; and the moon.
     vec3 cell = floor(d * 260.0);
@@ -179,6 +227,12 @@ type SkyUniforms = {
   uMoonDir: { value: Vector3 };
   uStars: { value: number };
   uFlash: { value: number };
+  uTime: { value: number };
+  /** 0..1 of the sky covered (weather). */
+  uCover: { value: number };
+  /** Octaves of cloud detail; 0 for none. */
+  uCloudQ: { value: number };
+  uShade: { value: Color };
 };
 
 function skyUniforms(): SkyUniforms {
@@ -191,6 +245,10 @@ function skyUniforms(): SkyUniforms {
     uMoonDir: { value: new Vector3(0.3, 0.7, 0.6).normalize() },
     uStars: { value: 0 },
     uFlash: { value: 0 },
+    uTime: { value: 0 },
+    uCover: { value: 0.35 },
+    uCloudQ: { value: 5 },
+    uShade: { value: new Color("#fff4ea") },
   };
 }
 
@@ -206,6 +264,9 @@ function paintSky(u: SkyUniforms, sky: Sky, flash = 0) {
   u.uMoonDir.value.set(-sky.sunDir[0] * 0.6 + 0.2, Math.max(0.25, -sky.sunDir[1]) + 0.35, -sky.sunDir[2] * 0.6 + 0.3).normalize();
   u.uStars.value = sky.stars;
   u.uFlash.value = flash;
+  const cloud = Math.max(0, Math.min(1, (sky.cloudOpacity - 0.55) / 0.45));
+  u.uCover.value = 0.32 + cloud * 0.6;
+  setRgb(u.uShade.value, sky.cloudShade);
 }
 
 function makeSky(uniforms: SkyUniforms = skyUniforms()): Mesh {
@@ -258,7 +319,7 @@ function landColor(x: number, y: number, z: number, out: Color): Color {
   return out;
 }
 
-function makeLand(segments: number): Mesh {
+function makeLand(segments: number, photo = false): Mesh {
   const geometry = new PlaneGeometry(LAND_HALF * 2, LAND_HALF * 2, segments, segments);
   geometry.rotateX(-Math.PI / 2);
   const pos = geometry.attributes.position as BufferAttribute;
@@ -289,14 +350,29 @@ function makeLand(segments: number): Mesh {
     ctx.putImageData(img, 0, 0);
   });
   detail.repeat.set(150, 150);
-  const material = new MeshStandardMaterial({ vertexColors: true, map: detail, roughness: 0.96, metalness: 0 });
+  const material = new MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0 });
+  if (photo) {
+    // Scanned grass and leaf litter on the flats, rocky ground on slopes and bare ground.
+    addDetail(material, {
+      a: "leafy_grass",
+      scaleA: 2.4,
+      b: "rocky_terrain_02",
+      scaleB: 5,
+      mask: "smoothstep(0.22, 0.45, 1.0 - dn.y) + smoothstep(0.05, -0.02, vColor.g - max(vColor.r, vColor.b))",
+      bump: 1,
+      tint: 0.35,
+      amount: 0.7,
+      far: 70,
+      key: "land",
+    });
+  } else material.map = detail;
   const mesh = new Mesh(geometry, material);
   mesh.position.y = -0.02;
   mesh.receiveShadow = true;
   return scenery(mesh);
 }
 
-function makePlaza(): Group {
+function makePlaza(photo = false): Group {
   const group = new Group();
   // Stone tiles, 1 m each, lined up with the building grid.
   const tiles = canvasTexture(512, (ctx, size) => {
@@ -324,6 +400,40 @@ function makePlaza(): Group {
   floor.receiveShadow = true;
   group.add(floor);
   group.userData.floor = floor.material;
+  // Scanned square cobbles, a tile every two metres, with their own relief and roughness.
+  if (photo) applyScan(floor.material as MeshStandardMaterial, "square_cobblestone", PLAZA_RADIUS, 1.2);
+  // Pools of warm lamplight on the stones at dusk and night: the twelve lamps' light, worked out on
+  // the floor itself (no extra lights), soft and falling off like a real bulb at 3.3 m.
+  const lampPools = { value: 0 };
+  const floorMat = floor.material as MeshStandardMaterial;
+  floorMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uLampPools = lampPools;
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nvarying vec3 vLampW;")
+      .replace("#include <project_vertex>", "#include <project_vertex>\nvLampW = (modelMatrix * vec4(transformed, 1.0)).xyz;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", `#include <common>
+varying vec3 vLampW;
+uniform float uLampPools;`)
+      .replace(
+        "#include <emissivemap_fragment>",
+        `#include <emissivemap_fragment>
+if (uLampPools > 0.001) {
+  float pool = 0.0;
+  for (int i = 0; i < 12; i++) {
+    float a = (float(i) / 12.0) * 6.2831853 + 0.2617994;
+    vec2 at = vec2(cos(a), sin(a)) * ${(PLAZA_RADIUS + 0.7).toFixed(2)};
+    vec2 d = vLampW.xz - at;
+    float r2 = dot(d, d) + 10.9;
+    // Inverse square from a bulb 3.3 m up, times the cosine on the ground.
+    pool += 3.3 / (r2 * sqrt(r2));
+  }
+  totalEmissiveRadiance += vec3(1.0, 0.7, 0.4) * diffuseColor.rgb * pool * uLampPools * 14.0;
+}`,
+      );
+  };
+  floorMat.customProgramCacheKey = () => "lamp-pools";
+  group.userData.lampPools = lampPools;
   const stone = new MeshStandardMaterial({ color: "#8c867c", roughness: 0.75, metalness: 0.02 });
   const curb = new Mesh(new TorusGeometry(PLAZA_RADIUS, 0.2, 10, 160), stone);
   curb.rotation.x = Math.PI / 2;
@@ -495,19 +605,58 @@ function instanced(geometry: BufferGeometry, material: Material, spots: ReturnTy
   return mesh;
 }
 
-function makeWoods(level: SceneryLevel, shadows: boolean): Group {
+/**
+ * Trees breathe in the wind: the canopy leans and sways with height (the trunk's foot stays put),
+ * slower and heavier than grass, each tree on its own phase.
+ */
+function treeWind(material: MeshStandardMaterial, time: { value: number }) {
+  const before = material.onBeforeCompile;
+  const key = material.customProgramCacheKey?.bind(material);
+  material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms, renderer) => {
+    before?.call(material, shader, renderer);
+    shader.uniforms.uTime = time;
+    shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform float uTime;").replace(
+      "#include <begin_vertex>",
+      `#include <begin_vertex>
+      {
+        vec2 at = vec2(instanceMatrix[3].x, instanceMatrix[3].z);
+        float gust = sin(uTime * 0.35 + at.x * 0.05 + at.y * 0.03) * 0.5 + 0.5;
+        float sway = sin(uTime * 0.9 + at.x * 0.31 + at.y * 0.17) * (0.4 + gust) + gust * 0.5;
+        float flutter = sin(uTime * 3.1 + transformed.x * 4.0 + at.y) * 0.08;
+        float k = max(transformed.y - 0.4, 0.0);
+        k = k * k * 0.012;
+        transformed.x += (sway + flutter) * k;
+        transformed.z += (sway * 0.5 - flutter) * k;
+      }`,
+    );
+  };
+  material.customProgramCacheKey = () => `${key ? key() : ""}|forge-tree-wind`;
+}
+
+function makeWoods(level: SceneryLevel, shadows: boolean, time?: { value: number }, photo = false): Group {
   const n = COUNTS[level];
   const group = new Group();
   const bark = new MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 });
+  if (time) treeWind(bark, time);
+  if (photo) {
+    // Leaf litter as the canopy's detail, pine bark on the trunks (brown vertices).
+    addDetail(bark, { a: "leafy_grass", scaleA: 0.8, b: "pine_bark", scaleB: 0.7, mask: "step(vColor.g, vColor.r)", bump: 1.2, tint: 0.2, amount: 0.55, far: 55, key: "trees" });
+  }
   const pines = scatter(101, n.pines, 34, 165, { clump: 0.55, maxSlope: 0.85 });
-  group.add(
+  const leafySpots = scatter(202, n.leafy, 31, 120, { clump: 0.35, maxSlope: 0.6 });
+  if (photo) {
+    // Card-crowned trees with scanned bark (trees.ts).
+    const kit = makeCardTrees(pines, leafySpots, shadows, time ? (m) => treeWind(m, time) : undefined);
+    group.add(...kit.pines, ...kit.leafy);
+  }
+  if (!photo) group.add(
     instanced(pineGeometry(), bark, pines, (s, o, c) => {
       o.scale.set(s.scale * 1.1, s.scale * (1.1 + s.tint * 0.9), s.scale * 1.1);
       c.setRGB(0.85 + s.tint * 0.3, 0.9 + s.tint * 0.2, 0.85 + s.tint * 0.2);
     }, shadows),
   );
-  const leafy = scatter(202, n.leafy, 31, 120, { clump: 0.35, maxSlope: 0.6 });
-  group.add(
+  const leafy = leafySpots;
+  if (!photo) group.add(
     instanced(leafyGeometry(), bark, leafy, (s, o, c) => {
       o.scale.multiplyScalar(1.1);
       // Some turn autumn colours.
@@ -520,7 +669,8 @@ function makeWoods(level: SceneryLevel, shadows: boolean): Group {
     // A few boulders just off the plaza, to sit on.
     ...scatter(304, 7, PLAZA_RADIUS + 3, 26, { maxSlope: 0.3 }).map((s) => ({ ...s, scale: s.scale * 0.8 })),
   ];
-  const stone = new MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, flatShading: true });
+  const stone = new MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, flatShading: !photo });
+  if (photo) addDetail(stone, { a: "mossy_rock", scaleA: 1.4, bump: 1.3, tint: 0.75, amount: 0.8, far: 60, key: "rocks" });
   group.add(
     instanced(rockGeometry(), stone, rocks, (s, o, c) => {
       o.scale.set(s.scale * (0.8 + s.tint), s.scale * (0.45 + s.tint * 0.5), s.scale * (0.9 + (1 - s.tint) * 0.6));
@@ -866,10 +1016,12 @@ function useReducedMotion(): boolean {
 export function Scenery({ level, shadows, eleven = false }: { level: SceneryLevel; shadows: boolean; eleven?: boolean }) {
   const motion = !useReducedMotion();
   const time = useMemo(() => ({ value: 0 }), []);
-  const land = useBuilt(() => makeLand(COUNTS[level].land), [level]);
-  const plaza = useBuilt(makePlaza, []);
+  // Scanned surfaces on the two best scenery rungs; the plain ones keep painted ground.
+  const photo = level === "full";
+  const land = useBuilt(() => makeLand(COUNTS[level].land, photo), [level, photo]);
+  const plaza = useBuilt(() => makePlaza(photo), [photo]);
   const water = useBuilt(makeWater, []);
-  const woods = useBuilt(() => makeWoods(level, shadows), [level, shadows]);
+  const woods = useBuilt(() => makeWoods(level, shadows, motion && level !== "min" ? time : undefined, photo), [level, shadows, motion, time, photo]);
   const meadow = useBuilt(() => makeMeadow(level, time, motion, shadows, eleven ? 1.8 : 1), [level, motion, shadows, eleven]);
   const clouds = useBuilt(() => makeClouds(level), [level]);
   const motes = useMemo(() => makeMotes(level, time), [level, time]);
@@ -891,6 +1043,9 @@ export function Scenery({ level, shadows, eleven = false }: { level: SceneryLeve
   // The dome you see eases between skies; the one reflections are rendered from jumps to the target.
   const liveSky = useMemo(skyUniforms, []);
   const envSky = useMemo(skyUniforms, []);
+  // Cloud detail by rung: the deck costs a few noise lookups per sky pixel.
+  liveSky.uCloudQ.value = level === "full" ? 5 : level === "lite" ? 3 : 2;
+  envSky.uCloudQ.value = level === "full" ? 4 : 2;
   const fogRef = useRef<Fog>(null);
   const wind = useRef(0.2);
   const weather = useWeatherSky((sky, flash, dt) => {
@@ -919,6 +1074,8 @@ export function Scenery({ level, shadows, eleven = false }: { level: SceneryLeve
     const glow = plaza.userData.lampGlow as SpriteMaterial | undefined;
     if (glass) glass.emissiveIntensity = 0.5 + sky.lamps * 3;
     if (glow) glow.opacity = 0.12 + sky.lamps * 0.75;
+    const pools = plaza.userData.lampPools as { value: number } | undefined;
+    if (pools) pools.value = sky.lamps;
     const floor = plaza.userData.floor as MeshStandardMaterial | undefined;
     if (floorGlint) floorGlint.uGlint.value = sky.snow * 1.6 + sky.wet * 0.25;
     if (floor) {
@@ -941,6 +1098,14 @@ export function Scenery({ level, shadows, eleven = false }: { level: SceneryLeve
       setRgb(u.uTint.value as Color, sky.fog.map((v) => 0.55 + v * 0.45) as RGB);
     }
     wind.current = sky.wind;
+    // The air the finishing passes draw (atmosphere.ts): sun, haze and wet, linear light.
+    air.sunDir.set(sky.sunDir[0], sky.sunDir[1], sky.sunDir[2]).normalize();
+    air.sunColor.setRGB(sky.sun[0], sky.sun[1], sky.sun[2], SRGBColorSpace);
+    air.fogColor.setRGB(sky.fog[0], sky.fog[1], sky.fog[2], SRGBColorSpace);
+    air.haze = Math.max(0, Math.min(1, 1 - (sky.fogFar - 18) / 340));
+    air.sunUp = Math.max(0, Math.min(1, sky.sunDir[1]));
+    air.wet = Math.max(sky.rain, sky.snow * 0.7);
+    placeSun(camera);
   });
   useLayoutEffect(() => {
     paintSky(envSky, skyFor(weatherOf({ weather })));
@@ -958,6 +1123,7 @@ export function Scenery({ level, shadows, eleven = false }: { level: SceneryLeve
   useFrame((_, dt) => {
     if (!motion) return;
     time.value += Math.min(dt, 0.1) * (0.6 + wind.current * 1.6);
+    liveSky.uTime.value += Math.min(dt, 0.1) * (0.4 + wind.current * 2.2);
     clouds.rotation.y += Math.min(dt, 0.1) * 0.0025;
     const normal = (water.material as MeshStandardMaterial).normalMap;
     if (normal) {
@@ -995,6 +1161,7 @@ export function Scenery({ level, shadows, eleven = false }: { level: SceneryLeve
         <SkyDome follow={false} uniforms={envSky} />
       </Environment>
       <SkyDome uniforms={liveSky} />
+      <primitive object={sunDisc} />
       <primitive object={land} />
       <primitive object={plaza} />
       <primitive object={water} />
@@ -1004,6 +1171,8 @@ export function Scenery({ level, shadows, eleven = false }: { level: SceneryLeve
       {motes ? <primitive object={motes} /> : null}
       <primitive object={drops} />
       {shadows ? <ShadowFlags /> : null}
+      {/* At 11, shadows soften with distance from what casts them (PCSS): crisp at the feet, soft far off. */}
+      {shadows && eleven ? <SoftShadows size={20} samples={12} focus={0.4} /> : null}
     </>
   );
 }
