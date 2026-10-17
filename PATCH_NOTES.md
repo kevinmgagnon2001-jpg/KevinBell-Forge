@@ -1268,3 +1268,11 @@ and mountains around it, under a late-afternoon sky.
 - Checked: typecheck, lint (no errors), `npm run test:engine` (355 pass); Chromium (software GL) at
   1280x800 and 390x844: planner chains, phrases, completions, catalog, day/cloudy/night skies; no
   console errors. Not felt on a phone yet: the cost of the atmosphere, god rays and PCSS at 11.
+
+## Real surfaces and real trees (best scenery rung)
+- detail.ts: CC0 Poly Haven scans in public/textures/pbr (WebP, 3.6 MB): full PBR cobbles on the
+  plaza; triplanar colour and whiteout normals on land (grass / rocky ground by slope), rocks,
+  bark, floors and made things (worn concrete), the suit (leather grain). Fades with distance.
+- trees.ts: card-crowned broadleaves and tiered needle-spray pines, scanned bark, wind sway.
+- Not felt on a phone yet: card-tree overdraw on the full rung (auto quality falls back to the old
+  trees at Medium). The avatar is still the capsule figure; a skinned model is the next big step.
