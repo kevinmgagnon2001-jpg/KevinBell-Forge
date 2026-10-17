@@ -11,6 +11,8 @@
 import { useFrame, useThree } from "@react-three/fiber";
 import { Environment, SoftShadows } from "@react-three/drei";
 import { air, placeSun, sunDisc } from "./atmosphere";
+import { addDetail, applyScan } from "./detail";
+import { makeCardTrees } from "./trees";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import {
   AdditiveBlending,
@@ -317,7 +319,7 @@ function landColor(x: number, y: number, z: number, out: Color): Color {
   return out;
 }
 
-function makeLand(segments: number): Mesh {
+function makeLand(segments: number, photo = false): Mesh {
   const geometry = new PlaneGeometry(LAND_HALF * 2, LAND_HALF * 2, segments, segments);
   geometry.rotateX(-Math.PI / 2);
   const pos = geometry.attributes.position as BufferAttribute;
@@ -348,14 +350,29 @@ function makeLand(segments: number): Mesh {
     ctx.putImageData(img, 0, 0);
   });
   detail.repeat.set(150, 150);
-  const material = new MeshStandardMaterial({ vertexColors: true, map: detail, roughness: 0.96, metalness: 0 });
+  const material = new MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0 });
+  if (photo) {
+    // Scanned grass and leaf litter on the flats, rocky ground on slopes and bare ground.
+    addDetail(material, {
+      a: "leafy_grass",
+      scaleA: 2.4,
+      b: "rocky_terrain_02",
+      scaleB: 5,
+      mask: "smoothstep(0.22, 0.45, 1.0 - dn.y) + smoothstep(0.05, -0.02, vColor.g - max(vColor.r, vColor.b))",
+      bump: 1,
+      tint: 0.35,
+      amount: 0.7,
+      far: 70,
+      key: "land",
+    });
+  } else material.map = detail;
   const mesh = new Mesh(geometry, material);
   mesh.position.y = -0.02;
   mesh.receiveShadow = true;
   return scenery(mesh);
 }
 
-function makePlaza(): Group {
+function makePlaza(photo = false): Group {
   const group = new Group();
   // Stone tiles, 1 m each, lined up with the building grid.
   const tiles = canvasTexture(512, (ctx, size) => {
@@ -383,6 +400,8 @@ function makePlaza(): Group {
   floor.receiveShadow = true;
   group.add(floor);
   group.userData.floor = floor.material;
+  // Scanned square cobbles, a tile every two metres, with their own relief and roughness.
+  if (photo) applyScan(floor.material as MeshStandardMaterial, "square_cobblestone", PLAZA_RADIUS, 1.2);
   // Pools of warm lamplight on the stones at dusk and night: the twelve lamps' light, worked out on
   // the floor itself (no extra lights), soft and falling off like a real bulb at 3.3 m.
   const lampPools = { value: 0 };
@@ -591,7 +610,10 @@ function instanced(geometry: BufferGeometry, material: Material, spots: ReturnTy
  * slower and heavier than grass, each tree on its own phase.
  */
 function treeWind(material: MeshStandardMaterial, time: { value: number }) {
-  material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
+  const before = material.onBeforeCompile;
+  const key = material.customProgramCacheKey?.bind(material);
+  material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms, renderer) => {
+    before?.call(material, shader, renderer);
     shader.uniforms.uTime = time;
     shader.vertexShader = shader.vertexShader.replace("#include <common>", "#include <common>\nuniform float uTime;").replace(
       "#include <begin_vertex>",
@@ -608,23 +630,33 @@ function treeWind(material: MeshStandardMaterial, time: { value: number }) {
       }`,
     );
   };
-  material.customProgramCacheKey = () => "forge-tree-wind";
+  material.customProgramCacheKey = () => `${key ? key() : ""}|forge-tree-wind`;
 }
 
-function makeWoods(level: SceneryLevel, shadows: boolean, time?: { value: number }): Group {
+function makeWoods(level: SceneryLevel, shadows: boolean, time?: { value: number }, photo = false): Group {
   const n = COUNTS[level];
   const group = new Group();
   const bark = new MeshStandardMaterial({ vertexColors: true, roughness: 0.88, metalness: 0 });
   if (time) treeWind(bark, time);
+  if (photo) {
+    // Leaf litter as the canopy's detail, pine bark on the trunks (brown vertices).
+    addDetail(bark, { a: "leafy_grass", scaleA: 0.8, b: "pine_bark", scaleB: 0.7, mask: "step(vColor.g, vColor.r)", bump: 1.2, tint: 0.2, amount: 0.55, far: 55, key: "trees" });
+  }
   const pines = scatter(101, n.pines, 34, 165, { clump: 0.55, maxSlope: 0.85 });
-  group.add(
+  const leafySpots = scatter(202, n.leafy, 31, 120, { clump: 0.35, maxSlope: 0.6 });
+  if (photo) {
+    // Card-crowned trees with scanned bark (trees.ts).
+    const kit = makeCardTrees(pines, leafySpots, shadows, time ? (m) => treeWind(m, time) : undefined);
+    group.add(...kit.pines, ...kit.leafy);
+  }
+  if (!photo) group.add(
     instanced(pineGeometry(), bark, pines, (s, o, c) => {
       o.scale.set(s.scale * 1.1, s.scale * (1.1 + s.tint * 0.9), s.scale * 1.1);
       c.setRGB(0.85 + s.tint * 0.3, 0.9 + s.tint * 0.2, 0.85 + s.tint * 0.2);
     }, shadows),
   );
-  const leafy = scatter(202, n.leafy, 31, 120, { clump: 0.35, maxSlope: 0.6 });
-  group.add(
+  const leafy = leafySpots;
+  if (!photo) group.add(
     instanced(leafyGeometry(), bark, leafy, (s, o, c) => {
       o.scale.multiplyScalar(1.1);
       // Some turn autumn colours.
@@ -637,7 +669,8 @@ function makeWoods(level: SceneryLevel, shadows: boolean, time?: { value: number
     // A few boulders just off the plaza, to sit on.
     ...scatter(304, 7, PLAZA_RADIUS + 3, 26, { maxSlope: 0.3 }).map((s) => ({ ...s, scale: s.scale * 0.8 })),
   ];
-  const stone = new MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, flatShading: true });
+  const stone = new MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0, flatShading: !photo });
+  if (photo) addDetail(stone, { a: "mossy_rock", scaleA: 1.4, bump: 1.3, tint: 0.75, amount: 0.8, far: 60, key: "rocks" });
   group.add(
     instanced(rockGeometry(), stone, rocks, (s, o, c) => {
       o.scale.set(s.scale * (0.8 + s.tint), s.scale * (0.45 + s.tint * 0.5), s.scale * (0.9 + (1 - s.tint) * 0.6));
@@ -983,10 +1016,12 @@ function useReducedMotion(): boolean {
 export function Scenery({ level, shadows, eleven = false }: { level: SceneryLevel; shadows: boolean; eleven?: boolean }) {
   const motion = !useReducedMotion();
   const time = useMemo(() => ({ value: 0 }), []);
-  const land = useBuilt(() => makeLand(COUNTS[level].land), [level]);
-  const plaza = useBuilt(makePlaza, []);
+  // Scanned surfaces on the two best scenery rungs; the plain ones keep painted ground.
+  const photo = level === "full";
+  const land = useBuilt(() => makeLand(COUNTS[level].land, photo), [level, photo]);
+  const plaza = useBuilt(() => makePlaza(photo), [photo]);
   const water = useBuilt(makeWater, []);
-  const woods = useBuilt(() => makeWoods(level, shadows, motion && level !== "min" ? time : undefined), [level, shadows, motion, time]);
+  const woods = useBuilt(() => makeWoods(level, shadows, motion && level !== "min" ? time : undefined, photo), [level, shadows, motion, time, photo]);
   const meadow = useBuilt(() => makeMeadow(level, time, motion, shadows, eleven ? 1.8 : 1), [level, motion, shadows, eleven]);
   const clouds = useBuilt(() => makeClouds(level), [level]);
   const motes = useMemo(() => makeMotes(level, time), [level, time]);

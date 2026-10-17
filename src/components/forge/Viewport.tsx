@@ -37,6 +37,7 @@ import { addGlint, glintsAllowed, setGlintsAllowed } from "./glint";
 import { SoundStage } from "./SoundStage";
 import { PostFX } from "./PostFX";
 import { CatalogButton, CatalogOverlay } from "./Catalog";
+import { detailAllowed, setDetailAllowed, wearOn } from "./detail";
 import { HyperBubble } from "./Hyper";
 import { Ropes } from "./Rope";
 import { Talk, TalkBubble } from "./Talk";
@@ -294,10 +295,11 @@ function Solid({
         key={`${map ? "mapped" : "plain"}${glint ? "-glint" : ""}`}
         color={map ? "#ffffff" : tone}
         map={map ?? undefined}
-        roughness={polished ? 0.2 : 0.62}
+        roughness={polished ? (detailAllowed() ? 0.42 : 0.2) : 0.62}
         metalness={polished ? 0.12 : 0.28}
         emissive={selected ? tone : "#12141a"}
-        emissiveIntensity={selected ? 0.45 : 0.2}
+        emissiveIntensity={selected ? 0.45 : detailAllowed() ? 0.06 : 0.2}
+        onUpdate={(material: MeshStandardMaterial) => wearOn(material, polished)}
       />
     </mesh>
   );
@@ -1606,6 +1608,7 @@ export function Viewport() {
   const scenery = rung.scenery;
   const shadows = rung.shadows && scenery !== "off" && scenery !== "min";
   setGlintsAllowed(scenery !== "off" && scenery !== "min");
+  setDetailAllowed(scenery === "full");
   // The flat software picture is a debug view for machines with no GPU output.
   // It is off by default because it paints over the real renderer.
   const soft = useMemo(() => softRenderRequested(), []);
